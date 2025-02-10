@@ -19,7 +19,7 @@ from judgeval.data import Example
 
 
 def test_ac_scorer():
-    
+    """Test the AnswerCorrectnessScorer"""
     example = Example(
         input="What's the capital of France?",
         actual_output="The capital of France is Paris.",
@@ -41,8 +41,11 @@ def test_ac_scorer():
         override=True,
     )
 
-    print(res)
-
+    # Verify results
+    assert len(res) == 1
+    assert res[0].success is True
+    assert len(res[0].scorers_data) == 1
+    assert res[0].scorers_data[0].score >= 0.5
 
 def test_ar_scorer():
 
