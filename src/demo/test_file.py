@@ -20,7 +20,7 @@ async def llm_call(prompt: str):
     retrieval_context = ["The capital of France is Berlin"]
     trace = judgment.get_current_trace().async_evaluate(
             scorers=[FaithfulnessScorer(threshold=0.9), AnswerRelevancyScorer(threshold=0.9)],
-            actual_output=response,
+            actual_output=response.choices[0].message.content,
             input=prompt,
             retrieval_context=retrieval_context, # Fails because of retrieval context
             model="gpt-4o"
