@@ -32,6 +32,8 @@ def test_ac_scorer():
     client = JudgmentClient()
     PROJECT_NAME = "test-project"
     EVAL_RUN_NAME = "test-run-ac"
+    
+    # Test with use_judgment=True
     res = client.run_evaluation(
         examples=[example],
         scorers=[scorer],
@@ -39,10 +41,23 @@ def test_ac_scorer():
         log_results=True,
         project_name=PROJECT_NAME,
         eval_run_name=EVAL_RUN_NAME,
+        use_judgment=True,
         override=True,
     )
+    print_debug_on_failure(res[0])
 
-    print(res)
+    # Test with use_judgment=False 
+    res = client.run_evaluation(
+        examples=[example],
+        scorers=[scorer],
+        model="QWEN",
+        log_results=True,
+        project_name=PROJECT_NAME,
+        eval_run_name=EVAL_RUN_NAME,
+        use_judgment=False,
+        override=True,
+    )
+    print_debug_on_failure(res[0])
 
 
 def test_ar_scorer():
