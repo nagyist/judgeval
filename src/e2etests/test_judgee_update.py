@@ -28,6 +28,7 @@ The tests include both direct API calls using httpx and end-to-end tests using J
    - When both monthly limit and on-demand judgees are exhausted, a 403 error is returned
 """
 
+import pytest
 import os
 import httpx
 import pytest

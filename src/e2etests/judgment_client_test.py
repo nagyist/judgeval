@@ -5,6 +5,7 @@ Tests all major client operations and edge cases.
 
 import os
 import pytest
+import requests
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import random
@@ -22,7 +23,8 @@ from judgeval.scorers import (
 )
 from judgeval.judges import TogetherJudge, JudgevalJudge
 from playground import CustomFaithfulnessMetric
-from judgeval.data.datasets.dataset import EvalDataset
+from judgeval.data.datasets.dataset import EvalDataset, GroundTruthExample
+from judgeval.data.datasets.eval_dataset_client import EvalDatasetClient
 from judgeval.scorers.prompt_scorer import ClassifierScorer
 
 # Configure logging
@@ -62,8 +64,33 @@ class TestBasicOperations:
         dataset = client.pull_dataset(alias="test_dataset_5")
         assert dataset, "Failed to pull dataset"
 
-    def test_run_eval(self, client: JudgmentClient):
-        """Test basic evaluation workflow."""
+    def test_pull_all_user_dataset_stats(self, client: JudgmentClient):
+        dataset: EvalDataset = client.create_dataset()
+        dataset.add_example(Example(input="input 1", actual_output="output 1"))
+        dataset.add_example(Example(input="input 2", actual_output="output 2"))
+        dataset.add_example(Example(input="input 3", actual_output="output 3"))
+        random_name1 = ''.join(random.choices(string.ascii_letters + string.digits, k=20))
+        client.push_dataset(alias=random_name1, dataset=dataset, overwrite=False)
+
+        dataset: EvalDataset = client.create_dataset()
+        dataset.add_example(Example(input="input 1", actual_output="output 1"))
+        dataset.add_example(Example(input="input 2", actual_output="output 2"))
+        dataset.add_ground_truth(GroundTruthExample(input="input 1", actual_output="output 1"))
+        dataset.add_ground_truth(GroundTruthExample(input="input 2", actual_output="output 2"))
+        random_name2 = ''.join(random.choices(string.ascii_letters + string.digits, k=20))
+        client.push_dataset(alias=random_name2, dataset=dataset, overwrite=False)
+        
+        all_datasets_stats = client.pull_all_user_dataset_stats()
+        print(all_datasets_stats)
+        assert all_datasets_stats, "Failed to pull dataset"
+        assert all_datasets_stats[random_name1]["example_count"] == 3, f"{random_name1} should have 3 examples"
+        assert all_datasets_stats[random_name1]["ground_truth_count"] == 0, f"{random_name1} should have 0 ground truths"
+        assert all_datasets_stats[random_name2]["example_count"] == 2, f"{random_name2} should have 2 examples"
+        assert all_datasets_stats[random_name2]["ground_truth_count"] == 2, f"{random_name2} should have 2 ground truths"
+
+    
+    def run_eval_helper(self, client: JudgmentClient, project_name: str, eval_run_name: str):
+        """Helper function to run evaluation."""
         # Single step in our workflow, an outreach Sales Agent
 
         example1 = Example(
@@ -84,22 +111,51 @@ class TestBasicOperations:
         scorer2 = HallucinationScorer(threshold=0.5)
         # c_scorer = CustomFaithfulnessMetric(threshold=0.6)
 
-        PROJECT_NAME = "OutreachWorkflow"
-        EVAL_RUN_NAME = "ColdEmailGenerator-Improve-BasePrompt"
-        
         client.run_evaluation(
             examples=[example1, example2],
             scorers=[scorer, scorer2],
             model="QWEN",
             metadata={"batch": "test"},
-            project_name=PROJECT_NAME,
-            eval_run_name=EVAL_RUN_NAME,
+            project_name=project_name,
+            eval_run_name=eval_run_name,
             log_results=True,
             override=True,
         )
 
+    def test_run_eval(self, client: JudgmentClient):
+        """Test basic evaluation workflow."""
+        PROJECT_NAME = "OutreachWorkflow"
+        EVAL_RUN_NAME = "ColdEmailGenerator-Improve-BasePrompt"
+
+        self.run_eval_helper(client, PROJECT_NAME, EVAL_RUN_NAME)
         results = client.pull_eval(project_name=PROJECT_NAME, eval_run_name=EVAL_RUN_NAME)
         assert results, f"No evaluation results found for {EVAL_RUN_NAME}"
+
+    def test_delete_eval_by_project_and_run_name(self, client: JudgmentClient):
+        """Test delete evaluation by project and run name workflow."""
+        PROJECT_NAME = ''.join(random.choices(string.ascii_letters + string.digits, k=20))
+        EVAL_RUN_NAME = ''.join(random.choices(string.ascii_letters + string.digits, k=20))
+
+        self.run_eval_helper(client, PROJECT_NAME, EVAL_RUN_NAME)
+        client.delete_eval(project_name=PROJECT_NAME, eval_run_name=EVAL_RUN_NAME)
+        with pytest.raises(ValueError, match="Error fetching eval results"):
+            client.pull_eval(project_name=PROJECT_NAME, eval_run_name=EVAL_RUN_NAME)
+
+    def test_delete_eval_by_project(self, client: JudgmentClient):
+        """Test delete evaluation by project workflow."""
+        PROJECT_NAME = ''.join(random.choices(string.ascii_letters + string.digits, k=20))
+        EVAL_RUN_NAME = ''.join(random.choices(string.ascii_letters + string.digits, k=20))
+        EVAL_RUN_NAME2 = ''.join(random.choices(string.ascii_letters + string.digits, k=20))
+
+        self.run_eval_helper(client, PROJECT_NAME, EVAL_RUN_NAME)
+        self.run_eval_helper(client, PROJECT_NAME, EVAL_RUN_NAME2)
+
+        client.delete_project_evals(project_name=PROJECT_NAME)
+        with pytest.raises(ValueError, match="Error fetching eval results"):
+            client.pull_eval(project_name=PROJECT_NAME, eval_run_name=EVAL_RUN_NAME)
+        
+        with pytest.raises(ValueError, match="Error fetching eval results"):
+            client.pull_eval(project_name=PROJECT_NAME, eval_run_name=EVAL_RUN_NAME2)
 
     def test_assert_test(self, client: JudgmentClient):
         """Test assertion functionality."""
@@ -126,9 +182,11 @@ class TestBasicOperations:
         with pytest.raises(AssertionError):
             client.assert_test(
                 eval_run_name="test_eval",
+                project_name="test_project",
                 examples=[example, example1, example2],
                 scorers=[scorer, scorer1],
                 model="QWEN",
+                override=True
             )
 
 class TestAdvancedFeatures:
@@ -139,7 +197,6 @@ class TestAdvancedFeatures:
             input="What if these shoes don't fit?",
             actual_output='{"tool": "authentication"}',
             retrieval_context=["All customers are eligible for a 30 day full refund at no extra cost."],
-            trace_id="2231abe3-e7e0-4909-8ab7-b4ab60b645c6"
         )
 
         example2 = Example(
@@ -181,7 +238,6 @@ class TestAdvancedFeatures:
             input="What if these shoes don't fit?",
             actual_output="We offer a 30-day full refund at no extra cost.",
             retrieval_context=["All customers are eligible for a 30 day full refund at no extra cost."],
-            trace_id="2231abe3-e7e0-4909-8ab7-b4ab60b645c6"
         )
         
         scorer = FaithfulnessScorer(threshold=0.5)
@@ -249,7 +305,6 @@ class TestAdvancedFeatures:
             input="What if these shoes don't fit?",
             actual_output="We offer a 30-day full refund at no extra cost.",
             retrieval_context=["All customers are eligible for a 30 day full refund at no extra cost."],
-            trace_id="2231abe3-e7e0-4909-8ab7-b4ab60b645c6"
         )
 
         example2 = Example(
@@ -311,8 +366,40 @@ class TestAdvancedFeatures:
             override=True,
         )
 
+class TestTraceOperations:
+    """Tests for trace-related operations."""
+    
+    def test_fetch_traces_by_time_period(self, client: JudgmentClient):
+        """Test successful cases with different time periods."""
+        for hours in [1, 3, 6, 12, 24, 72, 168]:
+            response = requests.post(
+                f"{SERVER_URL}/traces/fetch_by_time_period/",
+                json={"hours": hours, "judgment_api_key": API_KEY}
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert isinstance(data, list)
+
+    def test_fetch_traces_invalid_period(self, client: JudgmentClient):
+        """Test invalid time periods."""
+        for hours in [0, 2, 4]:
+            response = requests.post(
+                f"{SERVER_URL}/traces/fetch_by_time_period/",
+                json={"hours": hours, "judgment_api_key": API_KEY}
+            )
+            assert response.status_code == 400
+
+    def test_fetch_traces_missing_api_key(self, client: JudgmentClient):
+        """Test missing API key scenario."""
+        response = requests.post(
+            f"{SERVER_URL}/traces/fetch_by_time_period/",
+            json={"hours": 12}
+        )
+        assert response.status_code == 422
+        
 @pytest.mark.skipif(not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
                    reason="VertexAI credentials not configured")
+
 class TestCustomJudges:
     def test_custom_judge_vertexai(self, client: JudgmentClient):
         """Test VertexAI custom judge."""
@@ -375,6 +462,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "basic: mark test as testing basic functionality")
     config.addinivalue_line("markers", "advanced: mark test as testing advanced features")
     config.addinivalue_line("markers", "custom: mark test as testing custom components")
+    config.addinivalue_line("markers", "traces: mark test as testing trace operations")
 
 def pytest_collection_modifyitems(items):
     """Add markers to tests based on their class."""
@@ -385,6 +473,8 @@ def pytest_collection_modifyitems(items):
             item.add_marker(pytest.mark.advanced)
         elif "TestCustomJudges" in item.nodeid:
             item.add_marker(pytest.mark.custom)
+        elif "TestTraceOperations" in item.nodeid:
+            item.add_marker(pytest.mark.traces)
 
 def run_selected_tests(client, test_names: list[str]):
     """
@@ -397,15 +487,26 @@ def run_selected_tests(client, test_names: list[str]):
     print("Client initialized successfully")
     print("*" * 40)
     
+    test_basic_operations = TestBasicOperations()
+    test_advanced_features = TestAdvancedFeatures()
+    test_custom_judges = TestCustomJudges()
+    test_trace_operations = TestTraceOperations()
+    
     test_map = {
-        'dataset': test_dataset,
-        'run_eval': test_run_eval,
-        'assert_test': test_assert_test,
-        'json_scorer': test_json_scorer,
-        'override_eval': test_override_eval,
-        'evaluate_dataset': test_evaluate_dataset,
-        'classifier_scorer': test_classifier_scorer,
-        'custom_judge_vertexai': test_custom_judge_vertexai
+        'dataset': test_basic_operations.test_dataset,
+        'pull_all_user_dataset_stats': test_basic_operations.test_pull_all_user_dataset_stats,
+        'run_eval': test_basic_operations.test_run_eval,
+        'delete_eval_by_project_and_run_name': test_basic_operations.test_delete_eval_by_project_and_run_name,
+        'delete_eval_by_project': test_basic_operations.test_delete_eval_by_project,
+        'assert_test': test_basic_operations.test_assert_test,
+        'json_scorer': test_advanced_features.test_json_scorer,
+        'override_eval': test_advanced_features.test_override_eval,
+        'evaluate_dataset': test_advanced_features.test_evaluate_dataset,
+        'classifier_scorer': test_advanced_features.test_classifier_scorer,
+        'custom_judge_vertexai': test_custom_judges.test_custom_judge_vertexai,
+        'fetch_traces': test_trace_operations.test_fetch_traces_by_time_period,
+        'fetch_traces_invalid': test_trace_operations.test_fetch_traces_invalid_period,
+        'fetch_traces_missing_key': test_trace_operations.test_fetch_traces_missing_api_key
     }
     
     for test_name in test_names:
@@ -420,14 +521,24 @@ def run_selected_tests(client, test_names: list[str]):
     
     print("Selected tests completed")
 
+# Can either run as a script or a pytest module
+# Script makes it easier to specify which tests to run
 if __name__ == "__main__":
-    run_selected_tests([
+    client = JudgmentClient(judgment_api_key=API_KEY)
+    
+    run_selected_tests(client, [
         'dataset',
         'run_eval', 
+        'delete_eval_by_project_and_run_name',
+        'delete_eval_by_project',
         'assert_test',
         'json_scorer',
         'override_eval',
         'evaluate_dataset',
         'classifier_scorer',
-        'custom_judge_vertexai'
+        'custom_judge_vertexai',
+        'fetch_traces',
+        'fetch_traces_invalid',
+        'fetch_traces_missing_key'
+        'pull_all_user_dataset_stats',
     ])
