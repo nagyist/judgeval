@@ -36,14 +36,30 @@ class EvaluationRun(BaseModel):
     override: Optional[bool] = False
     
     def model_dump(self, **kwargs):
-        data = super().model_dump(**kwargs)
+        """
+        Converts the EvaluationRun object to a dictionary that can be sent to the Judgment API
+        """
+        # First convert the base model to a dict manually
+        data = {
+            "log_results": self.log_results,
+            "project_name": self.project_name,
+            "eval_name": self.eval_name,
+            "examples": [ex.to_dict() for ex in self.examples],
+            "model": self.model,
+            "aggregator": self.aggregator,
+            "metadata": self.metadata,
+            "judgment_api_key": self.judgment_api_key,
+            "override": self.override
+        }
 
+        # Handle scorers separately with more robust conversion
         data["scorers"] = [
             scorer.to_dict() if hasattr(scorer, "to_dict")
             else scorer.model_dump() if hasattr(scorer, "model_dump")
             else {"score_type": scorer.score_type, "threshold": scorer.threshold}
             for scorer in self.scorers
         ]
+        
         return data
 
     @field_validator('log_results', mode='before')
