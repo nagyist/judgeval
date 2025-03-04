@@ -85,22 +85,21 @@ class NotificationConfig(BaseModel):
     Example:
         {
             "enabled": true,
-            "communication_methods": ["slack", "email", "broadcast_slack", "broadcast_email"],
+            "communication_methods": ["email", "broadcast_slack", "broadcast_email"],
             "message_template": "Rule '{rule_name}' was triggered with score {score}",
             "email_addresses": ["user1@example.com", "user2@example.com"],
-            "slack_channels": ["general", "alerts"],
             "send_at": 1632150000  # Unix timestamp (specific date/time)
         }
         
     Communication Methods:
-        - "slack": Send notifications to specified Slack channels
         - "email": Send emails to specified email addresses
+        - "broadcast_slack": Send broadcast notifications to all configured Slack channels
+        - "broadcast_email": Send broadcast emails to all organization emails
     """
     enabled: bool = True
     communication_methods: List[str] = []
     message_template: Optional[str] = None
     email_addresses: Optional[List[str]] = None
-    slack_channels: Optional[List[str]] = None
     send_at: Optional[int] = None  # Unix timestamp for scheduled notifications
     
     def model_dump(self, **kwargs):
@@ -248,7 +247,6 @@ class RulesEngine:
                               communication_methods: List[str] = None, 
                               message_template: str = None,
                               email_addresses: List[str] = None,
-                              slack_channels: List[str] = None,
                               send_at: Optional[int] = None) -> None:
         """
         Configure notification settings for a specific rule.
@@ -259,7 +257,6 @@ class RulesEngine:
             communication_methods: List of notification methods (e.g., ["slack", "email"])
             message_template: Template string for the notification message
             email_addresses: List of email addresses to send notifications to
-            slack_channels: List of Slack channels to send notifications to
             send_at: Optional Unix timestamp for when to send the notification
         """
         if rule_id not in self.rules:
@@ -283,16 +280,12 @@ class RulesEngine:
         if email_addresses is not None:
             rule.notification.email_addresses = email_addresses
             
-        if slack_channels is not None:
-            rule.notification.slack_channels = slack_channels
-            
         if send_at is not None:
             rule.notification.send_at = send_at
     
     def configure_all_notifications(self, enabled: bool = True, 
                                    communication_methods: List[str] = None,
                                    email_addresses: List[str] = None,
-                                   slack_channels: List[str] = None,
                                    send_at: Optional[int] = None) -> None:
         """
         Configure notification settings for all rules.
@@ -301,7 +294,6 @@ class RulesEngine:
             enabled: Whether notifications are enabled
             communication_methods: List of notification methods (e.g., ["slack", "email"])
             email_addresses: List of email addresses to send notifications to
-            slack_channels: List of Slack channels to send notifications to
             send_at: Optional Unix timestamp for when to send the notification
         """
         for rule_id, rule in self.rules.items():
@@ -314,7 +306,6 @@ class RulesEngine:
                 communication_methods=communication_methods,
                 message_template=message_template,
                 email_addresses=email_addresses,
-                slack_channels=slack_channels,
                 send_at=send_at
             )
     
