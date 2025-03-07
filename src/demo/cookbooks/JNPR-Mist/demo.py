@@ -155,7 +155,7 @@ def extract_entities(state: Dict[str, Any]) -> TextToESState:
         
         # Evaluate entity extraction
         judgment.get_current_trace().async_evaluate(
-            scorers=[AnswerCorrectnessScorer(threshold=0.7)],
+            scorers=[AnswerRelevancyScorer(threshold=0.7)],
             input=user_query,
             actual_output=json.dumps(entities),
             model=OPENAI_MODEL
@@ -270,7 +270,7 @@ def generate_query(state: Dict[str, Any]) -> TextToESState:
         
         # Evaluate query generation
         judgment.get_current_trace().async_evaluate(
-            scorers=[AnswerCorrectnessScorer(threshold=0.7)],
+            scorers=[AnswerRelevancyScorer(threshold=0.7), FaithfulnessScorer(threshold=0.7)],
             input=user_query,
             actual_output=json.dumps(query),
             model=OPENAI_MODEL
@@ -383,9 +383,10 @@ def format_response(state: Dict[str, Any]) -> TextToESState:
         
         # Evaluate response formatting
         judgment.get_current_trace().async_evaluate(
-            scorers=[AnswerCorrectnessScorer(threshold=0.7)],
+            scorers=[AnswerRelevancyScorer(threshold=0.7), FaithfulnessScorer(threshold=0.7)],
             input=user_query,
             actual_output=final_response,
+            retrieval_context=[json.dumps(query_results)],
             model=OPENAI_MODEL
         )
         
