@@ -24,7 +24,7 @@ R = TypeVar("R")
 load_dotenv()
 
 # Initialize clients
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai_client = wrap(OpenAI(api_key=os.getenv("OPENAI_API_KEY")))
 judgment = Tracer(
     api_key=os.getenv("JUDGMENT_API_KEY"),
     project_name="text_to_es"
@@ -44,55 +44,59 @@ class TextToESState(TypedDict):
     final_response: Optional[str]
     error: Optional[str]
 
-# Mock ES indexes and mappings for demonstration
+# Update or add ES_INDEXES definition if missing or incorrect
+# Define Elasticsearch index configurations
 ES_INDEXES = {
-    "logs-security": {
-        "description": "Contains security logs including authentication events, access attempts, and security incidents",
+    "devices": {
+        "description": "Information about network devices like access points, switches, routers",
         "mappings": {
             "properties": {
-                "timestamp": {"type": "date"},
-                "org_id": {"type": "keyword"},
-                "user_id": {"type": "keyword"},
-                "ev_type": {"type": "keyword"},
-                "source_ip": {"type": "ip"},
+                "name": {"type": "keyword"},
                 "status": {"type": "keyword"},
-                "details": {"type": "text"}
+                "location": {"type": "keyword"},
+                "device_type": {"type": "keyword"},
+                "last_seen": {"type": "date"}
             }
         },
         "essential_fields": {
-            "auth_failure": "ev_type",
-            "login_attempt": "ev_type" 
+            "status": "status",
+            "device_type": "device_type"
         }
     },
-    "network-devices": {
-        "description": "Contains information about network devices such as APs, switches, and routers",
+    "users": {
+        "description": "Information about users and clients connected to the network",
         "mappings": {
             "properties": {
+                "username": {"type": "keyword"},
                 "device_id": {"type": "keyword"},
-                "org_id": {"type": "keyword"},
-                "device_type": {"type": "keyword"},
-                "status": {"type": "keyword"},
-                "last_seen": {"type": "date"},
-                "ip_address": {"type": "ip"},
-                "location": {"type": "keyword"},
-                "firmware": {"type": "keyword"}
+                "connection_status": {"type": "keyword"},
+                "last_connected": {"type": "date"}
             }
         },
         "essential_fields": {
-            "disconnected": "status"
+            "connection_status": "connection_status"
+        }
+    },
+    "locations": {
+        "description": "Information about physical locations and sites",
+        "mappings": {
+            "properties": {
+                "name": {"type": "keyword"},
+                "address": {"type": "text"},
+                "num_devices": {"type": "integer"},
+                "status": {"type": "keyword"}
+            }
+        },
+        "essential_fields": {
+            "status": "status"
         }
     }
 }
 
-class StateInput(BaseModel):
-    """Input schema for tool functions."""
-    state: Dict[str, Any] = Field(description="The current state of the workflow")
-    
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
 # Update OpenAI model name to a valid one
 OPENAI_MODEL = "gpt-4-turbo-preview"
 
+@judgment.observe(span_type="JSON")
 def safe_json_extract(content: str) -> Any:
     """Safely extract JSON from OpenAI response."""
     try:
@@ -112,16 +116,9 @@ def safe_json_extract(content: str) -> Any:
         except json.JSONDecodeError as e:
             raise ValueError(f"Failed to parse JSON from content: {content}") from e
 
-def create_node(func: Callable[[Dict[str, Any]], TextToESState]):
-    """Create a node that properly handles state input."""
-    def wrapped(state: Dict[str, Any]) -> Dict[str, Any]:
-        return func(state)
-    return wrapped
-
-@tool(args_schema=StateInput)
-def extract_entities(tool_input: StateInput) -> TextToESState:
+@judgment.observe(span_type="NLP")
+def extract_entities(state: Dict[str, Any]) -> TextToESState:
     """Extract named entities from the user query using OpenAI's model."""
-    state = tool_input.state
     user_query = state["user_query"]
     
     prompt = f"""
@@ -137,318 +134,248 @@ def extract_entities(tool_input: StateInput) -> TextToESState:
     """
     
     try:
-        with judgment.trace("entity_extraction"):
-            response = openai_client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[
-                    {"role": "system", "content": "You are an entity extraction specialist. Extract entities precisely in the requested format."},
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            
-            content = response.choices[0].message.content
-            entities = safe_json_extract(content)
-            
-            # Validate entities structure
-            if not isinstance(entities, list):
-                raise ValueError("Entities must be a list")
-            
-            for entity in entities:
-                if not isinstance(entity, dict) or "type" not in entity or "name" not in entity:
-                    raise ValueError("Each entity must have 'type' and 'name' fields")
-            
-            # Evaluate entity extraction
-            judgment.get_current_trace().async_evaluate(
-                scorers=[AnswerCorrectnessScorer(threshold=0.7)],
-                input=user_query,
-                actual_output=json.dumps(entities),
-                model=OPENAI_MODEL
-            )
-            
-            return {**state, "entities": entities}
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": "You are an entity extraction specialist. Extract entities precisely in the requested format."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        
+        content = response.choices[0].message.content
+        entities = safe_json_extract(content)
+        
+        # Validate entities structure
+        if not isinstance(entities, list):
+            raise ValueError("Entities must be a list")
+        
+        for entity in entities:
+            if not isinstance(entity, dict) or "type" not in entity or "name" not in entity:
+                raise ValueError("Each entity must have 'type' and 'name' fields")
+        
+        # Evaluate entity extraction
+        judgment.get_current_trace().async_evaluate(
+            scorers=[AnswerCorrectnessScorer(threshold=0.7)],
+            input=user_query,
+            actual_output=json.dumps(entities),
+            model=OPENAI_MODEL
+        )
+        
+        return {**state, "entities": entities}
     except Exception as e:
         error_msg = f"Entity extraction error: {str(e)}"
         return {**state, "entities": [], "error": error_msg}
 
-@tool(args_schema=StateInput)
-def validate_entities(tool_input: StateInput) -> TextToESState:
+@judgment.observe(span_type="NLP")
+def validate_entities(state: Dict[str, Any]) -> TextToESState:
     """Validate if extracted entities exist in the organization."""
-    state = tool_input.state
     entities = state.get("entities", [])
     # Mock implementation - in real system would query a database
     valid_entities = []
+    
     for entity in entities:
-        # Mock validation logic
-        if entity["type"] == "user":
-            valid_entities.append({
-                **entity, 
-                "valid": True, 
-                "org_id": "org_12345"
-            })
-        elif entity["type"] == "device":
-            valid_entities.append({
-                **entity, 
-                "valid": True, 
-                "org_id": "org_12345"
-            })
-        else:
-            valid_entities.append({
-                **entity, 
-                "valid": False
-            })
-            
+        # Add validation logic here
+        # For demo, just passing through the entities
+        valid_entities.append(entity)
+    
     return {**state, "validated_entities": valid_entities}
 
-@tool(args_schema=StateInput)
-def select_index(tool_input: StateInput) -> TextToESState:
+@judgment.observe(span_type="Search")
+def select_index(state: Dict[str, Any]) -> TextToESState:
     """Select the appropriate Elasticsearch index based on the user query."""
-    state = tool_input.state
     user_query = state["user_query"]
     entities = state.get("entities", [])
     
-    # Create description of available indexes
-    index_descriptions = "\n".join([
-        f"- {idx}: {details['description']}" 
-        for idx, details in ES_INDEXES.items()
-    ])
+    # Simple keyword matching for index selection
+    query_lower = user_query.lower()
     
-    prompt = f"""
-    Based on the user query and extracted entities, select the most appropriate Elasticsearch index.
-    
-    Available indexes:
-    {index_descriptions}
-    
-    User query: {user_query}
-    Extracted entities: {json.dumps(entities)}
-    
-    Return only the name of the index you select, nothing else.
-    """
-    
-    with judgment.trace("index_selection"):
-        response = openai_client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "system", "content": "You are an index selection specialist. Select the most appropriate index for querying."},
-                {"role": "user", "content": prompt}
-            ]
-        )
+    try:
+        # Determine the index based on the query
+        if any(keyword in query_lower for keyword in ["disconnect", "offline", "down"]):
+            selected_index = "devices"
+        elif any(keyword in query_lower for keyword in ["user", "client", "employee"]):
+            selected_index = "users"
+        elif any(keyword in query_lower for keyword in ["location", "site", "building", "office"]):
+            selected_index = "locations"
+        else:
+            # Default to devices index
+            selected_index = "devices"
         
-        selected_index = response.choices[0].message.content.strip()
-        
-        # Validate the selected index exists
+        # Check if the selected index exists in our configuration
         if selected_index not in ES_INDEXES:
-            return {**state, "error": f"Invalid index selected: {selected_index}"}
+            return {**state, "error": f"Invalid index selected: {selected_index} - not found in index configuration"}
         
-        # Get index mappings
+        # Get the index mappings and essential fields
         index_mappings = ES_INDEXES[selected_index]["mappings"]
         essential_fields = ES_INDEXES[selected_index]["essential_fields"]
         
-        # Evaluate index selection
-        judgment.get_current_trace().async_evaluate(
-            scorers=[AnswerCorrectnessScorer(threshold=0.7)],
-            input=user_query,
-            actual_output=selected_index,
-            model=OPENAI_MODEL
-        )
-        
         return {
-            **state, 
+            **state,
             "selected_index": selected_index,
             "index_mappings": index_mappings,
             "essential_fields": essential_fields
         }
+    except KeyError as e:
+        return {**state, "error": f"Index configuration error: Missing key {e} in ES_INDEXES configuration"}
+    except Exception as e:
+        return {**state, "error": f"Index selection error: {str(e)}"}
 
-@tool(args_schema=StateInput)
-def get_field_values(tool_input: StateInput) -> TextToESState:
+@judgment.observe(span_type="Search")
+def get_field_values(state: Dict[str, Any]) -> TextToESState:
     """Get possible values for essential fields in the selected index."""
-    state = tool_input.state
     index = state.get("selected_index")
     essential_fields = state.get("essential_fields", {})
     
-    field_values = {}
-    for key, field_name in essential_fields.items():
-        # Mock implementation - in real system would query Elasticsearch
-        if index == "logs-security" and field_name == "ev_type":
-            field_values[field_name] = ["login_attempt", "auth_failure", "password_reset", "permission_change"]
-        elif index == "network-devices" and field_name == "status":
-            field_values[field_name] = ["online", "offline", "disconnected", "maintenance"]
-            
+    # Mock implementation - in real systems, would query the database for possible values
+    field_values = {field: ["value1", "value2", "value3"] for field in essential_fields}
+    
     return {**state, "field_values": field_values}
 
-@tool(args_schema=StateInput)
-def generate_query(tool_input: StateInput) -> TextToESState:
+@judgment.observe(span_type="Query")
+def generate_query(state: Dict[str, Any]) -> TextToESState:
     """Generate Elasticsearch query based on user query and index information."""
-    state = tool_input.state
     user_query = state["user_query"]
     selected_index = state["selected_index"]
-    index_mappings = state["index_mappings"]
-    entities = state.get("entities", [])
+    essential_fields = state.get("essential_fields", {})
     field_values = state.get("field_values", {})
+    entities = state.get("entities", [])
     
-    prompt = f"""
-    Generate an Elasticsearch query based on the user's request.
-    
-    Index: {selected_index}
-    Index mappings: {json.dumps(index_mappings)}
-    User query: {user_query}
-    Entities: {json.dumps(entities)}
-    Field values: {json.dumps(field_values)}
-    
-    For any org_id or user_id fields, use the placeholder "MASKED_VALUE" instead of actual values.
-    
-    Return only the Elasticsearch query in JSON format.
-    """
-    
-    with judgment.trace("query_generation"):
+    try:
         response = openai_client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[
-                {"role": "system", "content": "You are an Elasticsearch query specialist. Generate precise, functional queries."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": "You are an Elasticsearch query generation expert. Generate precise Elasticsearch queries."},
+                {"role": "user", "content": f"""
+                Generate an Elasticsearch query for the following request:
+                "{user_query}"
+                
+                The query should be for the "{selected_index}" index.
+                
+                Essential fields in this index:
+                {json.dumps(essential_fields, indent=2)}
+                
+                Field values:
+                {json.dumps(field_values, indent=2)}
+                
+                Entities identified in the query:
+                {json.dumps(entities, indent=2)}
+                
+                Return ONLY the Elasticsearch query in JSON format.
+                """}
             ]
         )
         
-        try:
-            content = response.choices[0].message.content
-            # Extract JSON from response
-            if "```json" in content:
-                json_str = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                json_str = content.split("```")[1].strip()
-            else:
-                json_str = content.strip()
-                
-            es_query = json.loads(json_str)
-            
-            # Evaluate query generation
-            judgment.get_current_trace().async_evaluate(
-                scorers=[FaithfulnessScorer(threshold=0.7)],
-                input=prompt,
-                actual_output=json.dumps(es_query),
-                model=OPENAI_MODEL
-            )
-            
-            return {**state, "es_query": es_query}
-        except Exception as e:
-            return {**state, "error": f"Query generation error: {str(e)}"}
+        content = response.choices[0].message.content
+        query = safe_json_extract(content)
+        
+        # Evaluate query generation
+        judgment.get_current_trace().async_evaluate(
+            scorers=[AnswerCorrectnessScorer(threshold=0.7)],
+            input=user_query,
+            actual_output=json.dumps(query),
+            model=OPENAI_MODEL
+        )
+        
+        return {**state, "es_query": query}
+    except Exception as e:
+        return {**state, "error": f"Query generation error: {str(e)}"}
 
-@tool(args_schema=StateInput)
-def process_query(tool_input: StateInput) -> TextToESState:
+@judgment.observe(span_type="Query")
+def process_query(state: Dict[str, Any]) -> TextToESState:
     """Process and clean up the generated Elasticsearch query."""
-    state = tool_input.state
     query = state["es_query"]
     entities = state.get("entities", [])
-    selected_index = state["selected_index"]
     
-    processed_query = json.loads(json.dumps(query))  # Deep copy
-    
-    # Replace masked values with real values
-    if "query" in processed_query and "bool" in processed_query["query"]:
-        if "must" in processed_query["query"]["bool"]:
-            for i, clause in enumerate(processed_query["query"]["bool"]["must"]):
-                if "term" in clause:
-                    for field, value in clause["term"].items():
-                        if value == "MASKED_VALUE":
-                            if field == "org_id":
-                                processed_query["query"]["bool"]["must"][i]["term"][field] = "org_12345"
-                            elif field == "user_id" and entities:
-                                user_entities = [e for e in entities if e["type"] == "user"]
-                                if user_entities:
-                                    processed_query["query"]["bool"]["must"][i]["term"][field] = f"user_{user_entities[0]['name']}"
-    
-    # Set default size if not specified
-    if "size" not in processed_query:
-        processed_query["size"] = 10
-        
-    # Remove any fields not in the index mapping
-    valid_fields = set(ES_INDEXES[selected_index]["mappings"]["properties"].keys())
-    
-    # Function to recursively check and clean fields
+    # Define a function to clean up query fields recursively
     def clean_query_fields(query_part):
         if isinstance(query_part, dict):
-            for key in list(query_part.keys()):
-                if key in ["term", "terms", "match", "match_phrase"]:
-                    field_keys = list(query_part[key].keys())
-                    for field in field_keys:
-                        if field not in valid_fields:
-                            del query_part[key][field]
-                            # If no fields left, mark for removal
-                            if not query_part[key]:
-                                return None
-                else:
-                    result = clean_query_fields(query_part[key])
-                    if result is None and key in ["must", "should", "must_not"]:
-                        query_part[key] = [item for item in query_part[key] if clean_query_fields(item) is not None]
-                        if not query_part[key]:
-                            del query_part[key]
-            return query_part if query_part else None
+            return {
+                key: clean_query_fields(value)
+                for key, value in query_part.items()
+            }
         elif isinstance(query_part, list):
-            return [item for item in query_part if clean_query_fields(item) is not None]
-        return query_part
+            return [clean_query_fields(item) for item in query_part]
+        elif isinstance(query_part, str):
+            # Replace entity placeholders if needed
+            for entity in entities:
+                placeholder = f"{{entity:{entity['type']}}}"
+                if placeholder in query_part:
+                    query_part = query_part.replace(placeholder, entity["name"])
+            return query_part
+        else:
+            return query_part
     
-    clean_query_fields(processed_query)
+    # Clean up the query
+    processed_query = clean_query_fields(query)
     
     return {**state, "processed_query": processed_query}
 
-@tool(args_schema=StateInput)
-def execute_query(tool_input: StateInput) -> TextToESState:
+@judgment.observe(span_type="Database")
+def execute_query(state: Dict[str, Any]) -> TextToESState:
     """Execute the processed Elasticsearch query."""
-    state = tool_input.state
     index = state["selected_index"]
     query = state["processed_query"]
     
-    # Mock implementation - in real system would query Elasticsearch
-    if index == "logs-security":
-        results = {
-            "took": 5,
-            "hits": {
-                "total": {"value": 120, "relation": "eq"},
-                "hits": [
-                    {"_source": {"timestamp": "2023-06-15T14:30:45Z", "user_id": "user_123", "ev_type": "auth_failure", "source_ip": "192.168.1.1", "status": "failed"}},
-                    {"_source": {"timestamp": "2023-06-15T14:35:12Z", "user_id": "user_456", "ev_type": "auth_failure", "source_ip": "192.168.1.2", "status": "failed"}}
-                ]
+    # Mock implementation - in real system would connect to Elasticsearch
+    # For demo purposes, return mock results based on query
+    if index == "devices":
+        if "status" in str(query) and "disconnected" in str(query):
+            # Mock disconnected devices
+            results = {
+                "hits": {
+                    "total": {"value": 3},
+                    "hits": [
+                        {"_source": {"name": "AP-1", "status": "disconnected", "location": "Building A"}},
+                        {"_source": {"name": "AP-2", "status": "disconnected", "location": "Building B"}},
+                        {"_source": {"name": "Switch-1", "status": "disconnected", "location": "Data Center"}}
+                    ]
+                }
             }
-        }
-    elif index == "network-devices":
-        results = {
-            "took": 3,
-            "hits": {
-                "total": {"value": 45, "relation": "eq"},
-                "hits": [
-                    {"_source": {"device_id": "ap-001", "device_type": "access_point", "status": "disconnected", "last_seen": "2023-06-14T23:45:12Z"}},
-                    {"_source": {"device_id": "ap-002", "device_type": "access_point", "status": "disconnected", "last_seen": "2023-06-15T02:12:33Z"}}
-                ]
+        else:
+            # Generic device results
+            results = {
+                "hits": {
+                    "total": {"value": 2},
+                    "hits": [
+                        {"_source": {"name": "AP-3", "status": "connected", "location": "Building C"}},
+                        {"_source": {"name": "Switch-2", "status": "connected", "location": "Data Center"}}
+                    ]
+                }
             }
-        }
     else:
-        results = {"error": "Failed to execute query"}
-        
+        # Generic results for other indices
+        results = {
+            "hits": {
+                "total": {"value": 0},
+                "hits": []
+            }
+        }
+    
     return {**state, "query_results": results}
 
-@tool(args_schema=StateInput)
-def format_response(tool_input: StateInput) -> TextToESState:
+@judgment.observe(span_type="Response")
+def format_response(state: Dict[str, Any]) -> TextToESState:
     """Format the query results into a user-friendly response."""
-    state = tool_input.state
     user_query = state["user_query"]
     query_results = state["query_results"]
+    entities = state.get("entities", [])
     
-    prompt = f"""
-    Format the Elasticsearch query results into a natural language response.
-    Present the information clearly and concisely, in a way that directly answers the user's question.
-    
-    User query: {user_query}
-    Query results: {json.dumps(query_results)}
-    
-    Your response should be informative and user-friendly.
-    """
-    
-    with judgment.trace("response_generation"):
+    try:
         response = openai_client.chat.completions.create(
             model=OPENAI_MODEL,
-            temperature=0,
             messages=[
-                {"role": "system", "content": "You are a data presentation specialist. Format technical results into clear, informative responses."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": "You are a helpful assistant specialized in database query results interpretation."},
+                {"role": "user", "content": f"""
+                Format the following Elasticsearch query results into a user-friendly response.
+                
+                Original query: "{user_query}"
+                
+                Entities identified: {json.dumps(entities)}
+                
+                Query results: {json.dumps(query_results, indent=2)}
+                
+                Provide a clear, concise summary of the results that directly answers the user's question.
+                """}
             ]
         )
         
@@ -456,125 +383,154 @@ def format_response(tool_input: StateInput) -> TextToESState:
         
         # Evaluate response formatting
         judgment.get_current_trace().async_evaluate(
-            scorers=[FaithfulnessScorer(threshold=0.7), AnswerRelevancyScorer(threshold=0.7)],
-            input=prompt,
+            scorers=[AnswerCorrectnessScorer(threshold=0.7)],
+            input=user_query,
             actual_output=final_response,
-            retrieval_context=json.dumps(query_results),
             model=OPENAI_MODEL
         )
         
         return {**state, "final_response": final_response}
+    except Exception as e:
+        return {**state, "error": f"Response formatting error: {str(e)}"}
 
-@tool(args_schema=StateInput)
-def handle_error(tool_input: StateInput) -> TextToESState:
+@judgment.observe(span_type="Error")
+def handle_error(state: Dict[str, Any]) -> TextToESState:
     """Handle any errors that occur during processing."""
-    state = tool_input.state
     error = state.get("error", "Unknown error occurred")
     return {**state, "final_response": f"I encountered an error processing your request: {error}"}
 
+@judgment.observe(span_type="function")
 async def main():
     # Initialize the graph
-    with judgment.trace("text_to_es_workflow", overwrite=True) as trace:
-        workflow = StateGraph(TextToESState)
-        
-        # Create tool instances
-        def wrap_tool(tool_func):
-            """Wrap tool function to handle state input properly."""
-            async def wrapped(state: Dict[str, Any]) -> Dict[str, Any]:
-                state_input = {"state": state}  # Pass as dict instead of StateInput object
-                return await tool_func.ainvoke(state_input)  # Use ainvoke instead of direct call
-            return wrapped
-        
-        tools = {
-            "extract_entities": wrap_tool(extract_entities),
-            "validate_entities": wrap_tool(validate_entities),
-            "select_index": wrap_tool(select_index),
-            "get_field_values": wrap_tool(get_field_values),
-            "generate_query": wrap_tool(generate_query),
-            "process_query": wrap_tool(process_query),
-            "execute_query": wrap_tool(execute_query),
-            "format_response": wrap_tool(format_response),
-            "handle_error": wrap_tool(handle_error)
+    workflow = StateGraph(TextToESState)
+    
+    # Add nodes directly without wrapping
+    workflow.add_node("extract_entities", extract_entities)
+    workflow.add_node("validate_entities", validate_entities)
+    workflow.add_node("select_index", select_index)
+    workflow.add_node("get_field_values", get_field_values)
+    workflow.add_node("generate_query", generate_query)
+    workflow.add_node("process_query", process_query)
+    workflow.add_node("execute_query", execute_query)
+    workflow.add_node("format_response", format_response)
+    workflow.add_node("handle_error", handle_error)
+    
+    workflow.set_entry_point("extract_entities")
+    
+    # Define the error checking function
+    def has_error(state: TextToESState) -> str:
+        """Route to error handler if state has an error."""
+        if state.get("error"):
+            return "error"
+        return "continue"
+    
+    # Add conditional edges with correct parameter structure
+    workflow.add_conditional_edges(
+        "extract_entities",
+        has_error,
+        {
+            "error": "handle_error",
+            "continue": "validate_entities"
         }
-        
-        # Add nodes with proper tool wrapping
-        for name, tool_func in tools.items():
-            workflow.add_node(name, tool_func)
-        
-        # Define edges
-        workflow.add_edge("extract_entities", "validate_entities")
-        workflow.add_edge("validate_entities", "select_index")
-        workflow.add_edge("select_index", "get_field_values")
-        workflow.add_edge("get_field_values", "generate_query")
-        workflow.add_edge("generate_query", "process_query")
-        workflow.add_edge("process_query", "execute_query")
-        workflow.add_edge("execute_query", "format_response")
-        
-        # Define conditional edges for error handling
-        def error_checker(state: TextToESState) -> str:
-            if state.get("error"):
-                return "error"
-            return "continue"
-        
-        # Add conditional edges for error checking after key steps
-        workflow.add_conditional_edges(
-            "extract_entities",
-            error_checker,
-            {
-                "error": "handle_error",
-                "continue": "validate_entities"
-            }
-        )
-        
-        workflow.add_conditional_edges(
-            "select_index",
-            error_checker,
-            {
-                "error": "handle_error",
-                "continue": "get_field_values"
-            }
-        )
-        
-        workflow.add_conditional_edges(
-            "generate_query",
-            error_checker,
-            {
-                "error": "handle_error",
-                "continue": "process_query"
-            }
-        )
-        
-        # Set entry and exit points
-        workflow.set_entry_point("extract_entities")
-        workflow.set_finish_point("format_response")
-        workflow.set_finish_point("handle_error")
-        
-        # Compile the graph
-        graph = workflow.compile()
-        
-        # Execute the workflow with a sample query
-        input_state = {
-            "messages": [HumanMessage(content="Show me disconnected access points")],
-            "user_query": "Show me disconnected access points",
-            "entities": None,
-            "selected_index": None,
-            "index_mappings": None,
-            "essential_fields": None,
-            "es_query": None,
-            "processed_query": None,
-            "query_results": None,
-            "final_response": None,
-            "error": None
+    )
+    
+    workflow.add_conditional_edges(
+        "validate_entities",
+        has_error,
+        {
+            "error": "handle_error",
+            "continue": "select_index"
         }
+    )
+    
+    workflow.add_conditional_edges(
+        "select_index",
+        has_error,
+        {
+            "error": "handle_error",
+            "continue": "get_field_values"
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "get_field_values",
+        has_error,
+        {
+            "error": "handle_error",
+            "continue": "generate_query"
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "generate_query",
+        has_error,
+        {
+            "error": "handle_error",
+            "continue": "process_query"
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "process_query",
+        has_error,
+        {
+            "error": "handle_error",
+            "continue": "execute_query"
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "execute_query",
+        has_error,
+        {
+            "error": "handle_error",
+            "continue": "format_response"
+        }
+    )
+    
+    # We don't need conditional edges for format_response as it's a finish point
+    
+    # Set finish points
+    workflow.set_finish_point("format_response")
+    workflow.set_finish_point("handle_error")
+    
+    # Compile the workflow
+    app = workflow.compile()
+    
+    # Create the initial state from the user query
+    user_query = "Show me disconnected access points"
+    
+    # Run the workflow with the initial state
+    config = {"recursion_limit": 25}
+    try:
+        result = await app.ainvoke(
+            {
+                "messages": [HumanMessage(content=user_query)],
+                "user_query": user_query,
+                "entities": None,
+                "selected_index": None,
+                "index_mappings": None,
+                "essential_fields": None,
+                "es_query": None,
+                "processed_query": None,
+                "query_results": None,
+                "final_response": None,
+                "error": None
+            },
+            config=config
+        )
         
-        try:
-            result = await graph.ainvoke(input_state)
-            if result.get("error"):
-                print(f"Error: {result['error']}")
-            else:
-                print(f"Final response: {result['final_response']}")
-        except Exception as e:
-            print(f"Workflow execution error: {str(e)}")
+        # Print the result for debugging
+        if result.get("error"):
+            print(f"Error: {result['error']}")
+        else:
+            print(f"Final response: {result['final_response']}")
+            
+        # Return the final response
+        return result.get("final_response", "No response generated")
+    except Exception as e:
+        print(f"Workflow execution error: {str(e)}")
+        return f"Error executing workflow: {str(e)}"
 
 if __name__ == "__main__":
     asyncio.run(main())
