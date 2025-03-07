@@ -36,9 +36,11 @@ class EvalRunRequestBody(BaseModel):
 
 
 class JudgmentClient:
-    def __init__(self, judgment_api_key: str = os.getenv("JUDGMENT_API_KEY"), organization_id: str = os.getenv("JUDGMENT_ORG_ID")):
+    def __init__(self, judgment_api_key: str = os.getenv("JUDGMENT_API_KEY"), organization_id: str = os.getenv("JUDGMENT_ORG_ID"), access_token: str = os.getenv("ACCESS_TOKEN"), refresh_token: str = os.getenv("REFRESH_TOKEN")):
         self.judgment_api_key = judgment_api_key
         self.organization_id = organization_id
+        self.access_token = access_token
+        self.refresh_token = refresh_token
         self.eval_dataset_client = EvalDatasetClient(judgment_api_key, organization_id)
         
         # Verify API key is valid
@@ -410,9 +412,10 @@ class JudgmentClient:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.judgment_api_key}",
-                "X-Organization-Id": self.organization_id
-            },
-            verify=True
+                "X-Organization-Id": self.organization_id,
+                "X-Access-Token": self.access_token,
+                "X-Refresh-Token": self.refresh_token
+            }
         )
         
         if response.status_code == 500:
@@ -454,9 +457,10 @@ class JudgmentClient:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.judgment_api_key}",
-                "X-Organization-Id": self.organization_id
-            },
-            verify=True
+                "X-Organization-Id": self.organization_id,
+                "X-Access-Token": self.access_token,
+                "X-Refresh-Token": self.refresh_token
+            }
         )
         
         if response.status_code == 500:
