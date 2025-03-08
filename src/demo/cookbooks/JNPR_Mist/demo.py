@@ -7,7 +7,7 @@ import asyncio
 from uuid import uuid4
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
 from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
@@ -39,8 +39,11 @@ R = TypeVar("R")
 
 load_dotenv()
 
+# Update OpenAI model name to a valid one
+OPENAI_MODEL = "gpt-4-turbo-preview"
+
 # Initialize clients
-openai_client = wrap(OpenAI(api_key=os.getenv("OPENAI_API_KEY")))
+openai_client = ChatOpenAI(api_key=os.getenv("OPENAI_API_KEY"), model=OPENAI_MODEL)
 judgment = Tracer(
     api_key=os.getenv("JUDGMENT_API_KEY"),
     project_name="text_to_es"
@@ -62,9 +65,6 @@ class TextToESState(TypedDict):
     query_results: Optional[Dict[str, Any]]
     final_response: Optional[str]
     error: Optional[str]
-
-# Update OpenAI model name to a valid one
-OPENAI_MODEL = "gpt-4-turbo-preview"
 
 @judgment.observe(span_type="JSON")
 def safe_json_extract(content: str) -> Any:
@@ -110,8 +110,8 @@ def safe_json_extract(content: str) -> Any:
         except json.JSONDecodeError:
             pass
             
-        # Return empty dict as last resort
-        return {}
+        # Return empty list as last resort for entity extraction
+        return []
 
 @judgment.observe(span_type="NLP")
 def extract_entities(state: Dict[str, Any]) -> TextToESState:
@@ -136,15 +136,13 @@ def extract_entities(state: Dict[str, Any]) -> TextToESState:
     """
     
     try:
-        response = openai_client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "system", "content": "You are an entity extraction specialist for network management systems. Extract entities precisely in the requested format."},
-                {"role": "user", "content": prompt}
-            ]
-        )
+        messages = [
+            SystemMessage(content="You are an entity extraction specialist for network management systems. Extract entities precisely in the requested format."),
+            HumanMessage(content=prompt)
+        ]
+        response = openai_client.invoke(messages)
+        content = response.content
         
-        content = response.choices[0].message.content
         entities = safe_json_extract(content)
         
         # Validate entities structure
@@ -347,15 +345,12 @@ def select_index(state: Dict[str, Any]) -> TextToESState:
         Valid options are: {", ".join(elasticsearch_client.ES_INDEXES.keys())}
         """
         
-        response = openai_client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "system", "content": "You are an index selection specialist for Elasticsearch. Your job is to select the most appropriate index based on the query."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        
-        selected_index = response.choices[0].message.content.strip().lower()
+        messages = [
+            SystemMessage(content="You are an index selection specialist for Elasticsearch. Your job is to select the most appropriate index based on the query."),
+            HumanMessage(content=prompt)
+        ]
+        response = openai_client.invoke(messages)
+        selected_index = response.content.strip().lower()
         
         # Validate the selected index
         if selected_index not in elasticsearch_client.ES_INDEXES:
@@ -405,15 +400,13 @@ def get_field_values(state: Dict[str, Any]) -> TextToESState:
         Only include fields that are actually relevant to the query. If no fields are relevant, return an empty object.
         """
         
-        response = openai_client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "system", "content": "You are a field extraction specialist for Elasticsearch queries. Your job is to identify which fields and values are relevant to a given query."},
-                {"role": "user", "content": prompt}
-            ]
-        )
+        messages = [
+            SystemMessage(content="You are a field extraction specialist for Elasticsearch queries. Your job is to identify which fields and values are relevant to a given query."),
+            HumanMessage(content=prompt)
+        ]
+        response = openai_client.invoke(messages)
+        content = response.content
         
-        content = response.choices[0].message.content
         selected_field_values = safe_json_extract(content)
         
         if not isinstance(selected_field_values, dict):
@@ -444,7 +437,6 @@ def generate_query(state: Dict[str, Any]) -> TextToESState:
     field_values = state.get("selected_field_values", {})
     
     try:
-        # Create a richer prompt for the LLM
         prompt = f"""
         Generate an Elasticsearch query based on the following user query and entities.
         
@@ -469,17 +461,12 @@ def generate_query(state: Dict[str, Any]) -> TextToESState:
         8. Limit results to 10 unless the query specifies a different limit
         """
         
-        # Generate the query using the LLM
-        response = openai_client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "system", "content": "You are an Elasticsearch query generator. Your job is to convert natural language queries to Elasticsearch DSL."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        
-        # Extract the query from the response
-        query_text = response.choices[0].message.content.strip()
+        messages = [
+            SystemMessage(content="You are an Elasticsearch query generator. Your job is to convert natural language queries to Elasticsearch DSL."),
+            HumanMessage(content=prompt)
+        ]
+        response = openai_client.invoke(messages)
+        query_text = response.content.strip()
         
         # Ensure we got JSON back and parse it
         if query_text.startswith("```json"):
@@ -721,17 +708,12 @@ def format_response(state: Dict[str, Any]) -> TextToESState:
         6. Ensure your response answers the original query.
         """
         
-        # Generate a response using the LLM
-        response = openai_client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that translates database query results into natural language."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        
-        # Extract the generated text
-        final_response = response.choices[0].message.content.strip()
+        messages = [
+            SystemMessage(content="You are a helpful assistant that translates database query results into natural language."),
+            HumanMessage(content=prompt)
+        ]
+        response = openai_client.invoke(messages)
+        final_response = response.content.strip()
         
         return {**state, "final_response": final_response}
     except Exception as e:

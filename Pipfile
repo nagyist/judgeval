@@ -18,6 +18,8 @@ asyncio = "*"
 nest-asyncio = "*"
 pika = "*"
 elasticsearch = "*"
+langchain-huggingface = "*"
+langchain-anthropic = "*"
 
 [dev-packages]
 pytest = "*"
