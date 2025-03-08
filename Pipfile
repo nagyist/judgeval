@@ -17,6 +17,7 @@ anthropic = "*"
 asyncio = "*"
 nest-asyncio = "*"
 pika = "*"
+elasticsearch = "*"
 
 [dev-packages]
 pytest = "*"

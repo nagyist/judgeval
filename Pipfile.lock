@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "679d65229010962cd48fce79a508812a4dd55ba522f0c76cfbcf3a262c9e7e47"
+            "sha256": "391712e5de2636c9c142ef98331132ee0378fe8be5bb0251376724d825ec0a81"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -290,6 +290,23 @@
             ],
             "markers": "python_version >= '3.6'",
             "version": "==1.9.0"
+        },
+        "elastic-transport": {
+            "hashes": [
+                "sha256:59f553300866750e67a38828fede000576562a0e66930c641adb75249e0c95af",
+                "sha256:e755f38f99fa6ec5456e236b8e58f0eb18873ac8fe710f74b91a16dd562de2a5"
+            ],
+            "markers": "python_version >= '3.8'",
+            "version": "==8.17.0"
+        },
+        "elasticsearch": {
+            "hashes": [
+                "sha256:2d058dcddd8f2686cd431a916cdf983f9fb7d211d902834f564ab7df05ba6478",
+                "sha256:ff7f1db8aeefd87ceba4edce3aa4070994582e6cf029d2e67b74e66d634509db"
+            ],
+            "index": "pypi",
+            "markers": "python_version >= '3.8'",
+            "version": "==8.17.2"
         },
         "eval-type-backport": {
             "hashes": [
