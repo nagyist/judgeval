@@ -248,34 +248,29 @@ def validate_entities(state: Dict[str, Any]) -> TextToESState:
         try:
             is_valid = False
             
-            # Check against Elasticsearch data based on entity type
+            # Check against data based on entity type
             if entity_type == "user":
-                # We'll directly check against ES_SAMPLE_DATA since we know what's loaded
                 for client in elasticsearch_client.ES_SAMPLE_DATA.get("clients", []):
                     if client.get("username", "").lower() == normalized_name.lower():
                         is_valid = True
                         break
                 
             elif entity_type == "device":
-                # Check against sample data
                 for device in elasticsearch_client.ES_SAMPLE_DATA.get("devices", []):
                     if device.get("name", "").lower() == normalized_name.lower():
                         is_valid = True
                         break
                 
             elif entity_type == "device_type":
-                # Check against essential fields
                 is_valid = normalized_name in elasticsearch_client.ES_INDEXES["devices"]["essential_fields"]["device_type"]
                 
             elif entity_type == "location":
-                # Check against sample data
                 for location in elasticsearch_client.ES_SAMPLE_DATA.get("locations", []):
                     if location.get("name", "").lower() == normalized_name.lower():
                         is_valid = True
                         break
                 
             elif entity_type == "status":
-                # Check if status is valid for any index
                 for index_info in elasticsearch_client.ES_INDEXES.values():
                     if "status" in index_info.get("essential_fields", {}):
                         if normalized_name in index_info["essential_fields"]["status"]:
