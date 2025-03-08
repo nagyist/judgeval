@@ -869,9 +869,6 @@ async def main():
         print("-" * 50)
         
         try:
-            # Create a trace ID for this query
-            trace_id = str(uuid4())
-            judgment.get_current_trace().trace_id = trace_id
             
             # Run the workflow with the query
             result = await app.ainvoke(

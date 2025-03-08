@@ -53,7 +53,7 @@ JUDGMENT_TRACES_ADD_TO_EVAL_QUEUE_API_URL = f"{ROOT_API}/traces/add_to_eval_queu
 # RabbitMQ
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "rabbitmq-networklb-faa155df16ec9085.elb.us-west-1.amazonaws.com")
 RABBITMQ_PORT = os.getenv("RABBITMQ_PORT", 5672)
-RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE", "task_queue")
+RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE", "eval_queue")
 # Models
 LITELLM_SUPPORTED_MODELS = set(litellm.model_list)
 
