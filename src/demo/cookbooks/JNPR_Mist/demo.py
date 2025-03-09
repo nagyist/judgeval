@@ -113,6 +113,116 @@ def safe_json_extract(content: str) -> Any:
         # Return empty list as last resort for entity extraction
         return []
 
+def normalize_entity(entity_type, entity_name):
+    """Normalize entity names (handle plurals, capitalization, etc.)"""
+    # Convert to lowercase for case-insensitive matching
+    normalized_name = entity_name.lower()
+    
+    # Handle plurals for device types
+    if entity_type == "device_type" and normalized_name.endswith("s"):
+        # Convert plural to singular (e.g., "access points" -> "access_point")
+        singular_name = normalized_name[:-1]  # Remove trailing 's'
+        
+        # Handle special cases
+        if normalized_name == "access points":
+            return "access_point"
+        if normalized_name == "switches":
+            return "switch"
+        if normalized_name == "routers":
+            return "router"
+        
+        return singular_name
+    
+    # Status special cases
+    if entity_type == "status":
+        if normalized_name == "connection status" or normalized_name == "status":
+            # This is a reference to the concept, not a specific status
+            return None
+        
+        status_map = {
+            "offline": "disconnected",
+            "online": "connected",
+            "down": "disconnected",
+            "up": "connected"
+        }
+        
+        return status_map.get(normalized_name, normalized_name)
+        
+    # Event type special cases
+    if entity_type == "event_type":
+        if normalized_name in ["disconnect", "disconnection"]:
+            return "device_disconnected"
+        
+    return normalized_name
+
+def clean_query_fields(query_part, valid_fields, validated_entities):
+    """Clean up query fields recursively"""
+    if isinstance(query_part, dict):
+        cleaned_dict = {}
+        for key, value in query_part.items():
+            # Handle special keys (query operators)
+            if key in ["query", "bool", "must", "should", "must_not", "filter", "aggs", "aggregations"]:
+                cleaned_value = clean_query_fields(value, valid_fields, validated_entities)
+                # Only add non-empty lists/dicts
+                if not (isinstance(cleaned_value, dict) and not cleaned_value) and not (isinstance(cleaned_value, list) and not cleaned_value):
+                    cleaned_dict[key] = cleaned_value
+            # Handle field references in term queries
+            elif key == "term" or key == "terms":
+                field_dict = {}
+                for field_key, field_value in value.items():
+                    # Replace MASKED_ORG_ID with a real value
+                    if field_key == "org_id" and field_value == "MASKED_ORG_ID":
+                        field_dict[field_key] = "org_123456"  # Mock org ID value
+                    # Only include valid fields
+                    elif field_key in valid_fields or field_key.endswith(".keyword"):
+                        field_dict[field_key] = field_value
+                if field_dict:  # Only add if not empty
+                    cleaned_dict[key] = field_dict
+            # Handle sort fields
+            elif key == "sort":
+                if isinstance(value, list):
+                    cleaned_sort = []
+                    for sort_item in value:
+                        if isinstance(sort_item, dict):
+                            sort_field = list(sort_item.keys())[0]
+                            if sort_field in valid_fields:
+                                cleaned_sort.append(sort_item)
+                        # Keep sort direction strings (asc/desc)
+                        elif isinstance(sort_item, str):
+                            cleaned_sort.append(sort_item)
+                    cleaned_dict[key] = cleaned_sort
+                else:
+                    cleaned_dict[key] = value
+            # Handle size and from parameters
+            elif key in ["size", "from"]:
+                cleaned_dict[key] = value
+            # Handle regular field references
+            elif key in valid_fields or key.endswith(".keyword"):
+                cleaned_dict[key] = clean_query_fields(value, valid_fields, validated_entities)
+            # Skip invalid fields
+            else:
+                pass
+        return cleaned_dict
+    elif isinstance(query_part, list):
+        # Filter out empty objects from lists
+        cleaned_list = [
+            item for item in (clean_query_fields(item, valid_fields, validated_entities) for item in query_part)
+            if not (isinstance(item, dict) and not item)
+        ]
+        return cleaned_list
+    elif isinstance(query_part, str):
+        # Replace entity placeholders if needed
+        entity_result = query_part
+        for entity in validated_entities:
+            entity_type = entity["type"]
+            entity_name = entity["name"]
+            placeholder = f"{{entity:{entity_type}}}"
+            if placeholder in entity_result:
+                entity_result = entity_result.replace(placeholder, entity_name)
+        return entity_result
+    else:
+        return query_part
+
 @judgment.observe(span_type="NLP")
 def extract_entities(state: Dict[str, Any]) -> TextToESState:
     """Extract named entities from the user query using OpenAI's model."""
@@ -189,48 +299,6 @@ def validate_entities(state: Dict[str, Any]) -> TextToESState:
     
     validated_entities = []
     failed_validations = []
-    
-    # Helper function to normalize entity names (handle plurals, capitalization, etc.)
-    def normalize_entity(entity_type, entity_name):
-        # Convert to lowercase for case-insensitive matching
-        normalized_name = entity_name.lower()
-        
-        # Handle plurals for device types
-        if entity_type == "device_type" and normalized_name.endswith("s"):
-            # Convert plural to singular (e.g., "access points" -> "access_point")
-            singular_name = normalized_name[:-1]  # Remove trailing 's'
-            
-            # Handle special cases
-            if normalized_name == "access points":
-                return "access_point"
-            if normalized_name == "switches":
-                return "switch"
-            if normalized_name == "routers":
-                return "router"
-            
-            return singular_name
-        
-        # Status special cases
-        if entity_type == "status":
-            if normalized_name == "connection status" or normalized_name == "status":
-                # This is a reference to the concept, not a specific status
-                return None
-            
-            status_map = {
-                "offline": "disconnected",
-                "online": "connected",
-                "down": "disconnected",
-                "up": "connected"
-            }
-            
-            return status_map.get(normalized_name, normalized_name)
-            
-        # Event type special cases
-        if entity_type == "event_type":
-            if normalized_name in ["disconnect", "disconnection"]:
-                return "device_disconnected"
-            
-        return normalized_name
     
     # If no entities, return empty list
     if not entities:
@@ -594,76 +662,8 @@ def process_query(state: Dict[str, Any]) -> TextToESState:
             valid_fields.add(field)
             valid_fields.add(f"{field}.keyword")
             
-        # Define a function to clean up query fields recursively
-        def clean_query_fields(query_part):
-            if isinstance(query_part, dict):
-                cleaned_dict = {}
-                for key, value in query_part.items():
-                    # Handle special keys (query operators)
-                    if key in ["query", "bool", "must", "should", "must_not", "filter", "aggs", "aggregations"]:
-                        cleaned_value = clean_query_fields(value)
-                        # Only add non-empty lists/dicts
-                        if not (isinstance(cleaned_value, dict) and not cleaned_value) and not (isinstance(cleaned_value, list) and not cleaned_value):
-                            cleaned_dict[key] = cleaned_value
-                    # Handle field references in term queries
-                    elif key == "term" or key == "terms":
-                        field_dict = {}
-                        for field_key, field_value in value.items():
-                            # Replace MASKED_ORG_ID with a real value
-                            if field_key == "org_id" and field_value == "MASKED_ORG_ID":
-                                field_dict[field_key] = "org_123456"  # Mock org ID value
-                            # Only include valid fields
-                            elif field_key in valid_fields or field_key.endswith(".keyword"):
-                                field_dict[field_key] = field_value
-                        if field_dict:  # Only add if not empty
-                            cleaned_dict[key] = field_dict
-                    # Handle sort fields
-                    elif key == "sort":
-                        if isinstance(value, list):
-                            cleaned_sort = []
-                            for sort_item in value:
-                                if isinstance(sort_item, dict):
-                                    sort_field = list(sort_item.keys())[0]
-                                    if sort_field in valid_fields:
-                                        cleaned_sort.append(sort_item)
-                                # Keep sort direction strings (asc/desc)
-                                elif isinstance(sort_item, str):
-                                    cleaned_sort.append(sort_item)
-                            cleaned_dict[key] = cleaned_sort
-                        else:
-                            cleaned_dict[key] = value
-                    # Handle size and from parameters
-                    elif key in ["size", "from"]:
-                        cleaned_dict[key] = value
-                    # Handle regular field references
-                    elif key in valid_fields or key.endswith(".keyword"):
-                        cleaned_dict[key] = clean_query_fields(value)
-                    # Skip invalid fields
-                    else:
-                        pass
-                return cleaned_dict
-            elif isinstance(query_part, list):
-                # Filter out empty objects from lists
-                cleaned_list = [
-                    item for item in (clean_query_fields(item) for item in query_part)
-                    if not (isinstance(item, dict) and not item)
-                ]
-                return cleaned_list
-            elif isinstance(query_part, str):
-                # Replace entity placeholders if needed
-                entity_result = query_part
-                for entity in validated_entities:
-                    entity_type = entity["type"]
-                    entity_name = entity["name"]
-                    placeholder = f"{{entity:{entity_type}}}"
-                    if placeholder in entity_result:
-                        entity_result = entity_result.replace(placeholder, entity_name)
-                return entity_result
-            else:
-                return query_part
-        
-        # Clean up the query
-        processed_query = clean_query_fields(es_query)
+        # Clean up the query using the extracted function
+        processed_query = clean_query_fields(es_query, valid_fields, validated_entities)
         
         # Always ensure basic query structure
         if not processed_query:
@@ -845,6 +845,12 @@ def handle_error(state: Dict[str, Any]) -> TextToESState:
     error = state.get("error", "Unknown error occurred")
     return {**state, "final_response": f"I encountered an error processing your request: {error}"}
 
+def has_error(state: TextToESState) -> str:
+    """Route to error handler if state has an error."""
+    if state.get("error"):
+        return "error"
+    return "continue"
+
 @judgment.observe(span_type="function")
 async def text2es_pipeline():
     # Initialize Elasticsearch with sample data
@@ -867,13 +873,6 @@ async def text2es_pipeline():
     workflow.add_node("handle_error", handle_error)
     
     workflow.set_entry_point("extract_entities")
-    
-    # Define the error checking function
-    def has_error(state: TextToESState) -> str:
-        """Route to error handler if state has an error."""
-        if state.get("error"):
-            return "error"
-        return "continue"
     
     # Add conditional edges with correct parameter structure
     workflow.add_conditional_edges(
