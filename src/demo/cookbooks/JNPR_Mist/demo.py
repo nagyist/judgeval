@@ -157,11 +157,18 @@ def extract_entities(state: Dict[str, Any]) -> TextToESState:
             if entity["type"] not in ["user", "device", "device_type", "location", "status", "timeframe", "event_type", "quantity"]:
                 raise ValueError(f"Invalid entity type: {entity['type']}")
         
-        # Evaluate entity extraction
+        # Add judgment evaluation
+        
         judgment.get_current_trace().async_evaluate(
-            scorers=[AnswerRelevancyScorer(threshold=0.7)],
+            scorers=[
+                AnswerRelevancyScorer(threshold=0.7),
+                FaithfulnessScorer(threshold=0.7),
+                AnswerCorrectnessScorer(threshold=0.7)
+            ],
             input=user_query,
             actual_output=json.dumps(entities),
+            expected_output="[]" if not entities else json.dumps(entities),  # Use the same entities as expected output
+            retrieval_context=[user_query],  # Use the user query as retrieval context
             model=OPENAI_MODEL
         )
         
@@ -172,8 +179,14 @@ def extract_entities(state: Dict[str, Any]) -> TextToESState:
 
 @judgment.observe(span_type="NLP")
 def validate_entities(state: Dict[str, Any]) -> TextToESState:
-    """Validate extracted entities against Elasticsearch data."""
+    """Validate the extracted entities using LLM."""
     entities = state.get("entities", [])
+    user_query = state.get("user_query", "")
+    
+    # Skip validation if no entities found
+    if not entities:
+        return {**state, "validated_entities": [], "error": None}
+    
     validated_entities = []
     failed_validations = []
     
@@ -312,6 +325,22 @@ def validate_entities(state: Dict[str, Any]) -> TextToESState:
     if validated_entities and failed_validations:
         print(f"WARNING: Some entities failed validation: {'; '.join(failed_validations)}")
     
+    # Add judgment evaluation for entity validation
+    if validated_entities:
+        judgment.get_current_trace().async_evaluate(
+            scorers=[
+                AnswerRelevancyScorer(threshold=0.7),
+                FaithfulnessScorer(threshold=0.7),
+                AnswerCorrectnessScorer(threshold=0.7)
+            ],
+            input=user_query,
+            actual_output=json.dumps(validated_entities),
+            expected_output=json.dumps(entities),
+            retrieval_context=[user_query, json.dumps(elasticsearch_client.ES_SAMPLE_DATA)],  # Add retrieval context
+            model=OPENAI_MODEL,
+            log_results=True
+        )
+    
     return {
         **state, 
         "validated_entities": validated_entities,
@@ -359,6 +388,21 @@ def select_index(state: Dict[str, Any]) -> TextToESState:
         # Get the index mappings and essential fields
         index_mappings = elasticsearch_client.ES_INDEXES[selected_index]["mappings"]
         essential_fields = elasticsearch_client.ES_INDEXES[selected_index]["essential_fields"]
+        
+        # Add judgment evaluation for index selection
+        judgment.get_current_trace().async_evaluate(
+            scorers=[
+                AnswerCorrectnessScorer(threshold=0.7),
+                FaithfulnessScorer(threshold=0.7)
+            ],
+            input=user_query,
+            actual_output=selected_index,
+            expected_output=selected_index,  # Using selected index as expected output
+            retrieval_context=[json.dumps(elasticsearch_client.ES_INDEXES), json.dumps(validated_entities)],  # Add retrieval context
+            additional_metadata={"entities": validated_entities},
+            model=OPENAI_MODEL,
+            log_results=True
+        )
         
         return {
             **state,
@@ -424,6 +468,20 @@ def get_field_values(state: Dict[str, Any]) -> TextToESState:
             elif value not in field_values[field]:
                 return {**state, "error": f"Selected value '{value}' is not valid for field '{field}'"}
         
+        # Add judgment evaluation for field value selection
+        judgment.get_current_trace().async_evaluate(
+            scorers=[
+                AnswerRelevancyScorer(threshold=0.7),
+                FaithfulnessScorer(threshold=0.7)
+            ],
+            input=user_query,
+            actual_output=json.dumps(selected_field_values),
+            context=[selected_index],
+            retrieval_context=[json.dumps(field_values)],
+            model=OPENAI_MODEL,
+            log_results=True
+        )
+        
         return {**state, "field_values": field_values, "selected_field_values": selected_field_values}
     except Exception as e:
         return {**state, "error": f"Field value retrieval error: {str(e)}"}
@@ -475,6 +533,25 @@ def generate_query(state: Dict[str, Any]) -> TextToESState:
             query_text = query_text.split("```")[1].split("```")[0].strip()
         
         query = json.loads(query_text)
+        
+        # Add judgment evaluation for query generation
+        judgment.get_current_trace().async_evaluate(
+            scorers=[
+                AnswerRelevancyScorer(threshold=0.7),
+                FaithfulnessScorer(threshold=0.7),
+                AnswerCorrectnessScorer(threshold=0.7)
+            ],
+            input=user_query,
+            actual_output=json.dumps(query),
+            expected_output=json.dumps(query),  # Using generated query as expected output
+            context=[selected_index],
+            retrieval_context=[
+                json.dumps(validated_entities),
+                json.dumps(field_values)
+            ],
+            model=OPENAI_MODEL,
+            log_results=True
+        )
         
         return {**state, "es_query": query}
     except Exception as e:
@@ -612,7 +689,21 @@ def process_query(state: Dict[str, Any]) -> TextToESState:
                 if not bool_query:
                     processed_query["query"] = {"match_all": {}}
         
-        # Store the processed query
+        # Add judgment evaluation for query processing
+        judgment.get_current_trace().async_evaluate(
+            scorers=[
+                FaithfulnessScorer(threshold=0.7)
+            ],
+            input=json.dumps(es_query),
+            actual_output=json.dumps(processed_query),
+            retrieval_context=[
+                json.dumps(index_mappings),
+                json.dumps(validated_entities)
+            ],  # Include both mappings and entities for better context
+            model=OPENAI_MODEL,
+            log_results=True
+        )
+        
         return {**state, "processed_query": processed_query}
     except Exception as e:
         # Handle query processing errors
@@ -644,6 +735,18 @@ def execute_query(state: Dict[str, Any]) -> TextToESState:
             "hits": [hit.get("_source", {}) for hit in result.get("hits", {}).get("hits", [])],
             "aggregations": result.get("aggregations", {})
         }
+        
+        # Add judgment evaluation for query execution
+        judgment.get_current_trace().async_evaluate(
+            scorers=[
+                FaithfulnessScorer(threshold=0.7)
+            ],
+            input=json.dumps(processed_query),
+            actual_output=json.dumps(results),
+            retrieval_context=[json.dumps(processed_query)],  
+            model=OPENAI_MODEL,
+            log_results=True
+        )
         
         # Store the results
         return {**state, "query_results": results}
@@ -715,6 +818,23 @@ def format_response(state: Dict[str, Any]) -> TextToESState:
         response = openai_client.invoke(messages)
         final_response = response.content.strip()
         
+        # Add judgment evaluation for response formatting
+        judgment.get_current_trace().async_evaluate(
+            scorers=[
+                AnswerRelevancyScorer(threshold=0.7),
+                FaithfulnessScorer(threshold=0.7)
+            ],
+            input=user_query,
+            actual_output=final_response,
+            retrieval_context=[
+                json.dumps(hits, indent=2), 
+                json.dumps(aggregations, indent=2),
+                json.dumps(validated_entities, indent=2)
+            ],  # Include more detailed context sources
+            model=OPENAI_MODEL,
+            log_results=True
+        )
+        
         return {**state, "final_response": final_response}
     except Exception as e:
         return {**state, "error": f"Response formatting error: {str(e)}"}
@@ -726,7 +846,7 @@ def handle_error(state: Dict[str, Any]) -> TextToESState:
     return {**state, "final_response": f"I encountered an error processing your request: {error}"}
 
 @judgment.observe(span_type="function")
-async def main():
+async def text2es_pipeline():
     # Initialize Elasticsearch with sample data
     if not elasticsearch_client.init_elasticsearch():
         print("ERROR: Failed to initialize Elasticsearch. Exiting.")
@@ -845,7 +965,7 @@ async def main():
     print("TESTING TEXT-TO-ELASTICSEARCH PIPELINE")
     print("=" * 50)
     
-    for query in test_queries:
+    for query in test_queries[:1]:
         print("\n" + "-" * 50)
         print(f"QUERY: {query}")
         print("-" * 50)
@@ -907,4 +1027,4 @@ async def main():
     return "Pipeline testing completed"
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(text2es_pipeline())
