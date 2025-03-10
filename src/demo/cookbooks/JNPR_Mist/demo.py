@@ -23,6 +23,24 @@ from typing import Callable, TypeVar, ParamSpec
 # Import elasticsearch functionality directly
 import elasticsearch_client
 
+# Import prompts
+from prompts import (
+    OPENAI_MODEL,
+    ENTITY_EXTRACTION_SYSTEM,
+    ENTITY_EXTRACTION_PROMPT,
+    ENTITY_VALIDATION_SYSTEM,
+    ENTITY_VALIDATION_PROMPT,
+    FIELD_EXTRACTION_SYSTEM,
+    FIELD_VALUES_PROMPT,
+    INDEX_SELECTION_SYSTEM,
+    INDEX_SELECTION_PROMPT,
+    QUERY_GENERATOR_SYSTEM,
+    QUERY_GENERATION_PROMPT,
+    RESPONSE_FORMATTER_SYSTEM,
+    RESPONSE_FORMATTING_PROMPT,
+    ENTITY_FIELD_MAPPINGS
+)
+
 # Initialize the Elasticsearch client
 es_client = elasticsearch_client.get_elasticsearch_client()
 
@@ -65,6 +83,139 @@ class TextToESState(TypedDict):
     query_results: Optional[Dict[str, Any]]
     final_response: Optional[str]
     error: Optional[str]
+
+class IDMasker:
+    """Helper class to mask and unmask sensitive IDs in queries and responses."""
+    
+    def __init__(self):
+        self.masked_values = {}
+        self.next_id = 1
+    
+    def mask_id(self, id_type: str, real_value: str) -> str:
+        """
+        Replace a real ID with a masked placeholder.
+        
+        Args:
+            id_type: Type of ID (e.g., 'org', 'user', 'device')
+            real_value: The actual ID value to mask
+            
+        Returns:
+            A masked placeholder string
+        """
+        if not real_value:
+            return real_value
+            
+        mask_key = f"{id_type}:{real_value}"
+        
+        # If we've already masked this value, return the existing mask
+        if mask_key in self.masked_values:
+            return self.masked_values[mask_key]
+            
+        # Create a new masked value
+        masked_value = f"MASKED_{id_type.upper()}_ID_{self.next_id}"
+        self.masked_values[mask_key] = masked_value
+        self.next_id += 1
+        
+        return masked_value
+    
+    def unmask_id(self, masked_value: str) -> str:
+        """
+        Replace a masked placeholder with its real value.
+        
+        Args:
+            masked_value: The masked placeholder to unmask
+            
+        Returns:
+            The original real value if found, otherwise the masked value
+        """
+        # Find the key by value
+        for key, value in self.masked_values.items():
+            if value == masked_value:
+                # Return the real value part of the key
+                return key.split(":", 1)[1]
+                
+        # If not found, return the original masked value
+        return masked_value
+    
+    def mask_query(self, query: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Recursively mask IDs in an Elasticsearch query.
+        
+        Args:
+            query: The Elasticsearch query to mask
+            
+        Returns:
+            The query with sensitive IDs masked
+        """
+        if not isinstance(query, dict):
+            return query
+            
+        masked_query = {}
+        for key, value in query.items():
+            # Handle specific ID fields
+            if key in ["org_id", "site_id", "device_id", "user_id"]:
+                if isinstance(value, str):
+                    masked_query[key] = self.mask_id(key.split("_")[0], value)
+                elif isinstance(value, list):
+                    masked_query[key] = [self.mask_id(key.split("_")[0], v) for v in value]
+                else:
+                    masked_query[key] = value
+            # Recursively process nested dictionaries
+            elif isinstance(value, dict):
+                masked_query[key] = self.mask_query(value)
+            # Process lists
+            elif isinstance(value, list):
+                masked_query[key] = [
+                    self.mask_query(item) if isinstance(item, dict) else item
+                    for item in value
+                ]
+            else:
+                masked_query[key] = value
+                
+        return masked_query
+    
+    def unmask_query(self, query: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Recursively unmask IDs in an Elasticsearch query.
+        
+        Args:
+            query: The Elasticsearch query with masked IDs
+            
+        Returns:
+            The query with original IDs restored
+        """
+        if not isinstance(query, dict):
+            return query
+            
+        unmasked_query = {}
+        for key, value in query.items():
+            # Handle specific ID fields
+            if key in ["org_id", "site_id", "device_id", "user_id"]:
+                if isinstance(value, str) and value.startswith("MASKED_"):
+                    unmasked_query[key] = self.unmask_id(value)
+                elif isinstance(value, list):
+                    unmasked_query[key] = [
+                        self.unmask_id(v) if isinstance(v, str) and v.startswith("MASKED_") else v
+                        for v in value
+                    ]
+                else:
+                    unmasked_query[key] = value
+            # Recursively process nested dictionaries
+            elif isinstance(value, dict):
+                unmasked_query[key] = self.unmask_query(value)
+            # Process lists
+            elif isinstance(value, list):
+                unmasked_query[key] = [
+                    self.unmask_query(item) if isinstance(item, dict) else item
+                    for item in value
+                ]
+            else:
+                unmasked_query[key] = value
+                
+        return unmasked_query
+
+# Create a global instance of the ID masker
+id_masker = IDMasker()
 
 @judgment.observe(span_type="JSON")
 def safe_json_extract(content: str) -> Any:
@@ -170,9 +321,9 @@ def clean_query_fields(query_part, valid_fields, validated_entities):
             elif key == "term" or key == "terms":
                 field_dict = {}
                 for field_key, field_value in value.items():
-                    # Replace MASKED_ORG_ID with a real value
-                    if field_key == "org_id" and field_value == "MASKED_ORG_ID":
-                        field_dict[field_key] = "org_123456"  # Mock org ID value
+                    # Handle masked ID values
+                    if field_key == "org_id" and isinstance(field_value, str) and field_value.startswith("MASKED_"):
+                        field_dict[field_key] = id_masker.unmask_id(field_value)
                     # Only include valid fields
                     elif field_key in valid_fields or field_key.endswith(".keyword"):
                         field_dict[field_key] = field_value
@@ -211,6 +362,10 @@ def clean_query_fields(query_part, valid_fields, validated_entities):
         ]
         return cleaned_list
     elif isinstance(query_part, str):
+        # Unmask any masked IDs
+        if query_part.startswith("MASKED_"):
+            return id_masker.unmask_id(query_part)
+            
         # Replace entity placeholders if needed
         entity_result = query_part
         for entity in validated_entities:
@@ -228,26 +383,11 @@ def extract_entities(state: Dict[str, Any]) -> TextToESState:
     """Extract named entities from the user query using OpenAI's model."""
     user_query = state["user_query"]
     
-    prompt = f"""
-    Extract specific entities from this network management query. Entities can be:
-    - user: A specific user mentioned (e.g., "john.doe", "Jane Smith")
-    - device: A specific device mentioned (e.g., "AP-123", "Switch-45", "Router-7")
-    - device_type: Type of device mentioned (e.g., "access point", "switch", "router", "gateway")
-    - location: A specific location mentioned (e.g., "Building A", "3rd Floor", "New York Office")
-    - status: A status mentioned (e.g., "disconnected", "offline", "connected")
-    - timeframe: Any time reference (e.g., "last week", "yesterday", "since Monday")
-    - event_type: Type of event mentioned (e.g., "disconnection", "authentication failure")
-    - quantity: Any numerical quantity mentioned (e.g., "top 5", "more than 10")
-    
-    Format your response as a JSON array with objects containing "type" (from the list above) and "name" (the actual entity text from the query) fields.
-    If no entities are found, return an empty array.
-    
-    Query: {user_query}
-    """
+    prompt = ENTITY_EXTRACTION_PROMPT.format(user_query=user_query)
     
     try:
         messages = [
-            SystemMessage(content="You are an entity extraction specialist for network management systems. Extract entities precisely in the requested format."),
+            SystemMessage(content=ENTITY_EXTRACTION_SYSTEM),
             HumanMessage(content=prompt)
         ]
         response = openai_client.invoke(messages)
@@ -267,19 +407,62 @@ def extract_entities(state: Dict[str, Any]) -> TextToESState:
             if entity["type"] not in ["user", "device", "device_type", "location", "status", "timeframe", "event_type", "quantity"]:
                 raise ValueError(f"Invalid entity type: {entity['type']}")
         
-        # Add judgment evaluation
-        
+        # For entity extractor evaluation
         judgment.get_current_trace().async_evaluate(
             scorers=[
                 AnswerRelevancyScorer(threshold=0.7),
                 FaithfulnessScorer(threshold=0.7),
                 AnswerCorrectnessScorer(threshold=0.7)
             ],
-            input=user_query,
-            actual_output=json.dumps(entities),
-            expected_output="[]" if not entities else json.dumps(entities),  # Use the same entities as expected output
-            retrieval_context=[user_query],  # Use the user query as retrieval context
-            model=OPENAI_MODEL
+            input=f"Extract entities from query: '{user_query}'",
+            actual_output=json.dumps(entities, indent=2),
+            expected_output=json.dumps({
+                "Show me all disconnected access points": [
+                    {"type": "status", "name": "disconnected"},
+                    {"type": "device_type", "name": "access points"}
+                ],
+                "Show me the connection status of user john.doe": [
+                    {"type": "user", "name": "john.doe"},
+                    {"type": "status", "name": "connection status"}
+                ]
+            }.get(user_query, []), indent=2),
+            retrieval_context=[
+                "Entity types and descriptions: \n" +
+                "- user: A specific username or person (e.g., 'john.doe', 'Jane Smith')\n" +
+                "- device: A specific device identifier (e.g., 'AP-102', 'Switch-45')\n" +
+                "- device_type: Category of network device (e.g., 'access point', 'switch', 'router')\n" +
+                "- location: Physical location reference (e.g., 'Building A', '3rd Floor', 'NYC Office')\n" +
+                "- status: Connection or operational status (e.g., 'connected', 'disconnected', 'offline')\n" +
+                "- timeframe: Time reference (e.g., 'yesterday', 'last week', '3 hours ago')\n" +
+                "- event_type: Type of network event (e.g., 'disconnect', 'authentication failure')\n" +
+                "- quantity: Numerical reference (e.g., 'top 5', 'more than 10')",
+                
+                "Sample data values: " + json.dumps({
+                    'users': [doc['username'] for doc in elasticsearch_client.ES_SAMPLE_DATA.get('clients', [])[:5]],
+                    'devices': [doc['name'] for doc in elasticsearch_client.ES_SAMPLE_DATA.get('devices', [])[:5]],
+                    'locations': [doc['name'] for doc in elasticsearch_client.ES_SAMPLE_DATA.get('locations', [])[:5]],
+                    'statuses': ['connected', 'disconnected', 'offline', 'online'],
+                    'device_types': ['access_point', 'switch', 'router', 'gateway'],
+                    'event_types': ['device_disconnected', 'authentication_failure', 'config_change']
+                }, indent=2),
+                
+                "Example entity extractions:\n" +
+                "Query: 'Show me all disconnected access points in Building A'\n" +
+                "Entities: " + json.dumps([
+                    {"type": "status", "name": "disconnected"},
+                    {"type": "device_type", "name": "access points"},
+                    {"type": "location", "name": "Building A"}
+                ], indent=2) + "\n\n" +
+                "Query: 'When did john.doe last connect from the NYC office?'\n" +
+                "Entities: " + json.dumps([
+                    {"type": "user", "name": "john.doe"},
+                    {"type": "event_type", "name": "connect"},
+                    {"type": "location", "name": "NYC office"}
+                ], indent=2)
+            ],
+            additional_metadata={"query": user_query},
+            model=OPENAI_MODEL,
+            log_results=True
         )
         
         return {**state, "entities": entities}
@@ -289,131 +472,63 @@ def extract_entities(state: Dict[str, Any]) -> TextToESState:
 
 @judgment.observe(span_type="NLP")
 def validate_entities(state: Dict[str, Any]) -> TextToESState:
-    """Validate the extracted entities using LLM."""
-    entities = state.get("entities", [])
+    """Validate and augment entities extracted from the user query."""
     user_query = state.get("user_query", "")
+    entities = state.get("entities", [])
     
-    # Skip validation if no entities found
-    if not entities:
-        return {**state, "validated_entities": [], "error": None}
-    
-    validated_entities = []
-    failed_validations = []
-    
-    # If no entities, return empty list
-    if not entities:
-        return {**state, "validated_entities": []}
-    
-    # Check if Elasticsearch is initialized
-    if not check_elasticsearch_connection():
-        print("WARNING: Elasticsearch connection not available, skipping validation")
-        return {**state, "validated_entities": entities}
-    
-    for entity in entities:
-        entity_type = entity["type"]
-        entity_name = entity["name"]
-        original_name = entity_name  # Keep the original for reporting
+    try:
+        prompt = ENTITY_VALIDATION_PROMPT.format(
+            user_query=user_query,
+            entities_json=json.dumps(entities, indent=2)
+        )
         
-        # Normalize the entity name based on type
-        normalized_name = normalize_entity(entity_type, entity_name)
+        messages = [
+            SystemMessage(content=ENTITY_VALIDATION_SYSTEM),
+            HumanMessage(content=prompt)
+        ]
+        response = openai_client.invoke(messages)
+        content = response.content
         
-        # Skip if normalization returned None (entity should be ignored)
-        if normalized_name is None:
-            continue
+        validated_entities = safe_json_extract(content)
+        
+        # Validate entities structure
+        if not isinstance(validated_entities, list):
+            raise ValueError("Entities must be a list")
+        
+        for entity in validated_entities:
+            if not isinstance(entity, dict) or "type" not in entity or "name" not in entity:
+                raise ValueError("Each entity must have 'type' and 'name' fields")
             
-        # Update the entity with the normalized name
-        entity["name"] = normalized_name
+            # Normalize entity types
+            if entity["type"] not in ["user", "device", "device_type", "location", "status", "timeframe", "event_type", "quantity"]:
+                raise ValueError(f"Invalid entity type: {entity['type']}")
         
-        try:
-            is_valid = False
-            
-            # Check against data based on entity type
-            if entity_type == "user":
-                for client in elasticsearch_client.ES_SAMPLE_DATA.get("clients", []):
-                    if client.get("username", "").lower() == normalized_name.lower():
-                        is_valid = True
-                        break
-                
-            elif entity_type == "device":
-                for device in elasticsearch_client.ES_SAMPLE_DATA.get("devices", []):
-                    if device.get("name", "").lower() == normalized_name.lower():
-                        is_valid = True
-                        break
-                
-            elif entity_type == "device_type":
-                is_valid = normalized_name in elasticsearch_client.ES_INDEXES["devices"]["essential_fields"]["device_type"]
-                
-            elif entity_type == "location":
-                for location in elasticsearch_client.ES_SAMPLE_DATA.get("locations", []):
-                    if location.get("name", "").lower() == normalized_name.lower():
-                        is_valid = True
-                        break
-                
-            elif entity_type == "status":
-                for index_info in elasticsearch_client.ES_INDEXES.values():
-                    if "status" in index_info.get("essential_fields", {}):
-                        if normalized_name in index_info["essential_fields"]["status"]:
-                            is_valid = True
-                            break
-                            
-            elif entity_type == "connection_type":
-                is_valid = normalized_name in elasticsearch_client.ES_INDEXES["clients"]["essential_fields"]["connection_type"]
-                
-            elif entity_type == "event_type":
-                # Special case for event_type synonyms
-                if normalized_name in ["disconnection", "disconnect"]:
-                    entity["name"] = "device_disconnected"
-                    is_valid = True
-                else:
-                    is_valid = normalized_name in elasticsearch_client.ES_INDEXES["events"]["essential_fields"]["event_type"]
-                
-            elif entity_type in ["timeframe", "quantity"]:
-                # These entity types don't need validation against a database
-                is_valid = True
-                
-            if is_valid:
-                validated_entities.append(entity)
-            else:
-                failed_validations.append(f"'{original_name}' is not a valid {entity_type}")
-                
-        except ApiError as e:
-            # Handle ES API errors
-            failed_validations.append(f"Error validating '{original_name}': {str(e)}")
-        except Exception as e:
-            # Handle other errors
-            failed_validations.append(f"Error validating '{original_name}': {str(e)}")
-    
-    # Only report an error if we have no valid entities AND some failed validations
-    # This allows the pipeline to continue if at least some entities were validated
-    error = None
-    if len(validated_entities) == 0 and failed_validations:
-        error = "; ".join(failed_validations)
-    
-    # If we have some validated entities, just log the failures but continue
-    if validated_entities and failed_validations:
-        print(f"WARNING: Some entities failed validation: {'; '.join(failed_validations)}")
-    
-    # Add judgment evaluation for entity validation
-    if validated_entities:
+        # For entity validation evaluation
         judgment.get_current_trace().async_evaluate(
             scorers=[
                 AnswerRelevancyScorer(threshold=0.7),
                 FaithfulnessScorer(threshold=0.7),
                 AnswerCorrectnessScorer(threshold=0.7)
             ],
-            input=user_query,
-            actual_output=json.dumps(validated_entities),
-            expected_output=json.dumps(entities),
-            retrieval_context=[user_query, json.dumps(elasticsearch_client.ES_SAMPLE_DATA)],  # Add retrieval context
+            input=f"Validate extracted entities from query: '{user_query}'",
+            actual_output=json.dumps(validated_entities, indent=2),
+            expected_output=json.dumps(entities, indent=2),
+            retrieval_context=[
+                user_query, 
+                json.dumps(elasticsearch_client.ES_SAMPLE_DATA, indent=2)
+            ],
+            additional_metadata={"extracted_entities": entities},
             model=OPENAI_MODEL,
             log_results=True
         )
-    
-    return {
-        **state, 
-        "validated_entities": validated_entities,
-        "error": error
-    }
+        
+        return {
+            **state, 
+            "validated_entities": validated_entities
+        }
+    except Exception as e:
+        error_msg = f"Entity validation error: {str(e)}"
+        return {**state, "validated_entities": [], "error": error_msg}
 
 @judgment.observe(span_type="Search")
 def select_index(state: Dict[str, Any]) -> TextToESState:
@@ -429,21 +544,16 @@ def select_index(state: Dict[str, Any]) -> TextToESState:
     ])
     
     try:
-        prompt = f"""
-        Select the most appropriate Elasticsearch index for this query: "{user_query}"
-        
-        Available indices:
-        {index_descriptions}
-        
-        Entities identified in the query:
-        {json.dumps(validated_entities, indent=2)}
-        
-        Return ONLY the name of the index as a string, with no additional text or explanation.
-        Valid options are: {", ".join(elasticsearch_client.ES_INDEXES.keys())}
-        """
+        # Use the proper prompt from prompts.py
+        prompt = INDEX_SELECTION_PROMPT.format(
+            user_query=user_query,
+            index_descriptions=index_descriptions,
+            validated_entities_json=json.dumps(validated_entities, indent=2),
+            valid_indices=", ".join(elasticsearch_client.ES_INDEXES.keys())
+        )
         
         messages = [
-            SystemMessage(content="You are an index selection specialist for Elasticsearch. Your job is to select the most appropriate index based on the query."),
+            SystemMessage(content=INDEX_SELECTION_SYSTEM),
             HumanMessage(content=prompt)
         ]
         response = openai_client.invoke(messages)
@@ -457,17 +567,34 @@ def select_index(state: Dict[str, Any]) -> TextToESState:
         index_mappings = elasticsearch_client.ES_INDEXES[selected_index]["mappings"]
         essential_fields = elasticsearch_client.ES_INDEXES[selected_index]["essential_fields"]
         
-        # Add judgment evaluation for index selection
+        # For index selection evaluation
         judgment.get_current_trace().async_evaluate(
             scorers=[
                 AnswerCorrectnessScorer(threshold=0.7),
                 FaithfulnessScorer(threshold=0.7)
             ],
-            input=user_query,
+            input=f"Select appropriate Elasticsearch index for query: '{user_query}'",
             actual_output=selected_index,
-            expected_output=selected_index,  # Using selected index as expected output
-            retrieval_context=[json.dumps(elasticsearch_client.ES_INDEXES), json.dumps(validated_entities)],  # Add retrieval context
-            additional_metadata={"entities": validated_entities},
+            expected_output={
+                # Ground truth mapping for test queries
+                "Show me all disconnected access points": "devices",
+                "How many switches are in Building B?": "devices",
+                "List all devices in the Data Center": "devices",
+                "Show me the connection status of user john.doe": "clients",
+                "When did AP-102 last disconnect?": "events",
+                "What's the status of Building A?": "locations"
+            }.get(user_query, selected_index),
+            retrieval_context=[
+                # Pre-format complex JSON structures
+                json.dumps({
+                    "devices": elasticsearch_client.ES_INDEXES["devices"]["description"],
+                    "clients": elasticsearch_client.ES_INDEXES["clients"]["description"],
+                    "locations": elasticsearch_client.ES_INDEXES["locations"]["description"],
+                    "events": elasticsearch_client.ES_INDEXES["events"]["description"]
+                }, indent=2),
+                f"Extracted entities: {json.dumps(validated_entities, indent=2)}"
+            ],
+            additional_metadata={"query": user_query, "entities": validated_entities},
             model=OPENAI_MODEL,
             log_results=True
         )
@@ -481,39 +608,27 @@ def select_index(state: Dict[str, Any]) -> TextToESState:
     except KeyError as e:
         return {**state, "error": f"Index configuration error: Missing key {e} in ES_INDEXES configuration"}
 
-@judgment.observe(span_type="Search")
+@judgment.observe(span_type="NLP")
 def get_field_values(state: Dict[str, Any]) -> TextToESState:
-    """Get possible values for essential fields in the selected index."""
-    selected_index = state.get("selected_index")
-    essential_fields = state.get("essential_fields", {})
-    user_query = state.get("user_query", "")
+    """Identify which field values are relevant to the user's query."""
+    user_query = state["user_query"]
+    selected_index = state["selected_index"]
     
-    if not selected_index or not essential_fields:
-        return {**state, "error": "Missing selected index or essential fields"}
+    # Get the available field values for this index
+    field_values = elasticsearch_client.ES_INDEXES[selected_index].get("field_values", {})
+    
+    # Format as JSON for the prompt
+    field_values_json = json.dumps(field_values, indent=2)
     
     try:
-        # Use the essential_fields configuration to get possible values
-        field_values = {}
-        
-        # For each essential field in the index, get its possible values
-        for field_name, possible_values in essential_fields.items():
-            field_values[field_name] = possible_values
-        
-        # Determine which field values are relevant to the query using LLM
-        prompt = f"""
-        For this query: "{user_query}"
-        
-        Determine which essential field values are explicitly or implicitly referenced.
-        
-        Available fields and their possible values:
-        {json.dumps(field_values, indent=2)}
-        
-        Return a JSON object with field names as keys and the appropriate values from the options provided.
-        Only include fields that are actually relevant to the query. If no fields are relevant, return an empty object.
-        """
+        # Use the proper prompt from prompts.py
+        prompt = FIELD_VALUES_PROMPT.format(
+            user_query=user_query,
+            field_values_json=field_values_json
+        )
         
         messages = [
-            SystemMessage(content="You are a field extraction specialist for Elasticsearch queries. Your job is to identify which fields and values are relevant to a given query."),
+            SystemMessage(content=FIELD_EXTRACTION_SYSTEM),
             HumanMessage(content=prompt)
         ]
         response = openai_client.invoke(messages)
@@ -521,31 +636,41 @@ def get_field_values(state: Dict[str, Any]) -> TextToESState:
         
         selected_field_values = safe_json_extract(content)
         
+        # Fix: Handle the case when safe_json_extract returns a non-dictionary
         if not isinstance(selected_field_values, dict):
-            return {**state, "error": "Invalid field values format - expected a dictionary"}
+            selected_field_values = {}  # Default to empty dictionary
         
-        # Validate that all selected values are in the possible values
-        for field, value in selected_field_values.items():
-            if field not in field_values:
-                return {**state, "error": f"Selected field '{field}' is not in the essential fields"}
-            
-            if isinstance(value, list):
-                for v in value:
-                    if v not in field_values[field]:
-                        return {**state, "error": f"Selected value '{v}' is not valid for field '{field}'"}
-            elif value not in field_values[field]:
-                return {**state, "error": f"Selected value '{value}' is not valid for field '{field}'"}
+        # Only validate fields if we have a field_values dictionary
+        if field_values:
+            # Validate that all selected values are in the possible values
+            for field, value in selected_field_values.items():
+                if field not in field_values:
+                    # Instead of returning an error, just remove the invalid field
+                    del selected_field_values[field]
+                    continue
+                
+                if isinstance(value, list):
+                    selected_field_values[field] = [
+                        v for v in value if v in field_values[field]
+                    ]
+                elif value not in field_values[field]:
+                    # If the value is invalid, remove it
+                    del selected_field_values[field]
         
-        # Add judgment evaluation for field value selection
+        # For field values selection evaluation  
         judgment.get_current_trace().async_evaluate(
             scorers=[
                 AnswerRelevancyScorer(threshold=0.7),
                 FaithfulnessScorer(threshold=0.7)
             ],
-            input=user_query,
-            actual_output=json.dumps(selected_field_values),
+            input=f"Determine relevant field values for query: '{user_query}' in index '{selected_index}'",
+            actual_output=json.dumps(selected_field_values, indent=2),
             context=[selected_index],
-            retrieval_context=[json.dumps(field_values)],
+            retrieval_context=[
+                f"Available fields and values: {json.dumps(field_values, indent=2)}",
+                f"Index schema: {json.dumps(elasticsearch_client.ES_INDEXES[selected_index]['mappings']['properties'], indent=2)}"
+            ],
+            additional_metadata={"essential_fields": elasticsearch_client.ES_INDEXES[selected_index].get("essential_fields", {})},
             model=OPENAI_MODEL,
             log_results=True
         )
@@ -561,34 +686,42 @@ def generate_query(state: Dict[str, Any]) -> TextToESState:
     validated_entities = state.get("validated_entities", [])
     selected_index = state["selected_index"]
     field_values = state.get("selected_field_values", {})
+    index_mappings = state.get("index_mappings", {})
+    
+    # Get the field mapping for the selected index
+    index_entity_mapping = ENTITY_FIELD_MAPPINGS.get(selected_index, {})
+    
+    # Format validated entities with proper field mappings
+    formatted_entities = []
+    for entity in validated_entities:
+        entity_type = entity["type"]
+        entity_name = entity["name"]
+        entity_field = index_entity_mapping.get(entity_type, f"{entity_type}_id")
+        
+        formatted_entities.append({
+            "type": entity_type,
+            "name": entity_name,
+            "field": entity_field
+        })
     
     try:
-        prompt = f"""
-        Generate an Elasticsearch query based on the following user query and entities.
+        # Get index fields
+        index_fields = list(index_mappings.get("properties", {}).keys()) if index_mappings else []
         
-        User query: "{user_query}"
-        
-        Selected index: {selected_index}
-        
-        Validated entities: {json.dumps(validated_entities, indent=2)}
-        
-        Selected field values: {json.dumps(field_values, indent=2)}
-        
-        Return ONLY the Elasticsearch query as a JSON object, with no additional text or explanation.
-        
-        Use the following guidelines:
-        1. Use the "bool" query with "must", "should", or "filter" clauses as appropriate
-        2. For exact matches, use "term" queries
-        3. For text searches, use "match" queries
-        4. For filtering by date ranges, use "range" queries
-        5. For counting or aggregating, use "aggs"
-        6. For any org_id fields, use the placeholder "MASKED_ORG_ID"
-        7. Use the provided field values where applicable
-        8. Limit results to 10 unless the query specifies a different limit
-        """
+        prompt = QUERY_GENERATION_PROMPT.format(
+            user_query=user_query,
+            selected_index=selected_index,
+            index_fields_json=json.dumps(index_fields, indent=2),
+            entity_mappings_json=json.dumps(index_entity_mapping, indent=2),
+            formatted_entities_json=json.dumps(formatted_entities, indent=2),
+            field_values_json=json.dumps(field_values, indent=2),
+            user_field=index_entity_mapping.get('user', 'username'),
+            org_field=index_entity_mapping.get('org', 'org_id'),
+            device_field=index_entity_mapping.get('device', 'id')
+        )
         
         messages = [
-            SystemMessage(content="You are an Elasticsearch query generator. Your job is to convert natural language queries to Elasticsearch DSL."),
+            SystemMessage(content=QUERY_GENERATOR_SYSTEM),
             HumanMessage(content=prompt)
         ]
         response = openai_client.invoke(messages)
@@ -602,21 +735,56 @@ def generate_query(state: Dict[str, Any]) -> TextToESState:
         
         query = json.loads(query_text)
         
-        # Add judgment evaluation for query generation
+        # For query generation evaluation - with ground truth based on the sample data
         judgment.get_current_trace().async_evaluate(
             scorers=[
                 AnswerRelevancyScorer(threshold=0.7),
                 FaithfulnessScorer(threshold=0.7),
                 AnswerCorrectnessScorer(threshold=0.7)
             ],
-            input=user_query,
-            actual_output=json.dumps(query),
-            expected_output=json.dumps(query),  # Using generated query as expected output
-            context=[selected_index],
+            input=f"Generate Elasticsearch query for: '{user_query}' on index '{selected_index}'",
+            actual_output=json.dumps(query, indent=2),
+            expected_output=json.dumps({
+                # Examples of ground truth queries based on sample data
+                "Show me all disconnected access points": {
+                    "query": {
+                        "bool": {
+                            "must": [
+                                {"term": {"status": "disconnected"}},
+                                {"term": {"device_type": "access_point"}}
+                            ]
+                        }
+                    },
+                    "size": 10
+                },
+                "Show me the connection status of user john.doe": {
+                    "query": {
+                        "term": {"username": "john.doe"}
+                    },
+                    "size": 10
+                },
+                "When did AP-102 last disconnect?": {
+                    "query": {
+                        "bool": {
+                            "must": [
+                                {"term": {"device_name": "AP-102"}},
+                                {"term": {"event_type": "device_disconnected"}}
+                            ]
+                        }
+                    },
+                    "sort": [{"timestamp": {"order": "desc"}}],
+                    "size": 1
+                }
+            }.get(user_query, query), indent=2),
             retrieval_context=[
-                json.dumps(validated_entities),
-                json.dumps(field_values)
+                f"Formatted entities: {json.dumps(formatted_entities, indent=2)}",
+                f"Index schema: {json.dumps(elasticsearch_client.ES_INDEXES[selected_index]['mappings']['properties'], indent=2)}",
+                f"Sample data: {json.dumps(elasticsearch_client.ES_SAMPLE_DATA.get(selected_index, [])[:2], indent=2)}"
             ],
+            additional_metadata={
+                "query_requires_aggregation": "count" in user_query.lower() or "how many" in user_query.lower(),
+                "query_is_about_status": "status" in user_query.lower() or "connected" in user_query.lower() or "disconnected" in user_query.lower()
+            },
             model=OPENAI_MODEL,
             log_results=True
         )
@@ -632,6 +800,7 @@ def process_query(state: Dict[str, Any]) -> TextToESState:
     index_mappings = state.get("index_mappings", {})
     validated_entities = state.get("validated_entities", [])
     selected_index = state.get("selected_index")
+    user_query = state.get("user_query", "")
     
     if not es_query:
         return {**state, "error": "No query to process - query generation failed"}
@@ -661,9 +830,12 @@ def process_query(state: Dict[str, Any]) -> TextToESState:
         for field in common_fields:
             valid_fields.add(field)
             valid_fields.add(f"{field}.keyword")
+        
+        # Unmask any masked IDs in the query
+        unmasked_query = id_masker.unmask_query(es_query)
             
         # Clean up the query using the extracted function
-        processed_query = clean_query_fields(es_query, valid_fields, validated_entities)
+        processed_query = clean_query_fields(unmasked_query, valid_fields, validated_entities)
         
         # Always ensure basic query structure
         if not processed_query:
@@ -689,17 +861,22 @@ def process_query(state: Dict[str, Any]) -> TextToESState:
                 if not bool_query:
                     processed_query["query"] = {"match_all": {}}
         
-        # Add judgment evaluation for query processing
+        # For query processing evaluation
         judgment.get_current_trace().async_evaluate(
             scorers=[
                 FaithfulnessScorer(threshold=0.7)
             ],
-            input=json.dumps(es_query),
-            actual_output=json.dumps(processed_query),
+            input=f"Process Elasticsearch query for execution: {json.dumps(es_query, indent=2)}",
+            actual_output=json.dumps(processed_query, indent=2),
             retrieval_context=[
-                json.dumps(index_mappings),
-                json.dumps(validated_entities)
-            ],  # Include both mappings and entities for better context
+                f"Index mappings: {json.dumps(index_mappings, indent=2)}",
+                f"Validated entities: {json.dumps(validated_entities, indent=2)}"
+            ],
+            additional_metadata={
+                "original_query": user_query,
+                "valid_fields": list(valid_fields),
+                "changes_made": "Removed invalid fields and normalized query structure"
+            },
             model=OPENAI_MODEL,
             log_results=True
         )
@@ -714,6 +891,7 @@ def execute_query(state: Dict[str, Any]) -> TextToESState:
     """Execute the processed Elasticsearch query and return results."""
     processed_query = state.get("processed_query")
     selected_index = state.get("selected_index")
+    user_query = state.get("user_query", "")
     
     if not processed_query:
         return {**state, "error": "No processed query to execute"}
@@ -729,21 +907,74 @@ def execute_query(state: Dict[str, Any]) -> TextToESState:
         if hasattr(result, "body"):
             result = result.body
             
+        # Mask any sensitive IDs in the results before storing them
+        masked_result = {}
+        
+        # Extract hits and mask IDs
+        if "hits" in result:
+            masked_hits = {
+                "total": result["hits"].get("total", {}).get("value", 0),
+                "hits": []
+            }
+            
+            for hit in result["hits"].get("hits", []):
+                source = hit.get("_source", {})
+                # Mask any sensitive IDs in the source
+                masked_source = {}
+                for key, value in source.items():
+                    if key.endswith("_id") and isinstance(value, str):
+                        id_type = key.replace("_id", "")
+                        masked_source[key] = id_masker.mask_id(id_type, value)
+                    else:
+                        masked_source[key] = value
+                
+                masked_hit = {**hit, "_source": masked_source}
+                masked_hits["hits"].append(masked_hit)
+            
+            masked_result["hits"] = masked_hits
+        
+        # Extract aggregations and mask IDs
+        if "aggregations" in result:
+            masked_result["aggregations"] = result["aggregations"]  # For now, not masking IDs in aggregations
+        
         # Extract results
         results = {
-            "total": result.get("hits", {}).get("total", {}).get("value", 0),
-            "hits": [hit.get("_source", {}) for hit in result.get("hits", {}).get("hits", [])],
-            "aggregations": result.get("aggregations", {})
+            "total": masked_result.get("hits", {}).get("total", 0),
+            "hits": [hit.get("_source", {}) for hit in masked_result.get("hits", {}).get("hits", [])],
+            "aggregations": masked_result.get("aggregations", {})
         }
         
-        # Add judgment evaluation for query execution
+        # For query execution evaluation
         judgment.get_current_trace().async_evaluate(
             scorers=[
                 FaithfulnessScorer(threshold=0.7)
             ],
-            input=json.dumps(processed_query),
-            actual_output=json.dumps(results),
-            retrieval_context=[json.dumps(processed_query)],  
+            input=f"Results of Elasticsearch query execution for: '{user_query}'",
+            actual_output=json.dumps({
+                "total_hits": results["total"],
+                "sample_hits": results["hits"][:3] if len(results["hits"]) > 0 else [],
+                "has_aggregations": bool(results["aggregations"])
+            }, indent=2),
+            retrieval_context=[
+                json.dumps(processed_query, indent=2),
+                json.dumps({
+                    "Show me all disconnected access points": {
+                        "total_hits": 2,  # AP-102, AP-104 from sample data
+                        "expected_fields": ["id", "name", "status", "device_type"],
+                        "example_hit": {"name": "AP-102", "status": "disconnected", "device_type": "access_point"}
+                    },
+                    "Show me the connection status of user john.doe": {
+                        "total_hits": 1,
+                        "expected_fields": ["username", "connection_status"],
+                        "example_hit": {"username": "john.doe", "connection_status": "connected"}
+                    }
+                }.get(user_query, {}), indent=2)
+            ],
+            additional_metadata={
+                "index": selected_index,
+                "total_hits": results["total"],
+                "has_aggregations": bool(results["aggregations"])
+            },
             model=OPENAI_MODEL,
             log_results=True
         )
@@ -764,9 +995,10 @@ def format_response(state: Dict[str, Any]) -> TextToESState:
     query_results = state.get("query_results", {})
     selected_index = state.get("selected_index", "")
     validated_entities = state.get("validated_entities", [])
+    processed_query = state.get("processed_query", {})
     
     if not query_results:
-        return {**state, "error": "No query results to format"}
+        return {**state, "final_response": "I couldn't find any results for your query.", "error": "No query results to format"}
     
     try:
         # Extract relevant information from the query results
@@ -783,54 +1015,44 @@ def format_response(state: Dict[str, Any]) -> TextToESState:
         
         entities_text = ", ".join(entity_descriptions) if entity_descriptions else "None"
         
-        # Format hits as a JSON string with pretty printing
+        # Format hits and aggregations as JSON strings
         hits_json = json.dumps(hits, indent=2)
-        
-        # Format aggregations as a JSON string with pretty printing
         aggs_json = json.dumps(aggregations, indent=2)
         
-        # Create a template for the LLM to fill out
-        prompt = f"""
-        Generate a natural language response for the following user query: "{user_query}"
-        
-        Elasticsearch Index: {selected_index}
-        
-        Search Results:
-        - Total hits: {total_hits}
-        - Results: {hits_json}
-        - Aggregations: {aggs_json}
-        
-        Relevant Entities: {entities_text}
-        
-        Instructions:
-        1. Respond in a natural language using complete sentences.
-        2. Be concise but provide all relevant information from the search results.
-        3. If the total hits is 0, explain that no results were found.
-        4. If there are aggregations, explain what they mean.
-        5. Make sure to refer to specific entities from the query in your response.
-        6. Ensure your response answers the original query.
-        """
+        # Use the proper prompt from prompts.py
+        prompt = RESPONSE_FORMATTING_PROMPT.format(
+            user_query=user_query,
+            selected_index=selected_index,
+            total_hits=total_hits,
+            hits_json=hits_json,
+            aggs_json=aggs_json,
+            entities_text=entities_text
+        )
         
         messages = [
-            SystemMessage(content="You are a helpful assistant that translates database query results into natural language."),
+            SystemMessage(content=RESPONSE_FORMATTER_SYSTEM),
             HumanMessage(content=prompt)
         ]
         response = openai_client.invoke(messages)
         final_response = response.content.strip()
         
-        # Add judgment evaluation for response formatting
+        # For response formatting evaluation
         judgment.get_current_trace().async_evaluate(
             scorers=[
                 AnswerRelevancyScorer(threshold=0.7),
                 FaithfulnessScorer(threshold=0.7)
             ],
-            input=user_query,
+            input=f"Original query: '{user_query}'",
             actual_output=final_response,
             retrieval_context=[
-                json.dumps(hits, indent=2), 
-                json.dumps(aggregations, indent=2),
-                json.dumps(validated_entities, indent=2)
-            ],  # Include more detailed context sources
+                f"Query results: {json.dumps({'total_hits': total_hits, 'hits': hits[:3] if hits else [], 'aggregations': aggregations}, indent=2)}",
+                f"Entities mentioned: {entities_text}",
+                f"Index used: {selected_index}"
+            ],
+            additional_metadata={
+                "query_intent": "aggregation" if bool(aggregations) else "search",
+                "response_length": len(final_response)
+            },
             model=OPENAI_MODEL,
             log_results=True
         )
@@ -964,7 +1186,7 @@ async def text2es_pipeline():
     print("TESTING TEXT-TO-ELASTICSEARCH PIPELINE")
     print("=" * 50)
     
-    for query in test_queries[:1]:
+    for query in test_queries[3:4]:
         print("\n" + "-" * 50)
         print(f"QUERY: {query}")
         print("-" * 50)
@@ -1022,6 +1244,8 @@ async def text2es_pipeline():
         
         except Exception as e:
             print(f"\nWorkflow execution error: {str(e)}")
+    
+   
     
     return "Pipeline testing completed"
 
