@@ -60,7 +60,7 @@ def test_failure():
         examples=[example],
         scorers=[
             AnswerCorrectnessScorer(threshold=1.0),
-            FaithfulnessScorer(threshold=0.7),
+            FaithfulnessScorer(threshold=1.0),
         ],
         model="gpt-4o",
         eval_run_name="JNPR-Mist-UT-Fail",
@@ -71,4 +71,5 @@ def test_failure():
     print(results)
 
 if __name__ == "__main__":
-    fail_test()
+    test_success()
+    test_failure()
