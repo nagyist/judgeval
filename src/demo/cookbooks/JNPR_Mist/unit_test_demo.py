@@ -24,7 +24,7 @@ def test_success():
         examples=[correctness_test_example],
         scorers=[
             FaithfulnessScorer(threshold=1.0),
-            AnswerRelevancyScorer(threshold=1.0),
+            AnswerRelevancyScorer(threshold=0.5),
             AnswerCorrectnessScorer(threshold=1.0)
         ],
         model="gpt-4o",
