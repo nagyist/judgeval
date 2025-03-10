@@ -19,7 +19,7 @@ from judgeval.common.tracer import Tracer, wrap
 from judgeval.scorers import FaithfulnessScorer, AnswerRelevancyScorer, AnswerCorrectnessScorer
 
 from typing import Callable, TypeVar, ParamSpec
-import elasticsearch_client
+from .elasticsearch_client import *
 
 # Initialize OpenAI client
 openai_client = ChatOpenAI(model="gpt-3.5-turbo")
@@ -115,8 +115,8 @@ def select_index(state: Dict[str, Any]) -> TextToESState:
     selected_index = "devices"
     
     # Get the index mappings and essential fields
-    index_mappings = elasticsearch_client.ES_INDEXES[selected_index]["mappings"]
-    essential_fields = elasticsearch_client.ES_INDEXES[selected_index]["essential_fields"]
+    index_mappings = ES_INDEXES[selected_index]["mappings"]
+    essential_fields = ES_INDEXES[selected_index]["essential_fields"]
     
     # For index selection evaluation
     judgment.get_current_trace().async_evaluate(

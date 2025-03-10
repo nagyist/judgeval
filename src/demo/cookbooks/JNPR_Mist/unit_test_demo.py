@@ -1,12 +1,12 @@
-from demo import text2es_pipeline
-from fail_format_response import fail_format_response_pipeline
+from .demo import text2es_pipeline
+from .fail_format_response import fail_format_response_pipeline
 from judgeval.data import Example
 from judgeval import JudgmentClient
 from judgeval.scorers import FaithfulnessScorer, AnswerRelevancyScorer, AnswerCorrectnessScorer
 
 import asyncio
 
-def test():
+def test_success():
     result = asyncio.run(text2es_pipeline())
 
     final_response = result.get("final_response", "")
@@ -20,7 +20,7 @@ def test():
 
     client = JudgmentClient()
 
-    results = client.run_evaluation(
+    results = client.assert_test(
         examples=[correctness_test_example],
         scorers=[
             FaithfulnessScorer(threshold=1.0),
@@ -29,13 +29,14 @@ def test():
         ],
         model="gpt-4o",
         eval_run_name="JNPR-Mist-UT-1",
-        project_name="JNPR-Mist"
+        project_name="JNPR-Mist",
+        override=True
     )
 
     print(results)
 
 
-def fail_test():
+def test_failure():
     result = asyncio.run(fail_format_response_pipeline())
 
     example = Example(
@@ -55,7 +56,7 @@ def fail_test():
 
     client = JudgmentClient()
 
-    results = client.run_evaluation(
+    results = client.assert_test(
         examples=[example],
         scorers=[
             AnswerCorrectnessScorer(threshold=1.0),
@@ -63,7 +64,8 @@ def fail_test():
         ],
         model="gpt-4o",
         eval_run_name="JNPR-Mist-UT-Fail",
-        project_name="JNPR-Mist"
+        project_name="JNPR-Mist",
+        override=True
     )
 
     print(results)

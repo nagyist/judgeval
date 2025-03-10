@@ -21,10 +21,10 @@ from judgeval.scorers import FaithfulnessScorer, AnswerRelevancyScorer, AnswerCo
 from typing import Callable, TypeVar, ParamSpec
 
 # Import elasticsearch functionality directly
-import elasticsearch_client
+from .elasticsearch_client import *
 
 # Import prompts
-from prompts import (
+from .prompts import (
     OPENAI_MODEL,
     ENTITY_EXTRACTION_SYSTEM,
     ENTITY_EXTRACTION_PROMPT,
@@ -42,7 +42,7 @@ from prompts import (
 )
 
 # Initialize the Elasticsearch client
-es_client = elasticsearch_client.get_elasticsearch_client()
+es_client = get_elasticsearch_client()
 
 # Helper function to check if Elasticsearch is available
 def check_elasticsearch_connection() -> bool:
@@ -438,9 +438,9 @@ def extract_entities(state: Dict[str, Any]) -> TextToESState:
                 "- quantity: Numerical reference (e.g., 'top 5', 'more than 10')",
                 
                 "Sample data values: " + json.dumps({
-                    'users': [doc['username'] for doc in elasticsearch_client.ES_SAMPLE_DATA.get('clients', [])[:5]],
-                    'devices': [doc['name'] for doc in elasticsearch_client.ES_SAMPLE_DATA.get('devices', [])[:5]],
-                    'locations': [doc['name'] for doc in elasticsearch_client.ES_SAMPLE_DATA.get('locations', [])[:5]],
+                    'users': [doc['username'] for doc in ES_SAMPLE_DATA.get('clients', [])[:5]],
+                    'devices': [doc['name'] for doc in ES_SAMPLE_DATA.get('devices', [])[:5]],
+                    'locations': [doc['name'] for doc in ES_SAMPLE_DATA.get('locations', [])[:5]],
                     'statuses': ['connected', 'disconnected', 'offline', 'online'],
                     'device_types': ['access_point', 'switch', 'router', 'gateway'],
                     'event_types': ['device_disconnected', 'authentication_failure', 'config_change']
@@ -515,7 +515,7 @@ def validate_entities(state: Dict[str, Any]) -> TextToESState:
             expected_output=json.dumps(entities, indent=2),
             retrieval_context=[
                 user_query, 
-                json.dumps(elasticsearch_client.ES_SAMPLE_DATA, indent=2)
+                json.dumps(ES_SAMPLE_DATA, indent=2)
             ],
             additional_metadata={"extracted_entities": entities},
             model=OPENAI_MODEL,
@@ -540,7 +540,7 @@ def select_index(state: Dict[str, Any]) -> TextToESState:
     # Create a description of available indices for the LLM
     index_descriptions = "\n".join([
         f"- {index_name}: {index_info['description']}"
-        for index_name, index_info in elasticsearch_client.ES_INDEXES.items()
+        for index_name, index_info in ES_INDEXES.items()
     ])
     
     try:
@@ -549,7 +549,7 @@ def select_index(state: Dict[str, Any]) -> TextToESState:
             user_query=user_query,
             index_descriptions=index_descriptions,
             validated_entities_json=json.dumps(validated_entities, indent=2),
-            valid_indices=", ".join(elasticsearch_client.ES_INDEXES.keys())
+            valid_indices=", ".join(ES_INDEXES.keys())
         )
         
         messages = [
@@ -560,12 +560,12 @@ def select_index(state: Dict[str, Any]) -> TextToESState:
         selected_index = response.content.strip().lower()
         
         # Validate the selected index
-        if selected_index not in elasticsearch_client.ES_INDEXES:
+        if selected_index not in ES_INDEXES:
             return {**state, "error": f"Invalid index selected: {selected_index} - not found in index configuration"}
         
         # Get the index mappings and essential fields
-        index_mappings = elasticsearch_client.ES_INDEXES[selected_index]["mappings"]
-        essential_fields = elasticsearch_client.ES_INDEXES[selected_index]["essential_fields"]
+        index_mappings = ES_INDEXES[selected_index]["mappings"]
+        essential_fields = ES_INDEXES[selected_index]["essential_fields"]
         
         # For index selection evaluation
         judgment.get_current_trace().async_evaluate(
@@ -587,10 +587,10 @@ def select_index(state: Dict[str, Any]) -> TextToESState:
             retrieval_context=[
                 # Pre-format complex JSON structures
                 json.dumps({
-                    "devices": elasticsearch_client.ES_INDEXES["devices"]["description"],
-                    "clients": elasticsearch_client.ES_INDEXES["clients"]["description"],
-                    "locations": elasticsearch_client.ES_INDEXES["locations"]["description"],
-                    "events": elasticsearch_client.ES_INDEXES["events"]["description"]
+                    "devices": ES_INDEXES["devices"]["description"],
+                    "clients": ES_INDEXES["clients"]["description"],
+                    "locations": ES_INDEXES["locations"]["description"],
+                    "events": ES_INDEXES["events"]["description"]
                 }, indent=2),
                 f"Extracted entities: {json.dumps(validated_entities, indent=2)}"
             ],
@@ -615,7 +615,7 @@ def get_field_values(state: Dict[str, Any]) -> TextToESState:
     selected_index = state["selected_index"]
     
     # Get the available field values for this index
-    field_values = elasticsearch_client.ES_INDEXES[selected_index].get("field_values", {})
+    field_values = ES_INDEXES[selected_index].get("field_values", {})
     
     # Format as JSON for the prompt
     field_values_json = json.dumps(field_values, indent=2)
@@ -668,9 +668,9 @@ def get_field_values(state: Dict[str, Any]) -> TextToESState:
             context=[selected_index],
             retrieval_context=[
                 f"Available fields and values: {json.dumps(field_values, indent=2)}",
-                f"Index schema: {json.dumps(elasticsearch_client.ES_INDEXES[selected_index]['mappings']['properties'], indent=2)}"
+                f"Index schema: {json.dumps(ES_INDEXES[selected_index]['mappings']['properties'], indent=2)}"
             ],
-            additional_metadata={"essential_fields": elasticsearch_client.ES_INDEXES[selected_index].get("essential_fields", {})},
+            additional_metadata={"essential_fields": ES_INDEXES[selected_index].get("essential_fields", {})},
             model=OPENAI_MODEL,
             log_results=True
         )
@@ -778,8 +778,8 @@ def generate_query(state: Dict[str, Any]) -> TextToESState:
             }.get(user_query, query), indent=2),
             retrieval_context=[
                 f"Formatted entities: {json.dumps(formatted_entities, indent=2)}",
-                f"Index schema: {json.dumps(elasticsearch_client.ES_INDEXES[selected_index]['mappings']['properties'], indent=2)}",
-                f"Sample data: {json.dumps(elasticsearch_client.ES_SAMPLE_DATA.get(selected_index, [])[:2], indent=2)}"
+                f"Index schema: {json.dumps(ES_INDEXES[selected_index]['mappings']['properties'], indent=2)}",
+                f"Sample data: {json.dumps(ES_SAMPLE_DATA.get(selected_index, [])[:2], indent=2)}"
             ],
             additional_metadata={
                 "query_requires_aggregation": "count" in user_query.lower() or "how many" in user_query.lower(),
@@ -1076,7 +1076,7 @@ def has_error(state: TextToESState) -> str:
 @judgment.observe(span_type="Function")
 async def text2es_pipeline():
     # Initialize Elasticsearch with sample data
-    if not elasticsearch_client.init_elasticsearch():
+    if not init_elasticsearch():
         print("ERROR: Failed to initialize Elasticsearch. Exiting.")
         return "Elasticsearch initialization failed"
     # Initialize the graph
