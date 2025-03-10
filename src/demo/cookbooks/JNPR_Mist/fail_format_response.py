@@ -24,9 +24,9 @@ import elasticsearch_client
 # Initialize OpenAI client
 openai_client = ChatOpenAI(model="gpt-3.5-turbo")
 
-# Initialize Judgment Tracer - using exactly the same initialization as demo.py
+# Initialize Judgment Tracer
 judgment = Tracer(
-    api_key=os.getenv("JUDGMENT_API_KEY", ""),  # Default to empty string if not set
+    api_key=os.getenv("JUDGMENT_API_KEY", ""),
     project_name="text_to_es"
 )
 
@@ -153,104 +153,187 @@ def get_field_values(state: Dict[str, Any]) -> TextToESState:
 
 @judgment.observe(span_type="Query")
 def generate_query(state: Dict[str, Any]) -> TextToESState:
-    """Generate an Elasticsearch query with intentional errors to cause failure."""
+    """Generate an Elasticsearch query."""
     user_query = state["user_query"]
     validated_entities = state.get("validated_entities", [])
     selected_index = state["selected_index"]
     
-    # Inject a malformed query with syntax errors to cause failure
-    malformed_query = {
-        "bool": {
-            "missing_required_field": True,  # This doesn't follow ES query syntax
-            "mustXXX": [  # Typo in the 'must' field
-                {"term": {"status": "disconnected"}}
-            ]
-        }
+    # Create a valid query for this test
+    valid_query = {
+        "query": {
+            "bool": {
+                "must": [
+                    {"term": {"status": "disconnected"}},
+                    {"term": {"device_type": "access_point"}}
+                ]
+            }
+        },
+        "size": 10
     }
     
-    # Evaluate the actual malformed query against the expected correct query
-    judgment.get_current_trace().async_evaluate(
-        scorers=[
-            AnswerRelevancyScorer(threshold=0.7),
-            FaithfulnessScorer(threshold=0.7),
-            AnswerCorrectnessScorer(threshold=0.7)
-        ],
-        input=f"Generate Elasticsearch query for: '{user_query}' on index '{selected_index}'",
-        actual_output=json.dumps(malformed_query, indent=2),
-        expected_output=json.dumps({
-            # Examples of ground truth queries based on sample data
-            "Show me all disconnected access points": {
-                "query": {
-                    "bool": {
-                        "must": [
-                            {"term": {"status": "disconnected"}},
-                            {"term": {"device_type": "access_point"}}
-                        ]
-                    }
-                },
-                "size": 10
-            },
-            "Show me the connection status of user john.doe": {
-                "query": {
-                    "bool": {
-                        "must": [
-                            {"term": {"username": "john.doe"}}
-                        ]
-                    }
-                },
-                "size": 10
-            }
-        }.get(user_query, {
-            "query": {"match_all": {}},
-            "size": 10
-        }), indent=2),
-        retrieval_context=[
-            f"Index: {selected_index}",
-            f"Entity mappings: {json.dumps(validated_entities, indent=2)}",
-            "Query structure should use the bool query with must/should/must_not clauses",
-            "Valid fields for bool query: must, should, must_not, filter"
-        ],
-        model="gpt-4o-mini",
-        log_results=True,
-        additional_metadata={"query": user_query, "index": selected_index}
-    )
-    
-    try:
-        # Perform validation that will fail
-        if "bool" in malformed_query and "mustXXX" in malformed_query["bool"]:
-            # This is intentionally checking an invalid field to trigger failure
-            error_msg = "Query generation error: Invalid Elasticsearch query: 'mustXXX' is not a valid field for a bool query"
-            return {**state, "error": error_msg}
-        
-        return {**state, "es_query": malformed_query}
-    except Exception as e:
-        error_msg = f"Query generation error: {str(e)}"
-        return {**state, "error": error_msg}
+    return {**state, "es_query": valid_query}
 
 @judgment.observe(span_type="Query")
 def process_query(state: Dict[str, Any]) -> TextToESState:
     """Process the Elasticsearch query."""
-    # Simplified as we don't expect to reach this step
-    return {**state, "processed_query": state.get("es_query", {})}
+    es_query = state.get("es_query", {})
+    
+    # Simple pass-through in this test case
+    processed_query = es_query
+    
+    return {**state, "processed_query": processed_query}
 
 @judgment.observe(span_type="Database")
 def execute_query(state: Dict[str, Any]) -> TextToESState:
-    """Execute the Elasticsearch query."""
-    # Simplified as we don't expect to reach this step
-    return {**state, "query_results": {"hits": {"total": {"value": 0}, "hits": []}}}
+    """Execute the Elasticsearch query and return mock results."""
+    processed_query = state.get("processed_query", {})
+    
+    # Mock query results showing disconnected access points
+    mock_query_results = {
+        "took": 3,
+        "timed_out": False,
+        "_shards": {
+            "total": 1,
+            "successful": 1,
+            "skipped": 0,
+            "failed": 0
+        },
+        "hits": {
+            "total": {"value": 3, "relation": "eq"},
+            "max_score": 1.0,
+            "hits": [
+                {
+                    "_index": "devices",
+                    "_id": "ap-001",
+                    "_score": 1.0,
+                    "_source": {
+                        "id": "ap-001",
+                        "name": "AP-Building-A-Floor1",
+                        "device_type": "access_point",
+                        "model": "AP43",
+                        "status": "disconnected",
+                        "last_seen": "2023-05-15T14:23:15Z",
+                        "firmware": "6.1.2",
+                        "ip_address": "10.0.1.101",
+                        "mac_address": "00:11:22:33:44:55",
+                        "location": "Building A, Floor 1"
+                    }
+                },
+                {
+                    "_index": "devices",
+                    "_id": "ap-002",
+                    "_score": 1.0,
+                    "_source": {
+                        "id": "ap-002",
+                        "name": "AP-Building-B-Floor2",
+                        "device_type": "access_point",
+                        "model": "AP43",
+                        "status": "disconnected",
+                        "last_seen": "2023-05-16T09:45:30Z",
+                        "firmware": "6.1.2",
+                        "ip_address": "10.0.2.102",
+                        "mac_address": "00:11:22:33:44:66",
+                        "location": "Building B, Floor 2"
+                    }
+                },
+                {
+                    "_index": "devices",
+                    "_id": "ap-003",
+                    "_score": 1.0,
+                    "_source": {
+                        "id": "ap-003",
+                        "name": "AP-Building-C-Floor1",
+                        "device_type": "access_point",
+                        "model": "AP32",
+                        "status": "disconnected",
+                        "last_seen": "2023-05-16T10:15:45Z",
+                        "firmware": "6.0.9",
+                        "ip_address": "10.0.3.103",
+                        "mac_address": "00:11:22:33:44:77",
+                        "location": "Building C, Floor 1"
+                    }
+                }
+            ]
+        }
+    }
+    
+    return {**state, "query_results": mock_query_results}
 
 @judgment.observe(span_type="Response")
 def format_response(state: Dict[str, Any]) -> TextToESState:
-    """Format the response for the user."""
-    # Simplified as we don't expect to reach this step
-    return {**state, "final_response": "No results found"}
+    """Format the response for the user with intentional unfaithfulness."""
+    user_query = state["user_query"]
+    query_results = state.get("query_results", {})
+    
+    # Intentionally generate an unfaithful response that contradicts the actual query results
+    unfaithful_response = """
+    I found 5 connected access points in our system:
+    
+    1. AP-Building-D-Floor3 (AP-005): Last connected 2 hours ago, running firmware 7.0.1
+    2. AP-Building-E-Floor2 (AP-008): Currently connected, running firmware 7.0.1
+    3. AP-Building-F-Floor1 (AP-012): Connected, running firmware 6.9.5
+    4. AP-Building-G-Floor4 (AP-015): Connected, running firmware 7.0.1
+    5. AP-Building-H-Floor2 (AP-019): Connected, running firmware 6.9.5
+    
+    All these access points are currently online and serving clients. Would you like more details about any specific access point?
+    """
+    
+    # Evaluate the unfaithful response against expected faithful response
+    judgment.get_current_trace().async_evaluate(
+        scorers=[
+            FaithfulnessScorer(threshold=0.7),
+            AnswerRelevancyScorer(threshold=0.7)
+        ],
+        input=f"Format response for query results on: '{user_query}'",
+        actual_output=unfaithful_response,
+        expected_output="""
+        I found 3 disconnected access points:
+        
+        1. AP-Building-A-Floor1 (ap-001): Last seen on May 15, 2023, running firmware 6.1.2
+        2. AP-Building-B-Floor2 (ap-002): Last seen on May 16, 2023, running firmware 6.1.2
+        3. AP-Building-C-Floor1 (ap-003): Last seen on May 16, 2023, running firmware 6.0.9
+        
+        All of these access points are currently disconnected. Would you like more details about any specific access point?
+        """,
+        retrieval_context=[
+            # Provide the relevant query results as context
+            json.dumps(query_results.get("hits", {}).get("hits", []), indent=2)
+        ],
+        model="gpt-4o-mini",
+        log_results=True,
+        additional_metadata={"query": user_query}
+    )
+    
+    # Check faithfulness of response against query results
+    hits = query_results.get("hits", {}).get("hits", [])
+    if not hits:
+        unfaithful_response = "I found results that don't exist in the database."
+    
+    # Get the first result for a basic check
+    try:
+        first_hit_status = hits[0]["_source"]["status"]
+        # Detect faithfulness issue (says "connected" when status is "disconnected")
+        if "connected access points" in unfaithful_response and first_hit_status == "disconnected":
+            error_msg = "Response formatting error: Response incorrectly states the access points are connected when they are disconnected."
+            return {**state, "error": error_msg, "final_response": unfaithful_response}
+        
+        # Check hit count faithfulness
+        actual_count = len(hits)
+        if "5 connected" in unfaithful_response and actual_count != 5:
+            error_msg = f"Response formatting error: Response incorrectly states 5 access points when there are actually {actual_count}."
+            return {**state, "error": error_msg, "final_response": unfaithful_response}
+    except (IndexError, KeyError):
+        error_msg = "Response formatting error: Unable to validate response against query results."
+        return {**state, "error": error_msg, "final_response": unfaithful_response}
+    
+    # If we get here, provide the unfaithful response without setting error
+    # (shouldn't happen due to the intentional errors above)
+    return {**state, "final_response": unfaithful_response}
 
 @judgment.observe(span_type="Error")
 def handle_error(state: Dict[str, Any]) -> TextToESState:
     """Handle errors in the pipeline."""
     error = state.get("error", "Unknown error")
-    
-    # Removed duplicate evaluation since we're now evaluating at the failure point
     
     return {**state, "final_response": f"Error: {error}"}
 
@@ -261,8 +344,8 @@ def has_error(state: TextToESState) -> str:
     return "continue"
 
 @judgment.observe(span_type="function")
-async def fail_query_generation_pipeline():
-    """Main pipeline function that demonstrates failure in query generation."""
+async def fail_format_response_pipeline():
+    """Main pipeline function that demonstrates failure in response formatting."""
     # Initialize the graph
     workflow = StateGraph(TextToESState)
     
@@ -343,6 +426,15 @@ async def fail_query_generation_pipeline():
         }
     )
     
+    workflow.add_conditional_edges(
+        "format_response",
+        has_error,
+        {
+            "error": "handle_error",
+            "continue": "format_response"  # Dead end as we should hit error
+        }
+    )
+    
     # Compile the graph
     app = workflow.compile()
     
@@ -370,4 +462,4 @@ async def fail_query_generation_pipeline():
     return result
 
 if __name__ == "__main__":
-    asyncio.run(fail_query_generation_pipeline()) 
+    asyncio.run(fail_format_response_pipeline()) 

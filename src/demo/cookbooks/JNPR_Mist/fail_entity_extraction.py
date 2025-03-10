@@ -104,7 +104,7 @@ def extract_entities(state: Dict[str, Any]) -> TextToESState:
             "- quantity: Numerical reference (e.g., 'top 5', 'more than 10')"
         ],
         additional_metadata={"query": user_query},
-        model="gpt-3.5-turbo",
+        model="gpt-4o-mini",
         log_results=True
     )
     

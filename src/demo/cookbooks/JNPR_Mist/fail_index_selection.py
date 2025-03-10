@@ -89,7 +89,7 @@ def extract_entities(state: Dict[str, Any]) -> TextToESState:
             {"type": "status", "name": "disconnected"}
         ]),
         retrieval_context=[],
-        model="gpt-3.5-turbo",
+        model="gpt-4o-mini",
         log_results=True,
         additional_metadata={"query": user_query}
     )
@@ -143,7 +143,7 @@ def select_index(state: Dict[str, Any]) -> TextToESState:
             f"User query: {user_query}",
             f"Extracted entities: {json.dumps(validated_entities, indent=2)}"
         ],
-        model="gpt-3.5-turbo",
+        model="gpt-4o-mini",
         log_results=True,
         additional_metadata={"query": user_query}
     )
