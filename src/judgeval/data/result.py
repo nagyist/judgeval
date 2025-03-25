@@ -29,9 +29,9 @@ class ScoringResult:
     scorers_data: Union[List[ScorerData], None]
 
     # Inputs from the original example
-    input: Optional[str] = None
-    actual_output: Optional[Union[str, List[str]]] = None
-    expected_output: Optional[Union[str, List[str]]] = None
+    input: Optional[Dict[str, Any]] = None
+    actual_output: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
+    expected_output: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
     context: Optional[List[str]] = None
     retrieval_context: Optional[List[str]] = None
     additional_metadata: Optional[Dict[str, Any]] = None
