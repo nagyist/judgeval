@@ -18,12 +18,12 @@ class TestDatasetOperations:
         
         # Correct way to create an Example with dictionary values
         dataset.add_example(Example(
-            input={"question": "input 1"}, 
+            input="input 1", 
             actual_output={"response": "output 1"}
         ))
         
-        client.push_dataset(alias="test_dataset_8", dataset=dataset, overwrite=False)
-        dataset = client.pull_dataset(alias="test_dataset_8")
+        client.push_dataset(alias="test_dataset_5", dataset=dataset, overwrite=False)
+        dataset = client.pull_dataset(alias="test_dataset_5")
         assert dataset, "Failed to pull dataset"
 
     def test_pull_all_user_dataset_stats(self, client: JudgmentClient):
