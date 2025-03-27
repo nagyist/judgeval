@@ -255,7 +255,7 @@ class TestEvalOperations:
             )
 
             # Verify first run
-            results = client.pull_eval(project_name=PROJECT_NAME, eval_run_name=EVAL_RUN_NAME)
+            results = client.pull_eval(project_name=PROJECT_NAME, eval_run_name=EVAL_RUN_NAME, filter_results=False)
             assert len(results) == 1, "First run should have 1 result"
 
             # Second run - append behavior (override=False)
@@ -271,7 +271,7 @@ class TestEvalOperations:
             )
 
             # Verify append behavior
-            results = client.pull_eval(project_name=PROJECT_NAME, eval_run_name=EVAL_RUN_NAME)
+            results = client.pull_eval(project_name=PROJECT_NAME, eval_run_name=EVAL_RUN_NAME, filter_results=False)
             assert len(results) == 2, "Should have 2 results after append"
 
             # Third run - override behavior (override=True)
@@ -287,7 +287,7 @@ class TestEvalOperations:
             )
 
             # Verify override behavior
-            results = client.pull_eval(project_name=PROJECT_NAME, eval_run_name=EVAL_RUN_NAME)
+            results = client.pull_eval(project_name=PROJECT_NAME, eval_run_name=EVAL_RUN_NAME, filter_results=False)
             assert len(results) == 1, "Should have only 1 result after override"
 
         finally:

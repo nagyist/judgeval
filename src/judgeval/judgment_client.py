@@ -291,7 +291,7 @@ class JudgmentClient:
         return self.eval_dataset_client.edit_dataset(alias, examples, ground_truths)
     
     # Maybe add option where you can pass in the EvaluationRun object and it will pull the eval results from the backend
-    def pull_eval(self, project_name: str, eval_run_name: str) -> List[Dict[str, Union[str, List[ScoringResult]]]]:
+    def pull_eval(self, project_name: str, eval_run_name: str, filter_results: bool = True) -> List[Dict[str, Union[str, List[ScoringResult]]]]:
         """Pull evaluation results from the server.
 
         Args:
@@ -316,17 +316,27 @@ class JudgmentClient:
                                  verify=True)
         if eval_run.status_code != requests.codes.ok:
             raise ValueError(f"Error fetching eval results: {eval_run.json()}")
-
-        eval_run_result = []
-        for result in eval_run.json():
-            result_id = result.get("id", "")
+        
+        if not filter_results:
+            eval_run_result = []
+            for result in eval_run.json():
+                result_id = result.get("id", "")
+                result_data = result.get("result", dict())
+                filtered_result = {k: v for k, v in result_data.items() if k in ScoringResult.__annotations__}
+                eval_run_result.append({
+                    "id": result_id,
+                    "results": [ScoringResult(**filtered_result)]
+                })
+            return eval_run_result
+        else:
+            eval_run_result = [{}]
+            for result in eval_run.json():
+                result_id = result.get("id", "")
             result_data = result.get("result", dict())
             filtered_result = {k: v for k, v in result_data.items() if k in ScoringResult.__annotations__}
-            eval_run_result.append({
-                "id": result_id,
-                "results": [ScoringResult(**filtered_result)]
-            })
-        return eval_run_result
+            eval_run_result[0]["id"] = result_id
+            eval_run_result[0]["results"] = [ScoringResult(**filtered_result)]
+            return eval_run_result
     
     def delete_eval(self, project_name: str, eval_run_name: str) -> bool:
         """
