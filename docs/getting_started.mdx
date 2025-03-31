@@ -5,6 +5,8 @@ description: "This guide will help you learn the essential components of `judgev
 
 # Installation 
 
+Ensure that you have Python 3.11 or later installed. In your command line, type the following to install Judgment:
+
 `pip install judgeval`
 
 Judgeval runs evaluations that you can manage inside the library. Additionally, you should analyze and manage your evaluations, datasets, and metrics on 
@@ -34,6 +36,8 @@ feel free to [get in touch with our team](mailto:contact@judgmentlabs.ai).
 
 
 # Create Your First Experiment
+
+Copy the following code into a `sample_eval.py` file, and run it on the command line using `python sample_eval.py`:
 
 ```python sample_eval.py
 from judgeval import JudgmentClient
@@ -77,6 +81,9 @@ Traces enable you to track your LLM system's flow end-to-end and measure:
 - Workflow latency
 - Quality metrics, such as hallucination, retrieval quality, and more.
 
+Below is some sample code to run our first trace. For this example to run, you will need an OpenAI API key and set it as an environment variable with:
+
+`export OPENAI_API_KEY={your key here}`
 
 ```python trace_example.py
 from judgeval.common.tracer import Tracer, wrap
@@ -97,9 +104,12 @@ def main():
         messages=[{"role": "user", "content": f"{task_input}"}]
     )
     return res.choices[0].message.content
+
+if __name__ == "__main__":
+    main()
 ```
 
-Congratulations! You've just created your first trace. It should look like this:
+Congratulations! You've just created your first trace. If you follow the link generated for you, it should look like this:
 
 <div style={{display: 'flex', justifyContent: 'center'}}>
   ![Alt text](/images/trace_ss.png "Image of a RAG pipeline trace")
@@ -120,7 +130,7 @@ In addition to tracing, `judgeval` allows you to run online evaluations on your 
 - Catch real-time quality regressions to take action before customers are impacted
 - Gain insights into your agent performance in real-world scenarios
 
-To run an online evaluation, you can simply add one line of code to your existing trace:
+To run an online evaluation, we can import our scorer and modify our existing trace:
 
 ```python trace_example.py
 from judgeval.common.tracer import Tracer, wrap
