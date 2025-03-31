@@ -93,8 +93,11 @@ new_dataset.add_from_json("/path/to/your/json/file.json")
 ### From CSV
 
 You can save/load an `EvalDataset` with a `.csv` file. Your CSV should contain rows that can be mapped to `Example`s via column names.
-TODO: this section needs to be updated because the CSV format is not yet finalized.
 
+We understand that our users have their data coming from a variety of sources and that the naming conventions may not perfectly align with our [Example fields](/evaluation/data_examples).
+We give users the flexibility to plug and use their data with minimal file editing: simply provide a dictionary mapping of your organization's input fields (keys) to Judgment's fields (values)!
+
+Additionally, we support custom primary and secondary delimiters to fit your data's needs and to distinguish fields with List and Collection types. For more information, see our API Reference (TODO)
 
 Here's an example of how use `judgeval` to save/load from CSV.
 
@@ -107,7 +110,16 @@ dataset.save_as("csv", "/path/to/save/dir", "save_name")
 
 # loading
 new_dataset = EvalDataset()
-new_dataset.add_from_csv("/path/to/your/csv/file.csv")
+
+# define a mapping of your custom headers to judgment's headers!
+header_mapping = {
+    # custom key: corresponding judgment header
+    "my_input_field": "input",
+    "our_llm_output": "actual_output",
+    ...
+}
+
+new_dataset.add_from_csv("/path/to/your/csv/file.csv", header_mapping=header_mapping)
 ```
 
 ### From YAML
