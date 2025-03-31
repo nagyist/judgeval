@@ -5,11 +5,20 @@ title: Examples
 ## Overview
 An `Example` is a basic unit of data in `judgeval` that allows you to run evaluation scorers on your LLM system. 
 An `Example` is can be composed of a mixture of the following fields:
-- `input` [Optional]
-- `actual_output` [Optional]
-- `expected_output` [Optional]
-- `retrieval_context` [Optional]
-- `context` [Optional]
+- `input`: [string]
+- `actual_output`: [string, List[string]]
+- `expected_output`: [string, List[String]]
+- `retrieval_context`: [List[string]]
+- `context`: [List[string]]
+- `retrieval_context`: [List[string]]
+- `additional_metadata`: [Dict[string, any]]
+- `tools_called`: [List[string]]
+- `expected_tools`: [List[string]]
+- `name`: [String]
+- `example_id`: [string]
+- `example_index`: [int]
+- `timestamp`: [string]
+- `trace_id`: [string]
 
 **Here's a sample of creating an `Example`:**
 
