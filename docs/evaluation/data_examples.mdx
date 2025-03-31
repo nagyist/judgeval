@@ -34,14 +34,6 @@ example = Example(
 )
 ```
 
-<Note>
-The `input` and `actual_output` fields are required for all examples. **However**, you don't need to use them in your evaluations. 
-
-For example, if you're evaluating whether a chatbot's response is friendly, you don't need to use `input`. 
-
-Other fields are optional and depend on the type of evaluation. If you want to detect hallucinations in a RAG system, you'd use the `retrieval_context` field for the [**Faithfulness**](/evaluation/scorers/faithfulness) scorer.
-</Note>
-
 ## Example Fields 
 
 Here, we cover the possible fields that make up an `Example`.
@@ -141,6 +133,55 @@ example = Example(
     retrieval_context=["Sparkling water is carbonated and has no calories."]
 )
 ```
+
+### Additional Metadata
+
+TODO: find someone more knowledgeable to write this section
+
+### Tools Called
+
+The `tools_called` field is supplied as `Optional[List[str]]` and lists the names of tools used by the LLM while answering a query.
+
+### Expected Tools
+
+`expected_tools: Optional[List[str]]` provides a list of tools that we expect the LLM to use when answering a query. Some pseudocode of what this could look like using LangChain is:
+
+```python news_agent.py
+
+...
+@judgment.observe(span_type="tool")
+async def search_tavily(query):
+    # code for LLM tooling below
+...
+
+llm = init_chat_model("gpt-4o-mini", model_provider="openai")
+llm_with_tools = llm.bind_tools([search_tavily])
+
+input = "Please search for the news headlines for today."
+response = llm_with_tools.invoke(input)
+actual_output = response.content
+actual_tools_called = [tool.name for tool in response.tool_calls]
+
+example = Example(
+    input=input,
+    actual_output=llm_with_tools.invoke(input),
+    tools_called=actual_tools_called,
+    expected_tools=['search_tavily']
+)
+
+```
+
+### Name 
+
+TODO: The name of the example?
+
+### Example ID
+
+### Example Index 
+
+### Timestamp  
+
+### Trace ID  
 
 ## Conclusion 
 
