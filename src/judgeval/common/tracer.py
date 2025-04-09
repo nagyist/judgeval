@@ -956,81 +956,153 @@ def wrap(client: Any) -> Any:
             return response
             
     # Replace the original method with our traced version
-    if isinstance(client, (OpenAI, Together)):
-        client.chat.completions.create = traced_create
-    elif isinstance(client, Anthropic):
-        client.messages.create = traced_create
-        
+    client_type_name = type(client).__name__
+    if client_type_name in ('OpenAI', 'Together'):
+        # Ensure the path to 'create' exists before patching
+        if hasattr(client, 'chat') and hasattr(client.chat, 'completions'):
+            client.chat.completions.create = traced_create
+        else:
+            warnings.warn(f"Could not patch {client_type_name} client: structure unexpected.")
+    elif client_type_name == 'Anthropic':
+        # Ensure the path to 'create' exists
+        if hasattr(client, 'messages'):
+            client.messages.create = traced_create
+        else:
+            warnings.warn(f"Could not patch {client_type_name} client: structure unexpected.")
+    elif client_type_name in ('ChatOpenAI', 'ChatAnthropic', 'AzureChatOpenAI'):
+        # Patch the 'invoke' method for Langchain clients
+        if hasattr(client, 'invoke'):
+            client.client.invoke = traced_create
+        else:
+            warnings.warn(f"Could not patch {client_type_name} client: 'invoke' method not found.")
+    else:
+        warnings.warn(f"Could not patch {client_type_name} client: unsupported client type.")
     return client
 
 # Helper functions for client-specific operations
 
-def _get_client_config(client: ApiClient) -> tuple[str, callable]:
-    """Returns configuration tuple for the given API client.
-    
-    Args:
-        client: An instance of OpenAI, Together, or Anthropic client
-        
-    Returns:
-        tuple: (span_name, create_method)
-            - span_name: String identifier for tracing
-            - create_method: Reference to the client's creation method
-            
-    Raises:
-        ValueError: If client type is not supported
-    """
-    if isinstance(client, OpenAI):
-        return "OPENAI_API_CALL", client.chat.completions.create
-    elif isinstance(client, Together):
-        return "TOGETHER_API_CALL", client.chat.completions.create
-    elif isinstance(client, Anthropic):
-        return "ANTHROPIC_API_CALL", client.messages.create
-    raise ValueError(f"Unsupported client type: {type(client)}")
+def _get_client_config(client: Any) -> tuple[str, callable]:
+    """Returns configuration tuple for the given API client."""
+    client_type = type(client)
+    client_type_name = client_type.__name__
 
-def _format_input_data(client: ApiClient, **kwargs) -> dict:
-    """Format input parameters based on client type.
+    if client_type_name == 'OpenAI':
+        return "OPENAI_API_CALL", client.chat.completions.create
+    elif client_type_name == 'Together':
+        return "TOGETHER_API_CALL", client.chat.completions.create
+    elif client_type_name == 'Anthropic':
+        return "ANTHROPIC_API_CALL", client.messages.create
+    elif client_type_name == 'ChatOpenAI':
+        return "LANGCHAIN_CHATOPENAI_CALL", client.invoke
+    elif client_type_name == 'ChatAnthropic':
+        return "LANGCHAIN_CHATANTHROPIC_CALL", client.invoke
+    elif client_type_name == 'AzureChatOpenAI':
+        return "LANGCHAIN_AZURECHATOPENAI_CALL", client.invoke
+    # If we reach here, none of the conditions matched
+    print(f"DEBUG: Raising ValueError because type name '{client_type_name}' did not match known types.")
+    raise ValueError(f"Unsupported client type: {client_type}")
+
+def _format_input_data(client: Any, *args, **kwargs) -> dict:
+    """Format input parameters based on client type."""
+    client_type_name = type(client).__name__
     
-    Extracts relevant parameters from kwargs based on the client type
-    to ensure consistent tracing across different APIs.
-    """
-    if isinstance(client, (OpenAI, Together)):
+    if client_type_name in ('OpenAI', 'Together'):
+        # These use kwargs for create method
         return {
             "model": kwargs.get("model"),
             "messages": kwargs.get("messages"),
         }
-    # Anthropic requires additional max_tokens parameter
-    return {
-        "model": kwargs.get("model"),
-        "messages": kwargs.get("messages"),
-        "max_tokens": kwargs.get("max_tokens")
-    }
-
-def _format_output_data(client: ApiClient, response: Any) -> dict:
-    """Format API response data based on client type.
-    
-    Normalizes different response formats into a consistent structure
-    for tracing purposes.
-    
-    Returns:
-        dict containing:
-            - content: The generated text
-            - usage: Token usage statistics
-    """
-    if isinstance(client, (OpenAI, Together)):
+    elif client_type_name == 'Anthropic':
+         # Uses kwargs for create method
+         return {
+             "model": kwargs.get("model"),
+             "messages": kwargs.get("messages"),
+             "max_tokens": kwargs.get("max_tokens")
+         }
+    elif client_type_name in ('ChatOpenAI', 'ChatAnthropic', 'AzureChatOpenAI'):
+        # Langchain invoke typically takes input as args[0]
+        # Model name is usually an attribute of the client
+        input_payload = args[0] if args else None
         return {
-            "content": response.choices[0].message.content,
+            # Use getattr for safer access to model name attribute
+            "model": getattr(client, 'model_name', getattr(client, 'model', None)),
+            "input": input_payload # Capture the primary input to invoke
+            # Future: Could capture config from kwargs.get('config') if needed
+        }
+    
+    # Default fallback 
+    warnings.warn(f"Formatting input data for unsupported client type: {client_type_name}")
+    return {"args": str(args), "kwargs": str(kwargs)}
+
+
+def _format_output_data(client: Any, response: Any) -> dict:
+    """Format API response data based on client type."""
+    client_type_name = type(client).__name__
+
+    if client_type_name in ('OpenAI', 'Together'):
+        # Direct SDK calls
+        usage = getattr(response, 'usage', None)
+        content = None
+        if hasattr(response, 'choices') and response.choices:
+             message = getattr(response.choices[0], 'message', None)
+             if message:
+                 content = getattr(message, 'content', None)
+        
+        return {
+            "content": content,
             "usage": {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens
+                "prompt_tokens": getattr(usage, 'prompt_tokens', 0),
+                "completion_tokens": getattr(usage, 'completion_tokens', 0),
+                "total_tokens": getattr(usage, 'total_tokens', 0)
+            } if usage else {}
+        }
+    elif client_type_name == 'Anthropic':
+        # Direct SDK call
+        usage = getattr(response, 'usage', None)
+        content = None
+        if hasattr(response, 'content') and response.content:
+            text_block = getattr(response.content[0], 'text', None)
+            if text_block:
+                content = text_block
+
+        prompt_tokens = getattr(usage, 'input_tokens', 0)
+        completion_tokens = getattr(usage, 'output_tokens', 0)
+        return {
+            "content": content,
+            "usage": {
+                "prompt_tokens": prompt_tokens, # Standardize to prompt_tokens
+                "completion_tokens": completion_tokens, # Standardize to completion_tokens
+                "total_tokens": prompt_tokens + completion_tokens
+            } if usage else {}
+        }
+    elif client_type_name in ('ChatOpenAI', 'ChatAnthropic', 'AzureChatOpenAI'):
+        # Langchain calls (response is typically BaseMessage like AIMessage)
+        content = getattr(response, 'content', None)
+        metadata = getattr(response, 'response_metadata', {})
+        usage_info = metadata.get('token_usage', {}) # Langchain standardizes usage here
+
+        # Map usage fields, handling potential absence and different naming conventions
+        prompt_tokens = usage_info.get("prompt_tokens", usage_info.get("input_tokens", 0))
+        completion_tokens = usage_info.get("completion_tokens", usage_info.get("output_tokens", 0))
+        total_tokens = usage_info.get("total_tokens", 0)
+        # If total_tokens is 0 or missing, calculate it
+        if total_tokens == 0 and (prompt_tokens > 0 or completion_tokens > 0):
+            total_tokens = prompt_tokens + completion_tokens
+
+        return {
+            "content": content,
+            "usage": {
+                # Use standardized names for consistency in trace data
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens
             }
         }
-    # Anthropic has a different response structure
-    return {
-        "content": response.content[0].text,
-        "usage": {
-            "input_tokens": response.usage.input_tokens,
-            "output_tokens": response.usage.output_tokens,
-            "total_tokens": response.usage.input_tokens + response.usage.output_tokens
-        }
-    }
+        
+    # Default fallback
+    warnings.warn(f"Formatting output data for unsupported client type: {client_type_name}")
+    try:
+        # Attempt a safe conversion to dict if possible, else stringify
+        return response.model_dump() if hasattr(response, 'model_dump') else {"response": str(response)}
+    except Exception:
+         return {"response": repr(response)} # Final fallback: repr
