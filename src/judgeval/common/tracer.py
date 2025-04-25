@@ -29,6 +29,7 @@ from openai import OpenAI, AsyncOpenAI
 from together import Together, AsyncTogether
 from anthropic import Anthropic, AsyncAnthropic
 from google import genai
+import tiktoken
 
 # Local application/library-specific imports
 from judgeval.constants import (
@@ -803,62 +804,123 @@ class TraceClient:
 
         return sorted_condensed_list, evaluation_runs
 
-    def save(self, overwrite: bool = False) -> Tuple[str, dict]:
+    def calculate_token_counts(self, entries: List[dict], breakdown: bool = False) -> dict:
         """
-        Save the current trace to the database.
-        Returns a tuple of (trace_id, trace_data) where trace_data is the trace data that was saved.
-        """
-        # Calculate total elapsed time
-        total_duration = self.get_duration()
-        
-        raw_entries = [entry.to_dict() for entry in self.entries]
-        
-        condensed_entries, evaluation_runs = self.condense_trace(raw_entries)
+        Calculates total token counts and costs from a list of trace entries.
+        Optionally provides an *estimated* breakdown of text vs. image tokens
+        by tokenizing text content and subtracting from the API-reported total.
 
-        # Calculate total token counts from LLM API calls
-        total_prompt_tokens = 0
-        total_completion_tokens = 0
-        total_tokens = 0
-        
+        Args:
+            entries: List of condensed trace entries.
+            breakdown: If True, attempt to provide an estimated breakdown of text/image tokens.
+
+        Returns:
+            A dictionary containing token counts, costs, and optionally an estimated breakdown.
+            The main token counts and costs always reflect the API-reported values.
+        """
+        total_prompt_tokens_reported = 0
+        total_completion_tokens_reported = 0
+        total_tokens_reported = 0
         total_prompt_tokens_cost = 0.0
         total_completion_tokens_cost = 0.0
         total_cost = 0.0
-        
-        for entry in condensed_entries:
+
+        # For breakdown estimation
+        estimated_text_prompt_tokens = 0
+        estimated_image_prompt_tokens = 0
+        estimated_text_completion_tokens = 0 # Usually same as reported completion
+
+        for entry in entries:
             if entry.get("span_type") == "llm" and isinstance(entry.get("output"), dict):
                 output = entry["output"]
                 usage = output.get("usage", {})
-                model_name = entry.get("inputs", {}).get("model", "")
-                prompt_tokens = 0
-                completion_tokens = 0   
-                
+                inputs = entry.get("inputs", {}) # Get inputs from the condensed entry
+                model_name = inputs.get("model", "") # Get model from inputs
+
+                # --- Get API Reported Tokens ---
+                prompt_tokens_api = 0
+                completion_tokens_api = 0
+                total_tokens_api = 0
+
                 # Handle OpenAI/Together format
                 if "prompt_tokens" in usage:
-                    prompt_tokens = usage.get("prompt_tokens", 0)
-                    completion_tokens = usage.get("completion_tokens", 0)
-                    total_prompt_tokens += prompt_tokens
-                    total_completion_tokens += completion_tokens
+                    prompt_tokens_api = usage.get("prompt_tokens", 0)
+                    completion_tokens_api = usage.get("completion_tokens", 0)
+                    total_tokens_api = usage.get("total_tokens", prompt_tokens_api + completion_tokens_api)
                 # Handle Anthropic format
                 elif "input_tokens" in usage:
-                    prompt_tokens = usage.get("input_tokens", 0)
-                    completion_tokens = usage.get("output_tokens", 0)
-                    total_prompt_tokens += prompt_tokens
-                    total_completion_tokens += completion_tokens
-                
-                total_tokens += usage.get("total_tokens", 0)
-                
-                # Calculate costs if model name is available
+                    prompt_tokens_api = usage.get("input_tokens", 0)
+                    completion_tokens_api = usage.get("output_tokens", 0)
+                    total_tokens_api = usage.get("total_tokens", prompt_tokens_api + completion_tokens_api)
+                # Handle Gemini Format (keys might differ slightly based on exact wrapper output)
+                elif "prompt_token_count" in usage:
+                     prompt_tokens_api = usage.get("prompt_token_count", 0)
+                     completion_tokens_api = usage.get("candidates_token_count", 0)
+                     total_tokens_api = usage.get("total_token_count", prompt_tokens_api + completion_tokens_api)
+
+                # Add API-reported counts to totals
+                total_prompt_tokens_reported += prompt_tokens_api
+                total_completion_tokens_reported += completion_tokens_api
+                total_tokens_reported += total_tokens_api
+
+                # --- Calculate Estimated Breakdown (if requested) ---
+                # Check if model_name starts with 'gpt-' (simple check for OpenAI models)
+                is_openai_model = model_name.startswith("gpt-")
+
+                if breakdown and is_openai_model and inputs: # Only estimate for OpenAI models
+                    try:
+                        # Attempt to get tiktoken encoding for the model
+                        encoding = tiktoken.encoding_for_model(model_name)
+                        calculated_text_tokens = 0
+
+                        # Process inputs based on structure (OpenAI messages format)
+                        if "messages" in inputs and isinstance(inputs["messages"], list):
+                            for message in inputs["messages"]:
+                                content = message.get("content")
+                                if isinstance(content, str):
+                                    calculated_text_tokens += len(encoding.encode(content, disallowed_special=()))
+                                elif isinstance(content, list): # Handle list content (OpenAI vision)
+                                    for item in content:
+                                        if isinstance(item, dict) and item.get("type") == "text":
+                                            text = item.get("text", "")
+                                            if text:
+                                                calculated_text_tokens += len(encoding.encode(text, disallowed_special=()))
+                        # No need to handle Gemini/Anthropic inputs here as is_openai_model is False for them
+
+                        # Estimate image tokens
+                        calculated_image_tokens = max(0, prompt_tokens_api - calculated_text_tokens)
+
+                        # Add to estimated totals
+                        estimated_text_prompt_tokens += calculated_text_tokens
+                        estimated_image_prompt_tokens += calculated_image_tokens
+                        # Assume completion tokens are text for estimation purposes
+                        estimated_text_completion_tokens += completion_tokens_api
+
+                    except Exception as e:
+                        # Handle cases where tiktoken doesn't support the model or other errors
+                        warnings.warn(f"Could not calculate token breakdown for OpenAI model '{model_name}': {e}")
+                        # Fallback for this specific OpenAI entry: Assume all prompt tokens are text if breakdown fails
+                        estimated_text_prompt_tokens += prompt_tokens_api
+                        estimated_image_prompt_tokens += 0 # Set image tokens to 0 on failure
+                        estimated_text_completion_tokens += completion_tokens_api
+                elif breakdown: # Breakdown requested, but not an OpenAI model or inputs missing
+                     # Assume all tokens are text for non-OpenAI models or if inputs are missing
+                     estimated_text_prompt_tokens += prompt_tokens_api
+                     estimated_image_prompt_tokens += 0 # Explicitly zero image tokens
+                     estimated_text_completion_tokens += completion_tokens_api
+
+                # --- Cost Calculation (Uses API-reported tokens) ---
                 if model_name:
                     try:
                         prompt_cost, completion_cost = cost_per_token(
-                            model=model_name, 
-                            prompt_tokens=prompt_tokens, 
-                            completion_tokens=completion_tokens
+                            model=model_name,
+                            prompt_tokens=prompt_tokens_api, # Use API reported tokens for cost
+                            completion_tokens=completion_tokens_api # Use API reported tokens for cost
                         )
                         total_prompt_tokens_cost += prompt_cost
                         total_completion_tokens_cost += completion_cost
                         total_cost += prompt_cost + completion_cost
-                        
+
                         # Add cost information directly to the usage dictionary in the condensed entry
                         if "usage" not in output:
                             output["usage"] = {}
@@ -866,9 +928,121 @@ class TraceClient:
                         output["usage"]["completion_tokens_cost_usd"] = completion_cost
                         output["usage"]["total_cost_usd"] = prompt_cost + completion_cost
                     except Exception as e:
-                        # If cost calculation fails, continue without adding costs
                         print(f"Error calculating cost for model '{model_name}': {str(e)}")
                         pass
+                # --- End Cost Calculation ---
+
+
+        results = {
+            "prompt_tokens": total_prompt_tokens_reported,
+            "completion_tokens": total_completion_tokens_reported,
+            "total_tokens": total_tokens_reported,
+            "prompt_tokens_cost_usd": total_prompt_tokens_cost,
+            "completion_tokens_cost_usd": total_completion_tokens_cost,
+            "total_cost_usd": total_cost
+        }
+
+        if breakdown:
+            # Calculate cost breakdown based on estimated token breakdown
+            estimated_text_prompt_cost = 0.0
+            estimated_image_prompt_cost = 0.0
+            estimated_text_completion_cost = 0.0 # This should match total_completion_tokens_cost
+
+            # Accumulate costs based on breakdown estimates
+            # Iterate through entries again to get per-call model info for cost attribution
+            for entry in entries:
+                if entry.get("span_type") == "llm" and isinstance(entry.get("output"), dict):
+                    inputs = entry.get("inputs", {})
+                    model_name = inputs.get("model", "")
+                    usage = entry.get("output", {}).get("usage", {})
+                    
+                    # Re-calculate text/image split for this specific call
+                    # This mirrors the logic used earlier for token breakdown estimation
+                    prompt_tokens_api_call = 0
+                    completion_tokens_api_call = 0
+                    # Re-extract API tokens for this call
+                    if "prompt_tokens" in usage: # OpenAI/Together
+                        prompt_tokens_api_call = usage.get("prompt_tokens", 0)
+                        completion_tokens_api_call = usage.get("completion_tokens", 0)
+                    elif "input_tokens" in usage: # Anthropic
+                        prompt_tokens_api_call = usage.get("input_tokens", 0)
+                        completion_tokens_api_call = usage.get("output_tokens", 0)
+                    elif "prompt_token_count" in usage: # Gemini
+                        prompt_tokens_api_call = usage.get("prompt_token_count", 0)
+                        completion_tokens_api_call = usage.get("candidates_token_count", 0)
+                        
+                    estimated_text_tokens_call = 0
+                    estimated_image_tokens_call = 0
+                    is_openai_model_call = model_name.startswith("gpt-")
+
+                    if is_openai_model_call and inputs:
+                        try:
+                            encoding = tiktoken.encoding_for_model(model_name)
+                            text_in_call = 0
+                            if "messages" in inputs and isinstance(inputs["messages"], list):
+                                for message in inputs["messages"]:
+                                    content = message.get("content")
+                                    if isinstance(content, str):
+                                        text_in_call += len(encoding.encode(content, disallowed_special=()))
+                                    elif isinstance(content, list):
+                                        for item in content:
+                                            if isinstance(item, dict) and item.get("type") == "text":
+                                                text = item.get("text", "")
+                                                if text:
+                                                    text_in_call += len(encoding.encode(text, disallowed_special=()))
+                            estimated_text_tokens_call = text_in_call
+                            estimated_image_tokens_call = max(0, prompt_tokens_api_call - estimated_text_tokens_call)
+                        except Exception:
+                            estimated_text_tokens_call = prompt_tokens_api_call # Fallback
+                            estimated_image_tokens_call = 0
+                    else: # Non-OpenAI or no inputs
+                        estimated_text_tokens_call = prompt_tokens_api_call
+                        estimated_image_tokens_call = 0
+                         
+                    # Calculate costs for this call's breakdown using the estimated tokens
+                    if model_name:
+                        try:
+                            cost_text_prompt, _ = cost_per_token(model=model_name, prompt_tokens=estimated_text_tokens_call, completion_tokens=0)
+                            cost_image_prompt, _ = cost_per_token(model=model_name, prompt_tokens=estimated_image_tokens_call, completion_tokens=0)
+                            _, cost_completion = cost_per_token(model=model_name, prompt_tokens=0, completion_tokens=completion_tokens_api_call)
+                            
+                            estimated_text_prompt_cost += cost_text_prompt
+                            estimated_image_prompt_cost += cost_image_prompt
+                            # Accumulate completion cost separately (though it should sum to total_completion_tokens_cost)
+                            # This ensures we capture it even if breakdown logic has edge cases.
+                            estimated_text_completion_cost += cost_completion 
+                        except Exception as e:
+                             warnings.warn(f"Could not calculate cost breakdown for model '{model_name}' in breakdown block: {e}")
+
+            # Assign calculated costs to the breakdown dictionary
+            results["breakdown"] = {
+                "estimated_text_prompt_tokens": estimated_text_prompt_tokens,
+                "estimated_image_prompt_tokens": estimated_image_prompt_tokens,
+                "estimated_text_completion_tokens": estimated_text_completion_tokens,
+                "estimated_text_prompt_tokens_cost_usd": estimated_text_prompt_cost,
+                "estimated_image_prompt_tokens_cost_usd": estimated_image_prompt_cost,
+                "estimated_text_completion_tokens_cost_usd": estimated_text_completion_cost, # Use accumulated cost
+                # You could add a total estimated tokens here if needed
+                # "estimated_total_tokens": estimated_text_prompt_tokens + estimated_image_prompt_tokens + estimated_text_completion_tokens
+            }
+
+        return results
+
+    def save(self, overwrite: bool = False) -> Tuple[str, dict]:
+        """
+        Save the current trace to the database.
+        Returns a tuple of (trace_id, trace_data) where trace_data is the trace data that was saved.
+        """
+        # Calculate total elapsed time
+        total_duration = self.get_duration()
+
+        raw_entries = [entry.to_dict() for entry in self.entries]
+
+        condensed_entries, evaluation_runs = self.condense_trace(raw_entries)
+
+        # Calculate token counts and costs using the new helper method
+        # Note: This mutates the 'usage' dict within condensed_entries to add cost info
+        token_data = self.calculate_token_counts(condensed_entries, breakdown=True)
 
         # Create trace document
         trace_data = {
@@ -877,15 +1051,8 @@ class TraceClient:
             "project_name": self.project_name,
             "created_at": datetime.utcfromtimestamp(self.start_time).isoformat(),
             "duration": total_duration,
-            "token_counts": {
-                "prompt_tokens": total_prompt_tokens,
-                "completion_tokens": total_completion_tokens,
-                "total_tokens": total_tokens,
-                "prompt_tokens_cost_usd": total_prompt_tokens_cost,
-                "completion_tokens_cost_usd": total_completion_tokens_cost,
-                "total_cost_usd": total_cost
-            },
-            "entries": condensed_entries,
+            "token_counts": token_data, # Use the results from the helper method
+            "entries": condensed_entries, # Contains entries possibly mutated with cost info
             "evaluation_runs": evaluation_runs,
             "overwrite": overwrite,
             "parent_trace_id": self.parent_trace_id,
