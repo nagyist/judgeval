@@ -6,6 +6,8 @@ import asyncio
 from openai import OpenAI, AsyncOpenAI # Added AsyncOpenAI
 from dotenv import load_dotenv
 import json # Added json import here for clarity
+import base64 # Added for base64 encoding
+from typing import List, Dict, Any, Optional # Added for type hinting
 
 # Dynamically add the src directory to sys.path
 SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -50,53 +52,123 @@ judgment = Tracer(
 aclient = wrap(AsyncOpenAI(api_key=openai_api_key))
 
 
+# --- Helper Function ---
+def encode_image_to_base64(image_path: str) -> Optional[str]:
+    """Encodes a local image file to a base64 data URI."""
+    try:
+        # Infer MIME type (simple version)
+        mime_type = "image/jpeg" # Default
+        if image_path.lower().endswith(".png"):
+            mime_type = "image/png"
+        elif image_path.lower().endswith(".gif"):
+             mime_type = "image/gif"
+        elif image_path.lower().endswith(".webp"):
+             mime_type = "image/webp"
+
+        with open(image_path, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+            return f"data:{mime_type};base64,{encoded_string}"
+    except FileNotFoundError:
+        print(f"Error: Local image file not found at {image_path}")
+        return None
+    except Exception as e:
+        print(f"Error encoding image {image_path}: {e}")
+        return None
+
 # --- Function Definitions ---
 
 @judgment.observe(name="vision_analysis_observed") # Apply the decorator
-async def analyze_image(client: AsyncOpenAI, image_url: str, prompt: str) -> str:
+async def analyze_image_content(client: AsyncOpenAI, content_list: List[Dict[str, Any]]) -> str:
     """
-    Calls the OpenAI vision model with an image URL and a text prompt.
+    Calls the OpenAI vision model with a list of content items (text/image).
     This function is automatically traced by the @judgment.observe decorator.
     """
-    print(f"--- Calling OpenAI Vision API for URL: {image_url} ---")
+    print(f"--- Calling OpenAI Vision API with mixed content list ---")
+    # print(f"Content List: {json.dumps(content_list, indent=2)}") # Optional: Print the list being sent
     try:
         response = await client.chat.completions.create( # Use await for async client
             model="gpt-4o", # Or "gpt-4-vision-preview" or other vision model
             messages=[
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": image_url,
-                            },
-                        },
-                    ],
+                    "content": content_list, # Pass the list directly
                 }
             ],
-            max_tokens=300,
+            max_tokens=500, # Increased max tokens for potentially longer response
         )
         print("--- API Call Successful ---")
         return response.choices[0].message.content
     except Exception as e:
         print(f"--- API Call Failed: {e} ---")
-        return f"Error analyzing image: {e}"
+        return f"Error analyzing image content: {e}"
 
 async def main():
     # Clients and Tracer are already initialized above
 
-    # --- Trace Execution --- (Simplified using @observe)
-    image_url_to_analyze = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
-    text_prompt = "Describe this image in detail. What season is it?"
+    # --- Define Image URLs and Local Path ---
+    image_url_1 = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg" # Boardwalk
+    image_url_2 = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Roasted_coffee_beans.jpg/1280px-Roasted_coffee_beans.jpg" # Coffee beans
+    image_url_3 = "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Felis_catus-cat_on_snow.jpg/1280px-Felis_catus-cat_on_snow.jpg" # Cat
+    image_url_4 = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/New_york_times_square-terabass.jpg/1280px-New_york_times_square-terabass.jpg" # NYC Times Square
+    # Use the provided path
+    local_image_path = "/Users/minhpham/Documents/Judgement/judgment_dev/judgeval/src/demo/logo.png"
 
-    print("Calling analyze_image (decorated with @judgment.observe)...")
-    # The decorator handles starting/stopping the trace automatically.
+    # --- Encode Local Image ---
+    base64_image = encode_image_to_base64(local_image_path)
+    if not base64_image:
+        print(f"Could not encode local image at {local_image_path}. Exiting.")
+        return # Exit if local image encoding failed
+
+    # --- Construct Mixed Content List ---
+    mixed_content_list = [
+        {
+            "type": "text",
+            "text": "Analyze the following images and answer the questions. Be concise."
+        },
+        {
+            "type": "image_url",
+            "image_url": {"url": image_url_1}
+        },
+        {
+            "type": "image_url",
+            "image_url": {"url": image_url_2}
+        },
+        {
+            "type": "image_url",
+            "image_url": {"url": image_url_3}
+        },
+        {
+            "type": "image_url",
+            "image_url": {"url": image_url_4}
+        },
+        {
+            "type": "image_url",
+            "image_url": {"url": base64_image} # Use the base64 encoded image (logo.png)
+        },
+        {
+            "type": "text",
+            "text": "Describe the main subject of each image briefly. What is the logo in the last image?"
+        }
+    ]
+
+    print("\n--- Input Content List ---")
+    # Print a summary instead of the full base64 string
+    for item in mixed_content_list:
+        if item["type"] == "text":
+            print(f"- Text: {item['text']}")
+        elif item["type"] == "image_url" and isinstance(item["image_url"]["url"], str) and item["image_url"]["url"].startswith("data:"):
+             print(f"- Image: [Base64 Encoded Image (type: {item['image_url']['url'].split(';')[0].split(':')[1]})]")
+        elif item["type"] == "image_url":
+            print(f"- Image URL: {item['image_url']['url']}")
+    print("--------------------------")
+
+
+    print("Calling analyze_image_content (decorated with @judgment.observe)...")
     # Wrap the call in try/except to catch potential trace saving errors
     analysis_result = None
     try:
-        analysis_result = await analyze_image(aclient, image_url_to_analyze, text_prompt)
+        # Pass the mixed content list to the modified function
+        analysis_result = await analyze_image_content(aclient, mixed_content_list)
     except ValueError as e:
         if "Failed to save trace data" in str(e):
             print(f"\n--- ERROR: Failed to save trace to Judgment: {e} ---")
@@ -135,6 +207,11 @@ async def main():
                         print(f"  Text Prompt Tokens: {token_data['breakdown'].get('estimated_text_prompt_tokens', 'N/A')}")
                         print(f"  Image Prompt Tokens: {token_data['breakdown'].get('estimated_image_prompt_tokens', 'N/A')}")
                         print(f"  Text Completion Tokens: {token_data['breakdown'].get('estimated_text_completion_tokens', 'N/A')}")
+                        # Also print cost breakdown if available
+                        print(f"  Est. Text Prompt Cost (USD): {token_data['breakdown'].get('estimated_text_prompt_tokens_cost_usd', 'N/A')}")
+                        print(f"  Est. Image Prompt Cost (USD): {token_data['breakdown'].get('estimated_image_prompt_tokens_cost_usd', 'N/A')}")
+                        print(f"  Est. Text Completion Cost (USD): {token_data['breakdown'].get('estimated_text_completion_tokens_cost_usd', 'N/A')}")
+
                     else:
                          print("\nBreakdown structure not found in results.")
                 else:
@@ -145,6 +222,7 @@ async def main():
 
         else:
             print("\nNo trace entries found on the Tracer object to calculate token counts (possibly due to prior save error).")
+
 
         print(f"\nTrace Name Used by Decorator: vision_analysis_observed") # Directly state the name used
         # Access trace ID from the judgment object (assuming it holds the last one)
