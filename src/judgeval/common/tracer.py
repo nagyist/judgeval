@@ -22,6 +22,7 @@ from rich import print as rprint
 # Third-party imports
 import pika
 import requests
+import litellm # <--- Add litellm import
 from litellm import cost_per_token
 from pydantic import BaseModel
 from rich import print as rprint
@@ -933,6 +934,8 @@ class TraceClient:
     
 class Tracer:
     _instance = None
+    _original_litellm_completion = None # Store original functions
+    _original_litellm_acompletion = None
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -940,8 +943,8 @@ class Tracer:
         return cls._instance
 
     def __init__(
-        self, 
-        api_key: str = os.getenv("JUDGMENT_API_KEY"), 
+        self,
+        api_key: str = os.getenv("JUDGMENT_API_KEY"),
         project_name: str = "default_project",
         rules: Optional[List[Rule]] = None,  # Added rules parameter
         organization_id: str = os.getenv("JUDGMENT_ORG_ID"),
@@ -989,6 +992,11 @@ class Tracer:
                     region_name=s3_region_name
                 )
             self.deep_tracing: bool = deep_tracing  # NEW: Store deep tracing setting
+
+            # --- Patch LiteLLM if monitoring is enabled --- 
+            if self.enable_monitoring:
+                 self._patch_litellm()
+            # --------------------------------------------
 
         elif hasattr(self, 'project_name') and self.project_name != project_name:
             warnings.warn(
@@ -1367,6 +1375,92 @@ class Tracer:
         else:
             warnings.warn("No trace found, skipping evaluation")
 
+    # --- Add LiteLLM Patching Method --- 
+    def _patch_litellm(self):
+        """Patches litellm.completion and litellm.acompletion if not already patched."""
+        if Tracer._original_litellm_completion is None:
+            try:
+                Tracer._original_litellm_completion = litellm.completion
+                litellm.completion = self._traced_litellm_completion
+                print("Successfully patched litellm.completion for Judgeval tracing.")
+            except AttributeError:
+                warnings.warn("Could not patch litellm.completion. LiteLLM calls will not be automatically traced by Judgeval.")
+            except Exception as e:
+                warnings.warn(f"Error patching litellm.completion: {e}")
+        
+        if Tracer._original_litellm_acompletion is None:
+            try:
+                Tracer._original_litellm_acompletion = litellm.acompletion
+                litellm.acompletion = self._traced_litellm_acompletion
+                print("Successfully patched litellm.acompletion for Judgeval tracing.")
+            except AttributeError:
+                # Fine if acompletion doesn't exist or isn't used
+                pass 
+            except Exception as e:
+                warnings.warn(f"Error patching litellm.acompletion: {e}")
+
+    # --- Add LiteLLM Wrapper Methods --- 
+    def _traced_litellm_completion(self, *args, **kwargs):
+        """Wrapper for litellm.completion to add tracing."""
+        # Check if tracing is active
+        current_trace = self.get_current_trace()
+        if not current_trace:
+            # print("Judgeval: No active trace, calling original litellm.completion")
+            return Tracer._original_litellm_completion(*args, **kwargs)
+
+        # Determine span name (e.g., using model)
+        model_name = kwargs.get("model", "litellm_call")
+        span_name = f"LiteLLM Call ({model_name})"
+
+        # Create a new span for the LLM call
+        with current_trace.span(span_name, span_type="llm") as span:
+            # Record inputs
+            input_data = _format_input_data_litellm(**kwargs)
+            span.record_input(input_data)
+            
+            # Call the original function
+            try:
+                response = Tracer._original_litellm_completion(*args, **kwargs)
+            except Exception as e:
+                span.record_output({"error": str(e)}) # Record error as output
+                # print(f"Error during LiteLLM call: {e}") # Optional: log error
+                raise # Re-raise the exception
+            
+            # Record outputs
+            output_data = _format_output_data_litellm(response)
+            span.record_output(output_data)
+            
+            return response
+
+    async def _traced_litellm_acompletion(self, *args, **kwargs):
+        """Async wrapper for litellm.acompletion to add tracing."""
+        current_trace = self.get_current_trace()
+        if not current_trace:
+            # print("Judgeval: No active trace, calling original litellm.acompletion")
+            return await Tracer._original_litellm_acompletion(*args, **kwargs)
+
+        model_name = kwargs.get("model", "litellm_async_call")
+        span_name = f"LiteLLM Async Call ({model_name})"
+
+        # Create a new span for the LLM call
+        with current_trace.span(span_name, span_type="llm") as span:
+            # Record inputs
+            input_data = _format_input_data_litellm(**kwargs)
+            span.record_input(input_data)
+            
+            # Call the original async function
+            try:
+                response = await Tracer._original_litellm_acompletion(*args, **kwargs)
+            except Exception as e:
+                span.record_output({"error": str(e)})
+                # print(f"Error during async LiteLLM call: {e}")
+                raise
+            
+            # Record outputs
+            output_data = _format_output_data_litellm(response)
+            span.record_output(output_data)
+            
+            return response
 
 def wrap(client: Any) -> Any:
     """
@@ -1937,3 +2031,61 @@ class JudgmentTraceCallbackHandler(BaseCallbackHandler):
 
         if llm_span_id in trace_client._span_depths:
             del trace_client._span_depths[llm_span_id]
+
+# --- Helper Function for LiteLLM Input Formatting ---
+def _format_input_data_litellm(**kwargs) -> dict:
+    """Formats input data specifically for litellm.completion calls."""
+    # Prioritize common kwargs, add others as needed
+    return {
+        "model": kwargs.get("model"),
+        "messages": kwargs.get("messages"),
+        # Include other potentially relevant kwargs, filtering out sensitive ones if necessary
+        "other_params": { 
+            k: v for k, v in kwargs.items() 
+            if k not in ["model", "messages", "api_key", "api_base", "api_version", "aws_access_key_id", "aws_secret_access_key", "azure_ad_token"] 
+        }
+    }
+
+# --- Helper Function for LiteLLM Output Formatting ---
+def _format_output_data_litellm(response) -> dict:
+    """Formats output data specifically for litellm.completion responses."""
+    usage_data = {}
+    content = None
+    raw_response_data = None
+
+    # LiteLLM typically returns a ModelResponse object or similar Pydantic model
+    if hasattr(response, "usage"): # Check for usage attribute
+        # Ensure usage is serializable (e.g., convert Pydantic model to dict)
+        if isinstance(response.usage, BaseModel):
+             usage_data = response.usage.model_dump() 
+        elif isinstance(response.usage, dict):
+             usage_data = response.usage
+        # Add fallback/warning if usage format is unexpected
+
+    if hasattr(response, "choices") and response.choices:
+         # Handle potential variations in choice structure
+         first_choice = response.choices[0]
+         if hasattr(first_choice, "message") and hasattr(first_choice.message, "content"):
+              content = first_choice.message.content
+         elif hasattr(first_choice, "text"):
+              content = first_choice.text # Older or different format
+    
+    # Include the full response if possible and serializable
+    try:
+        if isinstance(response, BaseModel):
+             raw_response_data = response.model_dump()
+        else: # Attempt basic serialization
+             json.dumps(response) # Check if serializable
+             raw_response_data = response 
+    except (TypeError, OverflowError, ValueError):
+         raw_response_data = f"<Unserializable LiteLLM Response: {type(response)}>"
+
+    return {
+        "content": content,
+        "usage": { # Standardize usage keys for judgeval cost calculation
+            "prompt_tokens": usage_data.get("prompt_tokens", 0),
+            "completion_tokens": usage_data.get("completion_tokens", 0),
+            "total_tokens": usage_data.get("total_tokens", 0)
+        },
+        "raw_output": raw_response_data
+    }
