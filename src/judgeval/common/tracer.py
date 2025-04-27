@@ -29,6 +29,13 @@ from openai import OpenAI, AsyncOpenAI
 from together import Together, AsyncTogether
 from anthropic import Anthropic, AsyncAnthropic
 from google import genai
+from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
+from openai import AzureOpenAI, AsyncAzureOpenAI
+# Langchain Callback Imports
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.outputs import LLMResult
+from langchain_core.messages import BaseMessage
 
 # Local application/library-specific imports
 from judgeval.constants import (
@@ -56,7 +63,12 @@ current_span_var = contextvars.ContextVar('current_span', default=None) # Contex
 in_traced_function_var = contextvars.ContextVar('in_traced_function', default=False) # Track if we're in a traced function
 
 # Define type aliases for better code readability and maintainability
-ApiClient: TypeAlias = Union[OpenAI, Together, Anthropic, AsyncOpenAI, AsyncAnthropic, AsyncTogether, genai.Client, genai.client.AsyncClient]  # Supported API clients
+ApiClient: TypeAlias = Union[
+    OpenAI, Together, Anthropic, AsyncOpenAI, AsyncAnthropic, AsyncTogether,
+    genai.Client, genai.client.AsyncClient,
+    ChatOpenAI, ChatAnthropic, # Added Langchain Chat Models
+    AzureOpenAI, AsyncAzureOpenAI # Added Azure Clients
+]  # Supported API clients
 TraceEntryType = Literal['enter', 'exit', 'output', 'input', 'evaluation']  # Valid trace entry types
 SpanType = Literal['span', 'tool', 'llm', 'evaluation', 'chain']
 @dataclass
@@ -1426,7 +1438,8 @@ def wrap(client: Any) -> Any:
         client.messages.create = traced_create
     elif isinstance(client, (genai.Client, genai.client.AsyncClient)):
         client.models.generate_content = traced_create
-        
+    elif isinstance(client, (AzureOpenAI, AsyncAzureOpenAI)):
+        client.chat.completions.create = traced_create
     return client
 
 # Helper functions for client-specific operations
@@ -1445,7 +1458,15 @@ def _get_client_config(client: ApiClient) -> tuple[str, callable]:
     Raises:
         ValueError: If client type is not supported
     """
-    if isinstance(client, (OpenAI, AsyncOpenAI)):
+    # Specific Langchain Chat Models first
+    if isinstance(client, (ChatOpenAI)):
+        return "OPENAI_API_CALL", client.invoke
+    elif isinstance(client, (ChatAnthropic)):
+        return "ANTHROPIC_API_CALL", client.invoke
+    elif isinstance(client, (AzureOpenAI, AsyncAzureOpenAI)):
+        return "AZURE_API_CALL", client.chat.completions.create
+    # Base SDK Clients
+    elif isinstance(client, (OpenAI, AsyncOpenAI)):
         return "OPENAI_API_CALL", client.chat.completions.create
     elif isinstance(client, (Together, AsyncTogether)):
         return "TOGETHER_API_CALL", client.chat.completions.create
@@ -1630,3 +1651,289 @@ class TraceThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
 
     # Note: The `map` method would also need to be overridden for full context
     # propagation if users rely on it, but `submit` is the most common use case.
+
+# --- Add Judgment Langchain Callback Handler ---
+class JudgmentTraceCallbackHandler(BaseCallbackHandler):
+    """
+    Langchain Callback Handler that integrates with the Judgeval Tracer.
+
+    Creates dedicated spans for LLM calls and records detailed input/output
+    information, including token usage, structured for cost calculation.
+    """
+    def __init__(self) -> None:
+        super().__init__()
+        # Maps Langchain run_id to Judgeval span info
+        self._run_map: Dict[uuid.UUID, Tuple[str, Optional[str], float]] = {}
+
+    def _get_trace_client(self) -> Optional[TraceClient]:
+        """Helper to safely get the current TraceClient."""
+        try:
+            return current_trace_var.get()
+        except LookupError:
+            warnings.warn("Judgeval Tracer: No active trace found for Langchain callback.")
+            return None
+
+    def _serialize_messages(self, messages: List[List[BaseMessage]]) -> List[Any]:
+        """Serializes Langchain messages for tracing."""
+        serialized = []
+        # Messages are often nested in a list, handle the first list
+        if messages and isinstance(messages[0], list):
+            for msg in messages[0]:
+                # Simple serialization, could be expanded
+                if hasattr(msg, 'to_json'): # Check if standard serialization exists
+                     try:
+                         serialized.append(msg.to_json())
+                     except Exception: # Fallback for custom/complex messages
+                         serialized.append({"role": msg.type, "content": str(msg.content)[:500] + "..."}) # Truncate long content
+                else:
+                     serialized.append({"role": msg.type, "content": str(msg.content)[:500] + "..."}) # Truncate long content
+        elif messages and isinstance(messages[0], BaseMessage):
+             # Handle case where messages are passed as [BaseMessage]
+             for msg in messages:
+                 if hasattr(msg, 'to_json'):
+                     try:
+                          serialized.append(msg.to_json())
+                     except Exception:
+                          serialized.append({"role": msg.type, "content": str(msg.content)[:500] + "..."})
+                 else:
+                      serialized.append({"role": msg.type, "content": str(msg.content)[:500] + "..."})
+
+        return serialized
+
+    def on_llm_start(
+        self,
+        serialized: Dict[str, Any],
+        prompts: List[str], # Can be prompts or messages
+        *,
+        run_id: uuid.UUID,
+        parent_run_id: Optional[uuid.UUID] = None,
+        tags: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Run when LLM starts running. Creates ENTER and INPUT trace entries for a new LLM span."""
+        trace_client = self._get_trace_client()
+        if not trace_client:
+            return
+
+        start_time = time.time()
+        # Get parent span ID from the current context
+        parent_span_id = current_span_var.get()
+        # Generate a unique ID for this specific LLM span instance
+        llm_span_id = str(uuid.uuid4())
+
+        # Store mapping for later events
+        self._run_map[run_id] = (llm_span_id, parent_span_id, start_time)
+
+        # Calculate depth based on parent
+        current_depth = 0
+        if parent_span_id and parent_span_id in trace_client._span_depths:
+            current_depth = trace_client._span_depths[parent_span_id] + 1
+        # Store depth for this new span (important for correct nesting)
+        trace_client._span_depths[llm_span_id] = current_depth
+
+        # Try to get model name
+        model_name = kwargs.get("invocation_params", {}).get("model", None) \
+                     or kwargs.get("invocation_params", {}).get("model_name", None) \
+                     or serialized.get("model", None) \
+                     or serialized.get("model_name", "Unknown Model")
+
+        function_name = f"LLM Call ({model_name})"
+
+        # Add ENTER entry for the new LLM span
+        trace_client.add_entry(TraceEntry(
+            type="enter",
+            function=function_name,
+            span_id=llm_span_id, # Use the NEW span ID
+            trace_id=trace_client.trace_id,
+            depth=current_depth,
+            message=function_name,
+            created_at=start_time,
+            span_type="llm", # Mark as LLM span
+            parent_span_id=parent_span_id # Link to the calling function's span
+        ))
+
+        # --- Prepare INPUT entry --- 
+        input_messages = []
+        # Langchain sometimes passes prompts as List[str], sometimes as List[List[BaseMessage]] in kwargs
+        inv_params = kwargs.get("invocation_params", {})
+        # Prioritize 'messages' if present, otherwise use 'prompts'
+        raw_messages_or_prompts = inv_params.get("messages", prompts)
+
+        if raw_messages_or_prompts:
+            if isinstance(raw_messages_or_prompts[0], list) and isinstance(raw_messages_or_prompts[0][0], BaseMessage):
+                # Handle [[BaseMessage]] structure
+                input_messages = self._serialize_messages(raw_messages_or_prompts)
+            elif isinstance(raw_messages_or_prompts[0], BaseMessage):
+                 # Handle [BaseMessage] structure by calling serialize correctly
+                 input_messages = self._serialize_messages([raw_messages_or_prompts]) # Wrap in outer list
+            else: # Assume List[str] prompts
+                input_messages = raw_messages_or_prompts
+
+        inputs_dict = {
+            "model": model_name,
+            "prompts": input_messages,
+            # Clean up invocation params slightly
+            "invocation_params": {k: v for k, v in inv_params.items() if k not in ["messages", "prompt", "model", "model_name"]}
+        }
+
+        # Add INPUT entry for the new LLM span
+        trace_client.add_entry(TraceEntry(
+            type="input",
+            function=function_name,
+            span_id=llm_span_id, # Use the NEW span ID
+            trace_id=trace_client.trace_id,
+            depth=current_depth,
+            message=f"LLM Inputs to {function_name}",
+            created_at=time.time(), # Input recorded slightly after enter
+            inputs=inputs_dict,
+            span_type="llm"
+        ))
+
+    def on_llm_end(
+        self,
+        response: LLMResult,
+        *,
+        run_id: uuid.UUID,
+        parent_run_id: Optional[uuid.UUID] = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Run when LLM ends running. Creates OUTPUT and EXIT trace entries for the LLM span."""
+        trace_client = self._get_trace_client()
+        if not trace_client or run_id not in self._run_map:
+            if trace_client: # Only warn if trace exists but run_id is missing
+                 warnings.warn(f"Judgeval Tracer: LLM run_id {run_id} not found in run_map during on_llm_end.")
+            return
+
+        end_time = time.time()
+        llm_span_id, parent_span_id, start_time = self._run_map.pop(run_id)
+        duration = end_time - start_time
+
+        # Retrieve depth stored for this span
+        current_depth = trace_client._span_depths.get(llm_span_id, 0)
+
+        # Find the original function name used in on_llm_start
+        function_name = f"LLM Call"
+        model_name = "Unknown Model"
+        for entry in trace_client.entries:
+            if entry.span_id == llm_span_id and entry.type == 'enter':
+                function_name = entry.function
+                # Extract model name from the function name if possible
+                if '(' in function_name and ')' in function_name:
+                     model_name = function_name[function_name.find('(')+1:function_name.find(')')]
+                break
+
+        # --- Prepare OUTPUT entry --- 
+        output_data = {}
+        token_usage = {}
+        if response.llm_output is not None:
+            token_usage = response.llm_output.get("token_usage", {})
+            output_data["llm_output"] = response.llm_output
+        
+        generations_content = []
+        for gen_list in response.generations:
+            if gen_list:
+                msg = gen_list[0].message if hasattr(gen_list[0], 'message') else gen_list[0]
+                generations_content.append(str(getattr(msg, 'content', '')))
+        output_data["content"] = generations_content[0] if len(generations_content) == 1 else generations_content
+
+        formatted_output = {
+            "content": output_data.get("content"),
+            "usage": {}, # Critically important for cost calc
+            "raw_output": output_data
+        }
+
+        # Map token keys
+        if "prompt_tokens" in token_usage:
+            formatted_output["usage"]["prompt_tokens"] = token_usage.get("prompt_tokens", 0)
+            formatted_output["usage"]["completion_tokens"] = token_usage.get("completion_tokens", 0)
+            formatted_output["usage"]["total_tokens"] = token_usage.get("total_tokens", 0)
+        elif "input_tokens" in token_usage:
+            formatted_output["usage"]["prompt_tokens"] = token_usage.get("input_tokens", 0)
+            formatted_output["usage"]["completion_tokens"] = token_usage.get("output_tokens", 0)
+            total = token_usage.get("total_tokens", None) or (token_usage.get("input_tokens", 0) + token_usage.get("output_tokens", 0))
+            formatted_output["usage"]["total_tokens"] = total
+        else:
+            formatted_output["usage"] = token_usage
+
+        # Add OUTPUT entry
+        trace_client.add_entry(TraceEntry(
+            type="output",
+            function=function_name,
+            span_id=llm_span_id,
+            trace_id=trace_client.trace_id,
+            depth=current_depth,
+            message=f"LLM Output from {function_name}",
+            created_at=end_time,
+            output=formatted_output, # Use the formatted output with 'usage'
+            span_type="llm"
+        ))
+
+        # Add EXIT entry
+        trace_client.add_entry(TraceEntry(
+            type="exit",
+            function=function_name,
+            span_id=llm_span_id,
+            trace_id=trace_client.trace_id,
+            depth=current_depth,
+            message=f"← {function_name}",
+            created_at=end_time + 0.000001, # Ensure exit is slightly after output
+            duration=duration,
+            span_type="llm"
+        ))
+
+        # Clean up depth tracking for this span
+        if llm_span_id in trace_client._span_depths:
+            del trace_client._span_depths[llm_span_id]
+
+    def on_llm_error(
+        self,
+        error: Union[Exception, KeyboardInterrupt],
+        *,
+        run_id: uuid.UUID,
+        parent_run_id: Optional[uuid.UUID] = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Run when LLM errors. Creates OUTPUT and EXIT trace entries for the LLM span."""
+        trace_client = self._get_trace_client()
+        if not trace_client or run_id not in self._run_map:
+            if trace_client:
+                warnings.warn(f"Judgeval Tracer: LLM run_id {run_id} not found in run_map during on_llm_error.")
+            return
+
+        end_time = time.time()
+        llm_span_id, parent_span_id, start_time = self._run_map.pop(run_id)
+        duration = end_time - start_time
+
+        current_depth = trace_client._span_depths.get(llm_span_id, 0)
+
+        function_name = f"LLM Call Error"
+        for entry in trace_client.entries:
+            if entry.span_id == llm_span_id and entry.type == 'enter':
+                function_name = entry.function # Get original name
+                break
+        trace_client.add_entry(TraceEntry(
+            type="output",
+            function=function_name,
+            span_id=llm_span_id,
+            trace_id=trace_client.trace_id,
+            depth=current_depth,
+            message=f"LLM Error from {function_name}",
+            created_at=end_time,
+            output={"error": str(error)}, # Record error string
+            span_type="llm"
+        ))
+        trace_client.add_entry(TraceEntry(
+            type="exit",
+            function=function_name,
+            span_id=llm_span_id,
+            trace_id=trace_client.trace_id,
+            depth=current_depth,
+            message=f"← {function_name} (Error)",
+            created_at=end_time + 0.000001,
+            duration=duration,
+            span_type="llm"
+        ))
+
+        if llm_span_id in trace_client._span_depths:
+            del trace_client._span_depths[llm_span_id]
