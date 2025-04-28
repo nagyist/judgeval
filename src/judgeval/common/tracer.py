@@ -858,6 +858,12 @@ class TraceClient:
                 prompt_tokens = 0
                 completion_tokens = 0   
                 
+                # --- Added Logging --- 
+                is_anthropic_save = "claude" in model_name.lower()
+                if is_anthropic_save:
+                     rprint(f"[Save Debug] Processing Anthropic entry. Model: {model_name}, Usage: {usage}")
+                # -------------------
+
                 # Handle OpenAI/Together format
                 if "prompt_tokens" in usage:
                     prompt_tokens = usage.get("prompt_tokens", 0)
@@ -876,6 +882,10 @@ class TraceClient:
                 # Calculate costs if model name is available
                 if model_name:
                     try:
+                        # --- Added Logging --- 
+                        if is_anthropic_save:
+                             rprint(f"[Save Debug] Calculating cost for Anthropic. Model: {model_name}, Prompt Tokens: {prompt_tokens}, Completion Tokens: {completion_tokens}")
+                        # -------------------
                         prompt_cost, completion_cost = cost_per_token(
                             model=model_name, 
                             prompt_tokens=prompt_tokens, 
@@ -892,9 +902,12 @@ class TraceClient:
                         output["usage"]["completion_tokens_cost_usd"] = completion_cost
                         output["usage"]["total_cost_usd"] = prompt_cost + completion_cost
                     except Exception as e:
-                        # If cost calculation fails, continue without adding costs
-                        print(f"Error calculating cost for model '{model_name}': {str(e)}")
-                        pass
+                        # --- Added Logging --- 
+                        rprint(f"[Save Error] Error calculating cost for model '{model_name}': {str(e)}")
+                        if is_anthropic_save:
+                             rprint(f"[Save Error Details] Anthropic Tokens - Prompt: {prompt_tokens}, Completion: {completion_tokens}")
+                        # -------------------
+                        pass # Continue without adding costs
 
         # Create trace document
         trace_data = {
@@ -1809,26 +1822,39 @@ class JudgmentTraceCallbackHandler(BaseCallbackHandler):
         llm_span_id, parent_span_id, start_time = self._run_map.pop(run_id)
         duration = end_time - start_time
 
-        # Retrieve depth stored for this span
         current_depth = trace_client._span_depths.get(llm_span_id, 0)
 
-        # Find the original function name used in on_llm_start
         function_name = f"LLM Call"
         model_name = "Unknown Model"
+        is_anthropic = False # Flag for logging
         for entry in trace_client.entries:
             if entry.span_id == llm_span_id and entry.type == 'enter':
                 function_name = entry.function
-                # Extract model name from the function name if possible
                 if '(' in function_name and ')' in function_name:
-                     model_name = function_name[function_name.find('(')+1:function_name.find(')')]
+                    model_name = function_name[function_name.find('(')+1:function_name.find(')')]
+                    if "claude" in model_name.lower(): # Check if it looks like Anthropic
+                        is_anthropic = True
                 break
-
         # --- Prepare OUTPUT entry --- 
         output_data = {}
         token_usage = {}
         if response.llm_output is not None:
-            token_usage = response.llm_output.get("token_usage", {})
+            # --- Added Type Logging --- 
+            rprint(f"[Callback Debug] Type of llm_output: {type(response.llm_output)}")
+            # -------------------------
+            # --- Try direct access instead of .get --- 
+            try:
+                 token_usage = response.llm_output['usage']
+            except (KeyError, TypeError) as e:
+                 rprint(f"[Callback Error] Failed to access 'usage' key directly: {e}")
+                 token_usage = {} # Fallback to empty
+            # ----------------------------------------
             output_data["llm_output"] = response.llm_output
+            if is_anthropic:
+                rprint(f"[Callback Debug] Anthropic Raw llm_output for run {run_id}:", response.llm_output)
+                rprint(f"[Callback Debug] Anthropic Extracted token_usage for run {run_id} (after direct access):", token_usage) # Updated log message
+        else:
+             rprint(f"[Callback Warning] Missing llm_output for run {run_id} (Model: {model_name})")
         
         generations_content = []
         for gen_list in response.generations:
@@ -1855,6 +1881,11 @@ class JudgmentTraceCallbackHandler(BaseCallbackHandler):
             formatted_output["usage"]["total_tokens"] = total
         else:
             formatted_output["usage"] = token_usage
+
+        # --- Added Logging for Anthropic --- 
+        if is_anthropic:
+            rprint(f"[Callback Debug] Anthropic Formatted usage dict for run {run_id}:", formatted_output["usage"])
+        # -----------------------------------
 
         # Add OUTPUT entry
         trace_client.add_entry(TraceEntry(
