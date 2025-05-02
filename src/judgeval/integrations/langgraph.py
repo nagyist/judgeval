@@ -175,14 +175,33 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
             # Pass the already validated trace_client
             self._record_input_data(trace_client, run_id, inputs)
 
-        # --- NEW: Set context variable --- 
+        # --- Set context variable ONLY for chain (node) spans ---
+        if span_type == "chain":
+            try:
+                # Set current_span_var, but don't store the token as we won't reset it here
+                current_span_var.set(span_id)
+                self._log(f"  Set current_span_var to {span_id} for run_id {run_id} (type: {span_type})")
+            except Exception as e:
+                self._log(f"  ERROR setting current_span_var for run_id {run_id}: {e}")
+        # else: # For LLM, tool spans etc handled by callbacks, DO NOT set current_span_var
+            # self._log(f"  Skipping current_span_var set for run_id {run_id} (type: {span_type})")
+        # --- END Context Var Logic ---
+
         try:
-            token = current_span_var.set(span_id)
-            self._run_id_to_context_token[run_id] = token
-            self._log(f"  Set current_span_var to {span_id} for run_id {run_id}")
+            # TODO: Check if trace_client.add_entry needs await if TraceClient becomes async
+            trace_client.add_entry(TraceEntry(
+                type="enter", span_id=span_id, trace_id=trace_client.trace_id,
+                parent_span_id=parent_span_id, function=name, depth=current_depth,
+                message=name, created_at=start_time, span_type=span_type
+            ))
+            self._log(f"  Added 'enter' entry for span_id={span_id}")
         except Exception as e:
-            self._log(f"  ERROR setting current_span_var for run_id {run_id}: {e}")
-        # --- END NEW --- 
+            self._log(f"  ERROR adding 'enter' entry for span_id {span_id}: {e}")
+            print(traceback.format_exc())
+
+        if inputs:
+            # _record_input_data is also sync for now
+            self._record_input_data(trace_client, run_id, inputs)
 
     def _end_span_tracking(
         self,
