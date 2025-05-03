@@ -541,7 +541,7 @@ class TraceClient:
         # print(f"[TraceClient.async_evaluate] Captured span ID at eval call: {span_id_at_eval_call}")
         # Prioritize explicitly passed span_id, fallback to context var
         span_id_to_use = span_id if span_id is not None else current_span_var.get()
-        print(f"[TraceClient.async_evaluate] Using span_id: {span_id_to_use}")
+        # print(f"[TraceClient.async_evaluate] Using span_id: {span_id_to_use}")
         # --- End Modification ---
 
         # Combine the trace-level rules with any evaluation-specific rules)
@@ -567,7 +567,7 @@ class TraceClient:
     def add_eval_run(self, eval_run: EvaluationRun, start_time: float):
         # --- Modification: Use span_id from eval_run --- 
         current_span_id = eval_run.trace_span_id # Get ID from the eval_run object
-        print(f"[TraceClient.add_eval_run] Using span_id from eval_run: {current_span_id}")
+        # print(f"[TraceClient.add_eval_run] Using span_id from eval_run: {current_span_id}")
         # --- End Modification ---
 
         if current_span_id:
@@ -1444,8 +1444,8 @@ class Tracer:
         # --- Fallback Logic ---
         if not current_trace_var.get():
             current_trace = self._active_trace_client # Use the fallback
-            if current_trace:
-                print(f"[Tracer.async_evaluate] Using fallback _active_trace_client: {current_trace.trace_id}")
+            # if current_trace:
+                # print(f"[Tracer.async_evaluate] Using fallback _active_trace_client: {current_trace.trace_id}") # Removed this line
         # --- End Fallback Logic ---
         
         if current_trace:
