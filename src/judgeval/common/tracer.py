@@ -887,19 +887,19 @@ class TraceClient:
             output_is_dict = isinstance(entry.get("output"), dict)
 
             # --- DEBUG PRINT 1: Check if condition passes --- 
-            if is_llm_entry and has_api_suffix and output_is_dict:
-                print(f"[DEBUG TraceClient.save] Processing entry: {entry.get('span_id')} ({entry_function_name}) - Condition PASSED")
-            elif is_llm_entry:
-                 # Print why it failed if it was an LLM entry
-                 print(f"[DEBUG TraceClient.save] Skipping LLM entry: {entry.get('span_id')} ({entry_function_name}) - Suffix Match: {has_api_suffix}, Output is Dict: {output_is_dict}")
-            # --- END DEBUG --- 
+            # if is_llm_entry and has_api_suffix and output_is_dict:
+            #   #  print(f"[DEBUG TraceClient.save] Processing entry: {entry.get('span_id')} ({entry_function_name}) - Condition PASSED")
+            # elif is_llm_entry:
+            #      # Print why it failed if it was an LLM entry
+            #      print(f"[DEBUG TraceClient.save] Skipping LLM entry: {entry.get('span_id')} ({entry_function_name}) - Suffix Match: {has_api_suffix}, Output is Dict: {output_is_dict}")
+            # # --- END DEBUG --- 
 
             if is_llm_entry and has_api_suffix and output_is_dict:
                 output = entry["output"]
                 usage = output.get("usage", {}) # Gets the 'usage' dict from the 'output' field
 
                 # --- DEBUG PRINT 2: Check extracted usage --- 
-                print(f"[DEBUG TraceClient.save]   Extracted usage dict: {usage}")
+                # print(f"[DEBUG TraceClient.save]   Extracted usage dict: {usage}")
                 # --- END DEBUG --- 
 
                 # --- NEW: Extract model_name correctly from nested inputs ---
@@ -944,14 +944,14 @@ class TraceClient:
                     completion_tokens = usage.get("completion_tokens", 0)
 
                     # --- DEBUG PRINT 3: Check extracted tokens --- 
-                    print(f"[DEBUG TraceClient.save]     Extracted prompt_tokens: {prompt_tokens}, completion_tokens: {completion_tokens}")
+             #       print(f"[DEBUG TraceClient.save]     Extracted prompt_tokens: {prompt_tokens}, completion_tokens: {completion_tokens}")
                     # --- END DEBUG --- 
 
                     total_prompt_tokens += prompt_tokens
                     total_completion_tokens += completion_tokens
 
                     # --- DEBUG PRINT 4: Check accumulated totals --- 
-                    print(f"[DEBUG TraceClient.save]     AFTER accumulation: total_prompt_tokens={total_prompt_tokens}, total_completion_tokens={total_completion_tokens}")
+           #         print(f"[DEBUG TraceClient.save]     AFTER accumulation: total_prompt_tokens={total_prompt_tokens}, total_completion_tokens={total_completion_tokens}")
                     # --- END DEBUG --- 
 
                 # Handle Anthropic format (checks within the 'usage' dict)
@@ -2211,7 +2211,7 @@ def prepare_evaluation_for_state(
     if final_example is None:
         # Basic validation: Ensure at least actual_output is present for most scorers
         if actual_output is None:
-            print("[prepare_evaluation_for_state] Warning: 'actual_output' is required when 'example' is not provided. Skipping evaluation setup.")
+      #      print("[prepare_evaluation_for_state] Warning: 'actual_output' is required when 'example' is not provided. Skipping evaluation setup.")
             return None
         try:
             final_example = Example(
@@ -2225,9 +2225,9 @@ def prepare_evaluation_for_state(
                 additional_metadata=additional_metadata,
                 # trace_id will be set by the handler later if needed
             )
-            print("[prepare_evaluation_for_state] Constructed Example from individual components.")
+       #     print("[prepare_evaluation_for_state] Constructed Example from individual components.")
         except Exception as e:
-            print(f"[prepare_evaluation_for_state] Error constructing Example: {e}. Skipping evaluation setup.")
+      #      print(f"[prepare_evaluation_for_state] Error constructing Example: {e}. Skipping evaluation setup.")
             return None
 
     # If we have a valid example (provided or constructed) and scorers
@@ -2241,10 +2241,10 @@ def prepare_evaluation_for_state(
             log_results=log_results
         )
     elif not scorers:
-        print("[prepare_evaluation_for_state] No scorers provided. Skipping evaluation setup.")
+    #    print("[prepare_evaluation_for_state] No scorers provided. Skipping evaluation setup.")
         return None
     else: # No valid example
-        print("[prepare_evaluation_for_state] No valid Example available. Skipping evaluation setup.")
+    #   print("[prepare_evaluation_for_state] No valid Example available. Skipping evaluation setup.")
         return None
 # --- End NEW Helper Function ---
 
@@ -2301,7 +2301,7 @@ def add_evaluation_to_state(
     
     if eval_config:
         state["_judgeval_eval"] = eval_config
-        print(f"[_judgeval_eval added to state for node]") # Optional: Log confirmation
-    else:
-        print("[Skipped adding _judgeval_eval to state: prepare_evaluation_for_state failed]")
+   #     print(f"[_judgeval_eval added to state for node]") # Optional: Log confirmation
+
+     #   print("[Skipped adding _judgeval_eval to state: prepare_evaluation_for_state failed]")
 # --- End NEW Helper --- 
