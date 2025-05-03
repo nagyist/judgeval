@@ -223,14 +223,17 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
     ):
         self._log(f"_end_span_tracking called for: run_id={run_id}, span_type={span_type}")
 
+        # --- Define instance_id early for logging/cleanup ---
+        instance_id = id(self)
+
         if not trace_client:
-            handler_instance_id = id(self)
-            log_prefix = f"{HANDLER_LOG_PREFIX} [Handler {handler_instance_id}]"
+            # Use instance_id defined above
+            log_prefix = f"{HANDLER_LOG_PREFIX} [Handler {instance_id}]"
             self._log(f"{log_prefix} FATAL ERROR in _end_span_tracking: trace_client argument is None for run_id={run_id}. Aborting span end.")
             return
 
-        handler_instance_id = id(self)
-        log_prefix = f"{HANDLER_LOG_PREFIX} [Handler {handler_instance_id}]"
+        # Use instance_id defined above
+        log_prefix = f"{HANDLER_LOG_PREFIX} [Handler {instance_id}]"
         trace_client_instance_id = id(trace_client) if trace_client else 'None'
         print(f"{log_prefix} _end_span_tracking: Using TraceClient ID: {trace_client_instance_id}")
 
@@ -298,17 +301,11 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
         if run_id == self._root_run_id:
             trace_saved_successfully = False # Track save success
             try:
-                # Reset Trace Context Var if it was set
-                if self._trace_context_token is not None:
-                    try:
-                        # current_trace_var.reset(self._trace_context_token) # Avoid reset
-                        self._log(f"  Popped current_trace_var token for trace_id {self._trace_client.trace_id if self._trace_client else 'UNKNOWN'} - not resetting")
-                    except LookupError:
-                         self._log(f"  [WARN] Could not pop current_trace_var token (token from different context?).")
-                    except Exception as e:
-                         self._log(f"  ERROR popping current_trace_var token: {e}")
-                    # Ensure token ref is cleared even if reset fails
-                    # self._trace_context_token = None <-- Moved to finally block
+                # Reset root run id after attempt
+                self._root_run_id = None
+                # Reset input storage for this handler instance
+                self._run_id_to_start_inputs = {}
+                self._log(f"Reset root run ID and input storage for handler {instance_id}.")
 
                 self._log(f"Root run {run_id} finished. Attempting to save trace...")
                 if self._trace_client and not self._trace_saved: # Check if not already saved
@@ -329,7 +326,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
             finally:
                 # --- NEW: Consolidated Cleanup Logic --- 
                 # This block executes regardless of save success/failure
-                self._log(f"  Performing cleanup for root run {run_id} in handler {handler_instance_id}.")
+                self._log(f"  Performing cleanup for root run {run_id} in handler {instance_id}.")
                 # Reset root run id
                 self._root_run_id = None
                 # Reset input storage for this handler instance
@@ -338,10 +335,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                 if self.tracer._active_trace_client == self._trace_client:
                     self.tracer._active_trace_client = None
                     self._log("  Reset active_trace_client on Tracer.")
-                # Clear trace context token reference
-                if self._trace_context_token is not None:
-                     self._trace_context_token = None
-                     self._log("  Cleared trace context token reference.")
+                # Completely remove trace_context_token cleanup as it's not used in sync handler
                 # Optionally: Reset the entire trace client instance for this handler?
                 # self._trace_client = None # Uncomment if handler should reset client completely after root run
                 self._log(f"  Cleanup complete for root run {run_id}.")
@@ -549,6 +543,9 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
         log_prefix = f"{HANDLER_LOG_PREFIX} [Handler {handler_instance_id}]"
         print(f"{log_prefix} ENTERING on_chain_end: run_id={run_id}. Parent: {parent_run_id}")
 
+        # --- Define instance_id for logging --- 
+        instance_id = handler_instance_id # Use the already obtained id
+
         try:
             # Pass parent_run_id
             trace_client = self._ensure_trace_client(run_id, parent_run_id, "ChainEnd") # Corrected call
@@ -600,7 +597,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                     try:
                         # Call evaluate on the trace client, passing the specific span_id
                         # The TraceClient.async_evaluate now accepts and prioritizes this span_id.
-                        client.async_evaluate(
+                        trace_client.async_evaluate(
                             scorers=[AnswerRelevancyScorer(threshold=0.5)], # Ensure this scorer is imported
                             example=eval_example,
                             model=model_name,
@@ -635,73 +632,103 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
             # Call end_span_tracking with potentially determined span_type
             self._end_span_tracking(trace_client, run_id, span_type=end_span_type, outputs=combined_outputs)
 
-            # --- NEW: Attempt Evaluation by checking output metadata ---
+            # --- Root node cleanup (Existing logic - slightly modified save call) ---
+            if run_id == self._root_run_id:
+                self._log(f"Root run {run_id} finished. Attempting to save trace...")
+                if trace_client and not self._trace_saved:
+                    try:
+                        # Save might need to be async if TraceClient methods become async
+                        # Pass overwrite=True based on client's setting
+                        trace_id_saved, _ = trace_client.save(overwrite=trace_client.overwrite)
+                        self._trace_saved = True
+                        self._log(f"Trace {trace_id_saved} successfully saved.")
+                        # Reset tracer's active client *after* successful save
+                        if self.tracer._active_trace_client == trace_client:
+                            self.tracer._active_trace_client = None 
+                            self._log("Reset active_trace_client on Tracer.")
+                    except Exception as e:
+                        self._log(f"ERROR saving trace {trace_client.trace_id}: {e}")
+                        print(traceback.format_exc())
+                elif trace_client and self._trace_saved:
+                    self._log(f"Trace {trace_client.trace_id} already saved. Skipping save for root run {run_id}.")
+                elif not trace_client:
+                    self._log(f"Skipping trace save for root run {run_id}: No client available.")
+                
+                # Reset root run id after attempt
+                self._root_run_id = None
+                # Reset input storage for this handler instance
+                self._run_id_to_start_inputs = {} 
+                self._log(f"Reset root run ID and input storage for handler {instance_id}.")
+
+            # --- SYNC: Attempt Evaluation by checking output metadata --- 
             eval_config: Optional[EvaluationConfig] = None
             node_name = "unknown_node" # Default node name
-            if span_id: # Try to find the node name from the 'enter' entry
-                 try:
-                     if hasattr(trace_client, 'entries') and trace_client.entries:
-                         enter_entry = next((e for e in reversed(trace_client.entries) if e.span_id == span_id and e.type == "enter"), None)
-                         if enter_entry: node_name = enter_entry.function
-                 except Exception as e:
-                     self._log(f"  ERROR finding node name for span_id {span_id} in on_chain_end: {e}")
-            
-            if span_id and "_judgeval_eval" in outputs: # Only attempt if span exists and key is present
-                raw_eval_config = outputs.get("_judgeval_eval")
-                if isinstance(raw_eval_config, EvaluationConfig):
-                    eval_config = raw_eval_config
-                    self._log(f"{log_prefix} Found valid EvaluationConfig in outputs for node='{node_name}'.")
-                elif isinstance(raw_eval_config, dict):
-                     # Attempt to reconstruct from dict if needed (e.g., if state serialization occurred)
-                     try:
-                         # Basic check for required keys before attempting reconstruction
-                         if "scorers" in raw_eval_config and "example" in raw_eval_config:
-                             # Example might also be a dict, try reconstructing it
-                             example_data = raw_eval_config["example"]
-                             reconstructed_example = Example(**example_data) if isinstance(example_data, dict) else example_data
+            # Ensure trace_client exists before proceeding with eval logic that uses it
+            if trace_client:
+                if span_id: # Try to find the node name from the 'enter' entry
+                    try:
+                        if hasattr(trace_client, 'entries') and trace_client.entries:
+                            enter_entry = next((e for e in reversed(trace_client.entries) if e.span_id == span_id and e.type == "enter"), None)
+                            if enter_entry: node_name = enter_entry.function
+                    except Exception as e:
+                        self._log(f"  ERROR finding node name for span_id {span_id} in on_chain_end: {e}")
+                
+                if span_id and "_judgeval_eval" in outputs: # Only attempt if span exists and key is present
+                    raw_eval_config = outputs.get("_judgeval_eval")
+                    if isinstance(raw_eval_config, EvaluationConfig):
+                        eval_config = raw_eval_config
+                        self._log(f"{log_prefix} Found valid EvaluationConfig in outputs for node='{node_name}'.")
+                    elif isinstance(raw_eval_config, dict):
+                         # Attempt to reconstruct from dict
+                         try:
+                             if "scorers" in raw_eval_config and "example" in raw_eval_config:
+                                 example_data = raw_eval_config["example"]
+                                 reconstructed_example = Example(**example_data) if isinstance(example_data, dict) else example_data
 
-                             if isinstance(reconstructed_example, Example):
-                                 eval_config = EvaluationConfig(
-                                     scorers=raw_eval_config["scorers"], # Assumes scorers are serializable or passed correctly
-                                     example=reconstructed_example,
-                                     model=raw_eval_config.get("model"),
-                                     log_results=raw_eval_config.get("log_results", True)
-                                 )
-                                 self._log(f"{log_prefix} Reconstructed EvaluationConfig from dict in outputs for node='{node_name}'.")
+                                 if isinstance(reconstructed_example, Example):
+                                     eval_config = EvaluationConfig(
+                                         scorers=raw_eval_config["scorers"], 
+                                         example=reconstructed_example,
+                                         model=raw_eval_config.get("model"),
+                                         log_results=raw_eval_config.get("log_results", True)
+                                     )
+                                     self._log(f"{log_prefix} Reconstructed EvaluationConfig from dict in outputs for node='{node_name}'.")
+                                 else:
+                                    self._log(f"{log_prefix} Could not reconstruct Example from dict in _judgeval_eval for node='{node_name}'. Skipping evaluation.")
                              else:
-                                self._log(f"{log_prefix} Could not reconstruct Example from dict in _judgeval_eval for node='{node_name}'. Skipping evaluation.")
-                         else:
-                             self._log(f"{log_prefix} Dict in _judgeval_eval missing required keys ('scorers', 'example') for node='{node_name}'. Skipping evaluation.")
-                     except Exception as recon_e:
-                         self._log(f"{log_prefix} ERROR attempting to reconstruct EvaluationConfig from dict for node='{node_name}': {recon_e}")
-                         print(traceback.format_exc()) # Print traceback for reconstruction errors
-                else:
-                    self._log(f"{log_prefix} Found '_judgeval_eval' key in outputs for node='{node_name}', but it wasn't an EvaluationConfig object or reconstructable dict. Skipping evaluation.")
+                                 self._log(f"{log_prefix} Dict in _judgeval_eval missing required keys ('scorers', 'example') for node='{node_name}'. Skipping evaluation.")
+                         except Exception as recon_e:
+                             self._log(f"{log_prefix} ERROR attempting to reconstruct EvaluationConfig from dict for node='{node_name}': {recon_e}")
+                             print(traceback.format_exc()) # Print traceback for reconstruction errors
+                    else:
+                        self._log(f"{log_prefix} Found '_judgeval_eval' key in outputs for node='{node_name}', but it wasn't an EvaluationConfig object or reconstructable dict. Skipping evaluation.")
 
-
-            if eval_config and span_id: # Check eval_config *and* span_id again
-                self._log(f"{log_prefix} Submitting evaluation for span_id={span_id}")
-                try:
-                    # Ensure example has trace_id set if not already present
-                    if not hasattr(eval_config.example, 'trace_id') or not eval_config.example.trace_id:
-                        eval_config.example.trace_id = client.trace_id
-                        self._log(f"{log_prefix} Set trace_id={client.trace_id} on evaluation example.")
-                    
-                    # Call async_evaluate on the TraceClient instance ('client')
-                    client.async_evaluate(
-                        scorers=eval_config.scorers,
-                        example=eval_config.example,
-                        model=eval_config.model,
-                        log_results=eval_config.log_results,
-                        span_id=span_id # Pass the specific span_id for this node run
-                    )
-                    self._log(f"{log_prefix} Evaluation submitted successfully for span_id={span_id}.")
-                except Exception as eval_e:
-                    self._log(f"{log_prefix} ERROR submitting evaluation for span_id={span_id}: {eval_e}")
-                    print(traceback.format_exc()) # Print traceback for evaluation errors
-            elif "_judgeval_eval" in outputs and not span_id:
-                 self._log(f"{log_prefix} WARNING: Found _judgeval_eval in outputs, but span_id for run_id {run_id} was not found. Cannot submit evaluation.")
-            # --- End NEW Evaluation Logic ---
+                # Check eval_config *and* span_id again (this should be indented correctly)
+                if eval_config and span_id: 
+                    self._log(f"{log_prefix} Submitting evaluation for span_id={span_id}")
+                    try:
+                        # Ensure example has trace_id set if not already present
+                        if not hasattr(eval_config.example, 'trace_id') or not eval_config.example.trace_id:
+                            # Use the correct variable name 'trace_client' here
+                            eval_config.example.trace_id = trace_client.trace_id 
+                            self._log(f"{log_prefix} Set trace_id={trace_client.trace_id} on evaluation example.")
+                        
+                        # Call async_evaluate on the TraceClient instance ('trace_client')
+                        # Use the correct variable name 'trace_client' here
+                        trace_client.async_evaluate( # <-- Fix: Use trace_client
+                            scorers=eval_config.scorers,
+                            example=eval_config.example,
+                            model=eval_config.model,
+                            log_results=eval_config.log_results,
+                            span_id=span_id # Pass the specific span_id for this node run
+                        )
+                        self._log(f"{log_prefix} Evaluation submitted successfully for span_id={span_id}.")
+                    except Exception as eval_e:
+                        self._log(f"{log_prefix} ERROR submitting evaluation for span_id={span_id}: {eval_e}")
+                        print(traceback.format_exc()) # Print traceback for evaluation errors
+                elif "_judgeval_eval" in outputs and not span_id:
+                     self._log(f"{log_prefix} WARNING: Found _judgeval_eval in outputs, but span_id for run_id {run_id} was not found. Cannot submit evaluation.")
+            # --- End SYNC Evaluation Logic ---
 
         except Exception as e:
             tc_id_on_error = id(self._trace_client) if self._trace_client else 'None'
@@ -913,8 +940,8 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
         tc_id_on_entry = id(self._trace_client) if self._trace_client else 'None'
         print(f"{log_prefix} ENTERING on_chat_model_start: name='{chat_model_name}', run_id={run_id}. Current TraceClient ID: {tc_id_on_entry}")
         try:
-            # trace_client = self._ensure_trace_client(run_id, parent_run_id, chat_model_name) # Corrected call << INCORRECT COMMENT
-            trace_client = self._ensure_trace_client(run_id, chat_model_name) # FIXED: Removed parent_run_id
+            # The call below was missing parent_run_id
+            trace_client = self._ensure_trace_client(run_id, parent_run_id, chat_model_name) # Corrected call with parent_run_id
             if not trace_client: return
             inputs = {'messages': messages, 'invocation_params': invocation_params or kwargs, 'options': options, 'tags': tags, 'metadata': metadata, 'serialized': serialized}
             self._start_span_tracking(trace_client, run_id, parent_run_id, chat_model_name, span_type="llm", inputs=inputs) # Use 'llm' span_type for consistency
@@ -1111,14 +1138,18 @@ class AsyncJudgevalCallbackHandler(AsyncCallbackHandler):
         error: Optional[BaseException] = None
     ):
         self._log(f"_end_span_tracking called for: run_id={run_id}, span_type={span_type}")
+
+        # --- Define instance_id early for logging/cleanup ---
+        instance_id = id(self)
+
         if not trace_client:
-            handler_instance_id = id(self)
-            log_prefix = f"{HANDLER_LOG_PREFIX} [Async Handler {handler_instance_id}]"
+            # Use instance_id defined above
+            log_prefix = f"{HANDLER_LOG_PREFIX} [Handler {instance_id}]"
             self._log(f"{log_prefix} FATAL ERROR in _end_span_tracking: trace_client argument is None for run_id={run_id}. Aborting span end.")
             return
 
-        handler_instance_id = id(self)
-        log_prefix = f"{HANDLER_LOG_PREFIX} [Async Handler {handler_instance_id}]"
+        # Use instance_id defined above
+        log_prefix = f"{HANDLER_LOG_PREFIX} [Handler {instance_id}]"
         trace_client_instance_id = id(trace_client) if trace_client else 'None'
         print(f"{log_prefix} _end_span_tracking: Using TraceClient ID: {trace_client_instance_id}")
 
@@ -1187,17 +1218,11 @@ class AsyncJudgevalCallbackHandler(AsyncCallbackHandler):
         if run_id == self._root_run_id:
             trace_saved_successfully = False # Track save success
             try:
-                # Reset Trace Context Var if it was set
-                if self._trace_context_token is not None:
-                    try:
-                        # current_trace_var.reset(self._trace_context_token) # Avoid reset
-                        self._log(f"  Popped current_trace_var token for trace_id {self._trace_client.trace_id if self._trace_client else 'UNKNOWN'} - not resetting")
-                    except LookupError:
-                         self._log(f"  [WARN] Could not pop current_trace_var token (token from different context?).")
-                    except Exception as e:
-                         self._log(f"  ERROR popping current_trace_var token: {e}")
-                    # Ensure token ref is cleared even if reset fails
-                    # self._trace_context_token = None <-- Moved to finally block
+                # Reset root run id after attempt
+                self._root_run_id = None
+                # Reset input storage for this handler instance
+                self._run_id_to_start_inputs = {}
+                self._log(f"Reset root run ID and input storage for handler {instance_id}.")
 
                 self._log(f"Root run {run_id} finished. Attempting to save trace...")
                 if self._trace_client and not self._trace_saved: # Check if not already saved
@@ -1218,7 +1243,7 @@ class AsyncJudgevalCallbackHandler(AsyncCallbackHandler):
             finally:
                 # --- NEW: Consolidated Cleanup Logic --- 
                 # This block executes regardless of save success/failure
-                self._log(f"  Performing cleanup for root run {run_id} in handler {handler_instance_id}.")
+                self._log(f"  Performing cleanup for root run {run_id} in handler {instance_id}.")
                 # Reset root run id
                 self._root_run_id = None
                 # Reset input storage for this handler instance
@@ -1227,10 +1252,7 @@ class AsyncJudgevalCallbackHandler(AsyncCallbackHandler):
                 if self.tracer._active_trace_client == self._trace_client:
                     self.tracer._active_trace_client = None
                     self._log("  Reset active_trace_client on Tracer.")
-                # Clear trace context token reference
-                if self._trace_context_token is not None:
-                     self._trace_context_token = None
-                     self._log("  Cleared trace context token reference.")
+                # Completely remove trace_context_token cleanup as it's not used in sync handler
                 # Optionally: Reset the entire trace client instance for this handler?
                 # self._trace_client = None # Uncomment if handler should reset client completely after root run
                 self._log(f"  Cleanup complete for root run {run_id}.")
@@ -1470,72 +1492,78 @@ class AsyncJudgevalCallbackHandler(AsyncCallbackHandler):
         # Call end_span_tracking with potentially determined span_type
         self._end_span_tracking(client, run_id, span_type=end_span_type, outputs=combined_outputs)
 
-        # --- NEW: Attempt Evaluation by checking output metadata ---
+        # --- Root node cleanup REMOVED - Now handled in _end_span_tracking ---
+
+        # --- NEW: Attempt Evaluation by checking output metadata --- 
         eval_config: Optional[EvaluationConfig] = None
         node_name = "unknown_node" # Default node name
-        if span_id: # Try to find the node name from the 'enter' entry
-             try:
-                 if hasattr(client, 'entries') and client.entries:
-                     enter_entry = next((e for e in reversed(client.entries) if e.span_id == span_id and e.type == "enter"), None)
-                     if enter_entry: node_name = enter_entry.function
-             except Exception as e:
-                 self._log(f"  ERROR finding node name for span_id {span_id} in on_chain_end: {e}")
-        
-        if span_id and "_judgeval_eval" in outputs: # Only attempt if span exists and key is present
-            raw_eval_config = outputs.get("_judgeval_eval")
-            if isinstance(raw_eval_config, EvaluationConfig):
-                eval_config = raw_eval_config
-                self._log(f"{log_prefix} Found valid EvaluationConfig in outputs for node='{node_name}'.")
-            elif isinstance(raw_eval_config, dict):
-                 # Attempt to reconstruct from dict if needed (e.g., if state serialization occurred)
+        # Ensure client exists before proceeding with eval logic that uses it
+        if client: 
+            if span_id: # Try to find the node name from the 'enter' entry
                  try:
-                     # Basic check for required keys before attempting reconstruction
-                     if "scorers" in raw_eval_config and "example" in raw_eval_config:
-                         # Example might also be a dict, try reconstructing it
-                         example_data = raw_eval_config["example"]
-                         reconstructed_example = Example(**example_data) if isinstance(example_data, dict) else example_data
+                     if hasattr(client, 'entries') and client.entries:
+                         enter_entry = next((e for e in reversed(client.entries) if e.span_id == span_id and e.type == "enter"), None)
+                         if enter_entry: node_name = enter_entry.function
+                 except Exception as e:
+                     self._log(f"  ERROR finding node name for span_id {span_id} in on_chain_end: {e}")
+            
+            if span_id and "_judgeval_eval" in outputs: # Only attempt if span exists and key is present
+                raw_eval_config = outputs.get("_judgeval_eval")
+                if isinstance(raw_eval_config, EvaluationConfig):
+                    eval_config = raw_eval_config
+                    self._log(f"{log_prefix} Found valid EvaluationConfig in outputs for node='{node_name}'.")
+                elif isinstance(raw_eval_config, dict):
+                     # Attempt to reconstruct from dict if needed (e.g., if state serialization occurred)
+                     try:
+                         # Basic check for required keys before attempting reconstruction
+                         if "scorers" in raw_eval_config and "example" in raw_eval_config:
+                             # Example might also be a dict, try reconstructing it
+                             example_data = raw_eval_config["example"]
+                             reconstructed_example = Example(**example_data) if isinstance(example_data, dict) else example_data
 
-                         if isinstance(reconstructed_example, Example):
-                             eval_config = EvaluationConfig(
-                                 scorers=raw_eval_config["scorers"], # Assumes scorers are serializable or passed correctly
-                                 example=reconstructed_example,
-                                 model=raw_eval_config.get("model"),
-                                 log_results=raw_eval_config.get("log_results", True)
-                             )
-                             self._log(f"{log_prefix} Reconstructed EvaluationConfig from dict in outputs for node='{node_name}'.")
+                             if isinstance(reconstructed_example, Example):
+                                 eval_config = EvaluationConfig(
+                                     scorers=raw_eval_config["scorers"], # Assumes scorers are serializable or passed correctly
+                                     example=reconstructed_example,
+                                     model=raw_eval_config.get("model"),
+                                     log_results=raw_eval_config.get("log_results", True)
+                                 )
+                                 self._log(f"{log_prefix} Reconstructed EvaluationConfig from dict in outputs for node='{node_name}'.")
+                             else:
+                                self._log(f"{log_prefix} Could not reconstruct Example from dict in _judgeval_eval for node='{node_name}'. Skipping evaluation.")
                          else:
-                            self._log(f"{log_prefix} Could not reconstruct Example from dict in _judgeval_eval for node='{node_name}'. Skipping evaluation.")
-                     else:
-                         self._log(f"{log_prefix} Dict in _judgeval_eval missing required keys ('scorers', 'example') for node='{node_name}'. Skipping evaluation.")
-                 except Exception as recon_e:
-                     self._log(f"{log_prefix} ERROR attempting to reconstruct EvaluationConfig from dict for node='{node_name}': {recon_e}")
-                     print(traceback.format_exc()) # Print traceback for reconstruction errors
-            else:
-                self._log(f"{log_prefix} Found '_judgeval_eval' key in outputs for node='{node_name}', but it wasn't an EvaluationConfig object or reconstructable dict. Skipping evaluation.")
+                             self._log(f"{log_prefix} Dict in _judgeval_eval missing required keys ('scorers', 'example') for node='{node_name}'. Skipping evaluation.")
+                     except Exception as recon_e:
+                         self._log(f"{log_prefix} ERROR attempting to reconstruct EvaluationConfig from dict for node='{node_name}': {recon_e}")
+                         print(traceback.format_exc()) # Print traceback for reconstruction errors
+                else:
+                    self._log(f"{log_prefix} Found '_judgeval_eval' key in outputs for node='{node_name}', but it wasn't an EvaluationConfig object or reconstructable dict. Skipping evaluation.")
 
 
-        if eval_config and span_id: # Check eval_config *and* span_id again
-            self._log(f"{log_prefix} Submitting evaluation for span_id={span_id}")
-            try:
-                # Ensure example has trace_id set if not already present
-                if not hasattr(eval_config.example, 'trace_id') or not eval_config.example.trace_id:
-                    eval_config.example.trace_id = client.trace_id
-                    self._log(f"{log_prefix} Set trace_id={client.trace_id} on evaluation example.")
-                
-                # Call async_evaluate on the TraceClient instance ('client')
-                client.async_evaluate(
-                    scorers=eval_config.scorers,
-                    example=eval_config.example,
-                    model=eval_config.model,
-                    log_results=eval_config.log_results,
-                    span_id=span_id # Pass the specific span_id for this node run
-                )
-                self._log(f"{log_prefix} Evaluation submitted successfully for span_id={span_id}.")
-            except Exception as eval_e:
-                self._log(f"{log_prefix} ERROR submitting evaluation for span_id={span_id}: {eval_e}")
-                print(traceback.format_exc()) # Print traceback for evaluation errors
-        elif "_judgeval_eval" in outputs and not span_id:
-             self._log(f"{log_prefix} WARNING: Found _judgeval_eval in outputs, but span_id for run_id {run_id} was not found. Cannot submit evaluation.")
+            if eval_config and span_id: # Check eval_config *and* span_id again
+                self._log(f"{log_prefix} Submitting evaluation for span_id={span_id}")
+                try:
+                    # Ensure example has trace_id set if not already present
+                    if not hasattr(eval_config.example, 'trace_id') or not eval_config.example.trace_id:
+                        # Use the correct variable name 'client' here for the async handler
+                        eval_config.example.trace_id = client.trace_id 
+                        self._log(f"{log_prefix} Set trace_id={client.trace_id} on evaluation example.")
+                    
+                    # Call async_evaluate on the TraceClient instance ('client')
+                    # Use the correct variable name 'client' here for the async handler
+                    client.async_evaluate( 
+                        scorers=eval_config.scorers,
+                        example=eval_config.example,
+                        model=eval_config.model,
+                        log_results=eval_config.log_results,
+                        span_id=span_id # Pass the specific span_id for this node run
+                    )
+                    self._log(f"{log_prefix} Evaluation submitted successfully for span_id={span_id}.")
+                except Exception as eval_e:
+                    self._log(f"{log_prefix} ERROR submitting evaluation for span_id={span_id}: {eval_e}")
+                    print(traceback.format_exc()) # Print traceback for evaluation errors
+            elif "_judgeval_eval" in outputs and not span_id:
+                 self._log(f"{log_prefix} WARNING: Found _judgeval_eval in outputs, but span_id for run_id {run_id} was not found. Cannot submit evaluation.")
         # --- End NEW Evaluation Logic ---
 
     async def on_chain_error(self, error: BaseException, *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any) -> Any:
