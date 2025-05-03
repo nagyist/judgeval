@@ -7,7 +7,7 @@ from tavily import TavilyClient
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from judgeval.common.tracer import Tracer
+from judgeval.common.tracer import Tracer, current_trace_var
 from judgeval.integrations.langgraph import AsyncJudgevalCallbackHandler
 from judgeval.scorers import AnswerRelevancyScorer
 from judgeval.data import Example
@@ -186,24 +186,39 @@ async def generate_recommendations(state: State) -> State:
     recommendations = response.content
     state["recommendations"] = recommendations
 
-    # --- Add Evaluation Step ---
-    print("\n[Demo] Evaluating recommendation relevance...")
+    # --- Modified Evaluation Step --- 
+    print("\n[Demo] Attempting to evaluate recommendation relevance using context variables...")
     eval_example = Example(
         input=user_prompt,
         actual_output=recommendations,
     )
 
-    try:
-        # Call async_evaluate (note: it doesn't need await currently)
-        judgment.async_evaluate(
-            scorers=[AnswerRelevancyScorer(threshold=0.5)],
-            example=eval_example,
-            model=chat_model.model_name
-        )
-        print("[Demo] Evaluation task submitted.")
-    except Exception as eval_e:
-        print(f"[Demo] Error during evaluation submission: {eval_e}")
-    # --- End Evaluation Step ---
+    # --- Get TraceClient from context variable ---
+    current_trace = current_trace_var.get() # Get the TraceClient instance from context
+
+    if current_trace:
+        print(f"[Demo] Found TraceClient via context var: {current_trace.trace_id}. Submitting evaluation.")
+        try:
+            # Call async_evaluate on the TraceClient retrieved from context.
+            # This call happens *within* the node's execution context where
+            # current_span_var should be set correctly by the handler.
+            current_trace.async_evaluate( 
+                scorers=[AnswerRelevancyScorer(threshold=0.5)],
+                example=eval_example,
+                model=chat_model.model_name
+            )
+            print("[Demo] Evaluation task submitted via TraceClient from context.")
+        except Exception as eval_e:
+            print(f"[Demo] Error during evaluation submission via TraceClient from context: {eval_e}")
+    else:
+        print("[Demo] No TraceClient found in context variable (current_trace_var). Skipping evaluation submission.")
+        # Also check the fallback if needed, but context var is preferred
+        fallback_trace_client = judgment.get_active_trace_client()
+        if fallback_trace_client:
+            print(f"[Demo] Fallback active trace client found: {fallback_trace_client.trace_id}. Context var might not be set/propagated correctly.")
+        else:
+            print("[Demo] Fallback active trace client also not found.")
+    # --- End Modified Evaluation Step ---
 
     return state
 
@@ -261,9 +276,10 @@ async def music_recommendation_bot():
         handler = AsyncJudgevalCallbackHandler(judgment) 
         
         # Run the entire workflow with graph.ainvoke (asynchronous)
-        # Pass the compiled graph and initial state
         # Pass handler directly in config
-        final_state = await graph.ainvoke(initial_state, config={"callbacks": [handler]}) # Use ainvoke (async) and the async handler
+        # The handler instance needs to be accessible inside the node later
+        config_with_callbacks = {"callbacks": [handler]}
+        final_state = await graph.ainvoke(initial_state, config=config_with_callbacks) # Use ainvoke (async) and the async handler
         
         print("\n🎧 Your Personalized Music Recommendations 🎧")
         print(final_state.get("recommendations", "No recommendations generated."))
