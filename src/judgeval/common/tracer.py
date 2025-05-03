@@ -524,6 +524,11 @@ class TraceClient:
         # Check examples before creating evaluation run
         check_examples([example], scorers)
         
+        # --- Modification: Capture span_id immediately ---
+        span_id_at_eval_call = current_span_var.get()
+        print(f"[TraceClient.async_evaluate] Captured span ID at eval call: {span_id_at_eval_call}")
+        # --- End Modification ---
+
         # Combine the trace-level rules with any evaluation-specific rules)
         eval_run = EvaluationRun(
             organization_id=self.tracer.organization_id,
@@ -538,14 +543,18 @@ class TraceClient:
             metadata={},
             judgment_api_key=self.tracer.api_key,
             override=self.overwrite,
-            trace_span_id=current_span_var.get(),
+            trace_span_id=span_id_at_eval_call, # Pass the captured ID
             rules=self.rules # Use the combined rules
         )
         
         self.add_eval_run(eval_run, start_time)  # Pass start_time to record_evaluation
             
     def add_eval_run(self, eval_run: EvaluationRun, start_time: float):
-        current_span_id = current_span_var.get()
+        # --- Modification: Use span_id from eval_run --- 
+        current_span_id = eval_run.trace_span_id # Get ID from the eval_run object
+        print(f"[TraceClient.add_eval_run] Using span_id from eval_run: {current_span_id}")
+        # --- End Modification ---
+
         if current_span_id:
             duration = time.time() - start_time
             prev_entry = self.entries[-1] if self.entries else None
@@ -1049,6 +1058,7 @@ class Tracer:
             self.client: JudgmentClient = JudgmentClient(judgment_api_key=api_key)
             self.organization_id: str = organization_id
             self._current_trace: Optional[str] = None
+            self._active_trace_client: Optional[TraceClient] = None # Add active trace client attribute
             self.rules: List[Rule] = rules or []  # Store rules at tracer level
             self.initialized: bool = True
             self.enable_monitoring: bool = enable_monitoring
@@ -1086,6 +1096,10 @@ class Tracer:
         """
         return current_trace_var.get()
         
+    def get_active_trace_client(self) -> Optional[TraceClient]:
+        """Returns the TraceClient instance currently marked as active by the handler."""
+        return self._active_trace_client
+
     def _apply_deep_tracing(self, func, span_type="span"):
         """
         Apply deep tracing to all functions in the same module as the given function.
@@ -1409,13 +1423,20 @@ class Tracer:
         if not self.enable_evaluations:
             return
 
-        # Get current trace from context
-        current_trace = current_trace_var.get()
+        # --- Get trace_id passed explicitly (if any) ---
+        passed_trace_id = kwargs.pop('trace_id', None) # Get and remove trace_id from kwargs
+
+        # --- Fallback Logic ---
+        if not current_trace_var.get():
+            current_trace = self._active_trace_client # Use the fallback
+            if current_trace:
+                print(f"[Tracer.async_evaluate] Using fallback _active_trace_client: {current_trace.trace_id}")
+        # --- End Fallback Logic ---
         
         if current_trace:
             current_trace.async_evaluate(*args, **kwargs)
         else:
-            warnings.warn("No trace found, skipping evaluation")
+            warnings.warn("No trace found (context var or fallback), skipping evaluation") # Modified warning
 
 
 def wrap(client: Any) -> Any:
