@@ -76,6 +76,17 @@ in_traced_function_var = contextvars.ContextVar('in_traced_function', default=Fa
 ApiClient: TypeAlias = Union[OpenAI, Together, Anthropic, AsyncOpenAI, AsyncAnthropic, AsyncTogether, genai.Client, genai.client.AsyncClient]  # Supported API clients
 TraceEntryType = Literal['enter', 'exit', 'output', 'input', 'evaluation']  # Valid trace entry types
 SpanType = Literal['span', 'tool', 'llm', 'evaluation', 'chain']
+
+# --- Evaluation Config Dataclass (Moved from langgraph.py) ---
+@dataclass
+class EvaluationConfig:
+    """Configuration for triggering an evaluation from the handler."""
+    scorers: List[Union[APIJudgmentScorer, JudgevalScorer]]
+    example: Example
+    model: Optional[str] = None
+    log_results: Optional[bool] = True
+# --- End Evaluation Config Dataclass ---
+
 @dataclass
 class TraceEntry:
     """Represents a single trace entry with its visual representation.
@@ -480,6 +491,7 @@ class TraceClient:
         expected_tools: Optional[List[str]] = None,
         additional_metadata: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
+        span_id: Optional[str] = None, # <<< ADDED optional span_id parameter
         log_results: Optional[bool] = True
     ):
         if not self.enable_evaluations:
@@ -525,8 +537,11 @@ class TraceClient:
         check_examples([example], scorers)
         
         # --- Modification: Capture span_id immediately ---
-        span_id_at_eval_call = current_span_var.get()
-        print(f"[TraceClient.async_evaluate] Captured span ID at eval call: {span_id_at_eval_call}")
+        # span_id_at_eval_call = current_span_var.get()
+        # print(f"[TraceClient.async_evaluate] Captured span ID at eval call: {span_id_at_eval_call}")
+        # Prioritize explicitly passed span_id, fallback to context var
+        span_id_to_use = span_id if span_id is not None else current_span_var.get()
+        print(f"[TraceClient.async_evaluate] Using span_id: {span_id_to_use}")
         # --- End Modification ---
 
         # Combine the trace-level rules with any evaluation-specific rules)
@@ -535,7 +550,7 @@ class TraceClient:
             log_results=log_results,
             project_name=self.project_name,
             eval_name=f"{self.name.capitalize()}-"
-                f"{current_span_var.get()}-"
+                f"{current_span_var.get()}-" # Keep original eval name format using context var if available
                 f"[{','.join(scorer.score_type.capitalize() for scorer in scorers)}]",
             examples=[example],
             scorers=scorers,
@@ -543,7 +558,7 @@ class TraceClient:
             metadata={},
             judgment_api_key=self.tracer.api_key,
             override=self.overwrite,
-            trace_span_id=span_id_at_eval_call, # Pass the captured ID
+            trace_span_id=span_id_to_use, # Pass the determined ID
             rules=self.rules # Use the combined rules
         )
         
@@ -2166,3 +2181,127 @@ class _TracedSyncStreamManagerWrapper(AbstractContextManager):
         if hasattr(self._original_manager, "__exit__"):
              return self._original_manager.__exit__(exc_type, exc_val, exc_tb)
         return None
+
+# --- NEW Generalized Helper Function (Moved from demo) ---
+def prepare_evaluation_for_state(
+    scorers: List[Union[APIJudgmentScorer, JudgevalScorer]],
+    example: Optional[Example] = None,
+    # --- Individual components (alternative to 'example') ---
+    input: Optional[str] = None,
+    actual_output: Optional[Union[str, List[str]]] = None,
+    expected_output: Optional[Union[str, List[str]]] = None,
+    context: Optional[List[str]] = None,
+    retrieval_context: Optional[List[str]] = None,
+    tools_called: Optional[List[str]] = None,
+    expected_tools: Optional[List[str]] = None,
+    additional_metadata: Optional[Dict[str, Any]] = None,
+    # --- Other eval parameters ---
+    model: Optional[str] = None,
+    log_results: Optional[bool] = True
+) -> Optional[EvaluationConfig]:
+    """
+    Prepares an EvaluationConfig object, similar to TraceClient.async_evaluate.
+
+    Accepts either a pre-made Example object or individual components to construct one.
+    Returns the EvaluationConfig object ready to be placed in the state, or None.
+    """
+    final_example = example
+
+    # If example is not provided, try to construct one from individual parts
+    if final_example is None:
+        # Basic validation: Ensure at least actual_output is present for most scorers
+        if actual_output is None:
+            print("[prepare_evaluation_for_state] Warning: 'actual_output' is required when 'example' is not provided. Skipping evaluation setup.")
+            return None
+        try:
+            final_example = Example(
+                input=input,
+                actual_output=actual_output,
+                expected_output=expected_output,
+                context=context,
+                retrieval_context=retrieval_context,
+                tools_called=tools_called,
+                expected_tools=expected_tools,
+                additional_metadata=additional_metadata,
+                # trace_id will be set by the handler later if needed
+            )
+            print("[prepare_evaluation_for_state] Constructed Example from individual components.")
+        except Exception as e:
+            print(f"[prepare_evaluation_for_state] Error constructing Example: {e}. Skipping evaluation setup.")
+            return None
+
+    # If we have a valid example (provided or constructed) and scorers
+    if final_example and scorers:
+        # TODO: Add validation like check_examples if needed here,
+        # although the handler might implicitly handle some checks via TraceClient.
+        return EvaluationConfig(
+            scorers=scorers,
+            example=final_example,
+            model=model,
+            log_results=log_results
+        )
+    elif not scorers:
+        print("[prepare_evaluation_for_state] No scorers provided. Skipping evaluation setup.")
+        return None
+    else: # No valid example
+        print("[prepare_evaluation_for_state] No valid Example available. Skipping evaluation setup.")
+        return None
+# --- End NEW Helper Function ---
+
+# --- NEW: Helper function to simplify adding eval config to state --- 
+def add_evaluation_to_state(
+    state: Dict[str, Any], # The LangGraph state dictionary
+    scorers: List[Union[APIJudgmentScorer, JudgevalScorer]],
+    # --- Evaluation components (same as prepare_evaluation_for_state) ---
+    input: Optional[str] = None,
+    actual_output: Optional[Union[str, List[str]]] = None,
+    expected_output: Optional[Union[str, List[str]]] = None,
+    context: Optional[List[str]] = None,
+    retrieval_context: Optional[List[str]] = None,
+    tools_called: Optional[List[str]] = None,
+    expected_tools: Optional[List[str]] = None,
+    additional_metadata: Optional[Dict[str, Any]] = None,
+    # --- Other eval parameters ---
+    model: Optional[str] = None,
+    log_results: Optional[bool] = True
+) -> None:
+    """
+    Prepares an EvaluationConfig and adds it to the state dictionary 
+    under the '_judgeval_eval' key if successful.
+
+    This simplifies the process of setting up evaluations within LangGraph nodes.
+
+    Args:
+        state: The LangGraph state dictionary to modify.
+        scorers: List of scorer instances.
+        input: Input for the evaluation example.
+        actual_output: Actual output for the evaluation example.
+        expected_output: Expected output for the evaluation example.
+        context: Context for the evaluation example.
+        retrieval_context: Retrieval context for the evaluation example.
+        tools_called: Tools called for the evaluation example.
+        expected_tools: Expected tools for the evaluation example.
+        additional_metadata: Additional metadata for the evaluation example.
+        model: Model name used for generation (optional).
+        log_results: Whether to log evaluation results (optional, defaults to True).
+    """
+    eval_config = prepare_evaluation_for_state(
+        scorers=scorers,
+        input=input,
+        actual_output=actual_output,
+        expected_output=expected_output,
+        context=context,
+        retrieval_context=retrieval_context,
+        tools_called=tools_called,
+        expected_tools=expected_tools,
+        additional_metadata=additional_metadata,
+        model=model,
+        log_results=log_results
+    )
+    
+    if eval_config:
+        state["_judgeval_eval"] = eval_config
+        print(f"[_judgeval_eval added to state for node]") # Optional: Log confirmation
+    else:
+        print("[Skipped adding _judgeval_eval to state: prepare_evaluation_for_state failed]")
+# --- End NEW Helper --- 

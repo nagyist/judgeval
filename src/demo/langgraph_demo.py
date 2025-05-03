@@ -1,15 +1,15 @@
 import os
 import asyncio
-from typing import TypedDict, Sequence, Dict, Any
+from typing import TypedDict, Sequence, Dict, Any, Optional, List, Union
 from openai import OpenAI
 from dotenv import load_dotenv
 from tavily import TavilyClient
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from judgeval.common.tracer import Tracer, current_trace_var
-from judgeval.integrations.langgraph import AsyncJudgevalCallbackHandler
-from judgeval.scorers import AnswerRelevancyScorer
+from judgeval.common.tracer import Tracer, current_trace_var, prepare_evaluation_for_state, add_evaluation_to_state
+from judgeval.integrations.langgraph import AsyncJudgevalCallbackHandler, EvaluationConfig
+from judgeval.scorers import AnswerRelevancyScorer, JudgevalScorer, APIJudgmentScorer
 from judgeval.data import Example
 
 # Load environment variables
@@ -186,39 +186,15 @@ async def generate_recommendations(state: State) -> State:
     recommendations = response.content
     state["recommendations"] = recommendations
 
-    # --- Modified Evaluation Step --- 
-    print("\n[Demo] Attempting to evaluate recommendation relevance using context variables...")
-    eval_example = Example(
+    # --- Prepare and Add Evaluation to State using the new helper ---
+    add_evaluation_to_state(
+        state=state, # Pass the current state dictionary
+        scorers=[AnswerRelevancyScorer(threshold=0.5)],
         input=user_prompt,
         actual_output=recommendations,
+        model="gpt-4"
     )
-
-    # --- Get TraceClient from context variable ---
-    current_trace = current_trace_var.get() # Get the TraceClient instance from context
-
-    if current_trace:
-        print(f"[Demo] Found TraceClient via context var: {current_trace.trace_id}. Submitting evaluation.")
-        try:
-            # Call async_evaluate on the TraceClient retrieved from context.
-            # This call happens *within* the node's execution context where
-            # current_span_var should be set correctly by the handler.
-            current_trace.async_evaluate( 
-                scorers=[AnswerRelevancyScorer(threshold=0.5)],
-                example=eval_example,
-                model=chat_model.model_name
-            )
-            print("[Demo] Evaluation task submitted via TraceClient from context.")
-        except Exception as eval_e:
-            print(f"[Demo] Error during evaluation submission via TraceClient from context: {eval_e}")
-    else:
-        print("[Demo] No TraceClient found in context variable (current_trace_var). Skipping evaluation submission.")
-        # Also check the fallback if needed, but context var is preferred
-        fallback_trace_client = judgment.get_active_trace_client()
-        if fallback_trace_client:
-            print(f"[Demo] Fallback active trace client found: {fallback_trace_client.trace_id}. Context var might not be set/propagated correctly.")
-        else:
-            print("[Demo] Fallback active trace client also not found.")
-    # --- End Modified Evaluation Step ---
+    # --- End Evaluation Setup ---
 
     return state
 
