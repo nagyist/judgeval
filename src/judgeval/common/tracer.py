@@ -1107,9 +1107,24 @@ class Tracer:
     
     def get_current_trace(self) -> Optional[TraceClient]:
         """
-        Get the current trace context from contextvars
+        Get the current trace context.
+
+        Tries to get the trace client from the context variable first.
+        If not found (e.g., context lost across threads/tasks),
+        it falls back to the active trace client managed by the callback handler.
         """
-        return current_trace_var.get()
+        trace_from_context = current_trace_var.get()
+        if trace_from_context:
+            return trace_from_context
+        
+        # Fallback: Check the active client potentially set by a callback handler
+        if hasattr(self, '_active_trace_client') and self._active_trace_client:
+            # warnings.warn("Falling back to _active_trace_client in get_current_trace. ContextVar might be lost.", RuntimeWarning)
+            return self._active_trace_client
+            
+        # If neither is available
+        # warnings.warn("No current trace found in context variable or active client fallback.", RuntimeWarning)
+        return None
         
     def get_active_trace_client(self) -> Optional[TraceClient]:
         """Returns the TraceClient instance currently marked as active by the handler."""
