@@ -60,6 +60,11 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
         self._trace_saved: bool = False # Flag to prevent actions after trace is saved
         self._run_id_to_start_inputs: Dict[UUID, Dict] = {} # <<< ADDED input storage
 
+        # --- Token Count Accumulators ---
+        # self._current_prompt_tokens = 0
+        # self._current_completion_tokens = 0
+        # --- End Token Count Accumulators ---
+
         self.executed_nodes: List[str] = []
         self.executed_tools: List[str] = []
         self.executed_node_tools: List[str] = []
@@ -311,6 +316,34 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
         if run_id == self._root_run_id:
             trace_saved_successfully = False # Track save success
             try:
+                # --- Aggregate and Set Token Counts BEFORE Saving ---
+                # if self._trace_client and not self._trace_saved:
+                #     total_tokens = self._current_prompt_tokens + self._current_completion_tokens
+                #     aggregated_token_counts = {
+                #         'prompt_tokens': self._current_prompt_tokens,
+                #         'completion_tokens': self._current_completion_tokens,
+                #         'total_tokens': total_tokens
+                #     }
+                #     # Assuming TraceClient has an attribute to hold the trace data being built
+                #     try:
+                #          # Attempt to set the attribute directly
+                #          # Check if the attribute exists and is meant for this purpose
+                #          if hasattr(self._trace_client, 'token_counts'):
+                #              self._trace_client.token_counts = aggregated_token_counts
+                #              self._log(f"Set aggregated token_counts on TraceClient for trace {self._trace_client.trace_id}: {aggregated_token_counts}")
+                #          else:
+                #              # If the attribute doesn't exist, maybe update the trace data dict directly if possible?
+                #              # This part is speculative without knowing TraceClient internals.
+                #              # E.g., if trace_client has a `_trace_data` dict:
+                #              # if hasattr(self._trace_client, '_trace_data') and isinstance(self._trace_client._trace_data, dict):
+                #              #     self._trace_client._trace_data['token_counts'] = aggregated_token_counts
+                #              #     self._log(f"Updated _trace_data['token_counts'] on TraceClient for trace {self._trace_client.trace_id}: {aggregated_token_counts}")
+                #              # else:
+                #                 self._log(f"WARNING: Could not set 'token_counts' on TraceClient for trace {self._trace_client.trace_id}. Aggregated counts might be lost.")
+                #     except Exception as set_tc_e:
+                #          self._log(f"ERROR setting token_counts on TraceClient for trace {self._trace_client.trace_id}: {set_tc_e}")
+                # --- End Token Count Aggregation ---
+
                 # Reset root run id after attempt
                 self._root_run_id = None
                 # Reset input storage for this handler instance
@@ -341,6 +374,11 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                 self._root_run_id = None
                 # Reset input storage for this handler instance
                 self._run_id_to_start_inputs = {}
+                # --- Reset Token Counters ---
+                # self._current_prompt_tokens = 0
+                # self._current_completion_tokens = 0
+                # self._log("  Reset token counters.")
+                # --- End Reset Token Counters ---
                 # Reset tracer's active client ONLY IF it was this handler's client
                 if self.tracer._active_trace_client == self._trace_client:
                     self.tracer._active_trace_client = None
@@ -860,7 +898,8 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                 try:
                     if hasattr(trace_client, 'entries') and trace_client.entries:
                         parent_enter_entry = next((e for e in reversed(trace_client.entries) if e.span_id == parent_span_id and e.type == "enter" and e.span_type == "chain"), None)
-                        if parent_enter_entry: parent_node_name = parent_enter_entry.function
+                        if parent_enter_entry:
+                            parent_node_name = parent_enter_entry.function
                     else: self._log(f"  WARNING: trace_client.entries missing for tool start parent {parent_span_id}")
                 except Exception as e:
                     self._log(f"  ERROR finding parent node name for tool start span_id {parent_span_id}: {e}")
@@ -954,22 +993,53 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                 # print(f"{log_prefix} No trace client obtained in on_llm_end for {run_id}.")
                 return
             outputs = {"response": response, "kwargs": kwargs}
-            # --- Token Usage Extraction (Add to outputs dict) ---
+            # --- Token Usage Extraction and Accumulation ---
             token_usage = None
+            prompt_tokens = None  # Use standard name
+            completion_tokens = None # Use standard name
+            total_tokens = None
             try:
                 if response.llm_output and isinstance(response.llm_output, dict):
-                    token_usage = response.llm_output.get('token_usage')
-                    if token_usage:
-                        self._log(f"  Extracted token usage for run_id={run_id}: {token_usage}")
-                        outputs['usage'] = { # Add under 'usage' key
-                            'prompt_tokens': token_usage.get('prompt_tokens'),
-                            'completion_tokens': token_usage.get('completion_tokens'),
-                            'total_tokens': token_usage.get('total_tokens')
+                    # Check for OpenAI/standard 'token_usage' first
+                    if 'token_usage' in response.llm_output:
+                        token_usage = response.llm_output.get('token_usage')
+                        if token_usage and isinstance(token_usage, dict):
+                            self._log(f"  Extracted OpenAI token usage for run_id={run_id}: {token_usage}")
+                            prompt_tokens = token_usage.get('prompt_tokens')
+                            completion_tokens = token_usage.get('completion_tokens')
+                            total_tokens = token_usage.get('total_tokens') # OpenAI provides total
+                    # Check for Anthropic 'usage'
+                    elif 'usage' in response.llm_output:
+                        token_usage = response.llm_output.get('usage')
+                        if token_usage and isinstance(token_usage, dict):
+                            self._log(f"  Extracted Anthropic token usage for run_id={run_id}: {token_usage}")
+                            prompt_tokens = token_usage.get('input_tokens') # Anthropic uses input_tokens
+                            completion_tokens = token_usage.get('output_tokens') # Anthropic uses output_tokens
+                            # Calculate total if possible
+                            if prompt_tokens is not None and completion_tokens is not None:
+                                total_tokens = prompt_tokens + completion_tokens
+                            else:
+                                self._log(f"  Could not calculate total_tokens from Anthropic usage: input={prompt_tokens}, output={completion_tokens}")
+
+                    # --- Store individual usage in span output and Accumulate --- 
+                    if prompt_tokens is not None or completion_tokens is not None:
+                        # Store individual usage for this span
+                        outputs['usage'] = { 
+                            'prompt_tokens': prompt_tokens,
+                            'completion_tokens': completion_tokens,
+                            'total_tokens': total_tokens
                         }
-                    else: self._log(f"  'token_usage' key not found in llm_output for run_id={run_id}")
+                        # Accumulate tokens for the entire trace
+                        # if isinstance(prompt_tokens, int):
+                        #     self._current_prompt_tokens += prompt_tokens
+                        # if isinstance(completion_tokens, int):
+                        #     self._current_completion_tokens += completion_tokens
+                        # self._log(f"  Accumulated tokens for run_id={run_id}. Current totals: Prompt={self._current_prompt_tokens}, Completion={self._current_completion_tokens}")
+                    else:
+                         self._log(f"  Could not extract token usage structure from llm_output for run_id={run_id}")
                 else: self._log(f"  llm_output not available/dict for run_id={run_id}")
             except Exception as e:
-                self._log(f"  ERROR extracting token usage for run_id={run_id}: {e}")
+                self._log(f"  ERROR extracting/accumulating token usage for run_id={run_id}: {e}")
             # --- End Token Usage ---
             self._end_span_tracking(trace_client, run_id, span_type="llm", outputs=outputs)
         except Exception as e:
@@ -1071,6 +1141,11 @@ class AsyncJudgevalCallbackHandler(AsyncCallbackHandler):
         self._trace_context_token: Optional[contextvars.Token] = None # Restore missing attribute
         self._trace_saved: bool = False # <<< ADDED MISSING ATTRIBUTE
         self._run_id_to_start_inputs: Dict[UUID, Dict] = {} # <<< ADDED input storage
+
+        # --- Token Count Accumulators ---
+        # self._current_prompt_tokens = 0
+        # self._current_completion_tokens = 0
+        # --- End Token Count Accumulators ---
 
         self.executed_nodes: List[str] = []
         self.executed_tools: List[str] = []
@@ -1770,19 +1845,46 @@ class AsyncJudgevalCallbackHandler(AsyncCallbackHandler):
                 return
 
             outputs = {"response": response, "kwargs": kwargs}
-
+            # --- Token Usage Extraction and Accumulation ---
             token_usage = None
+            prompt_tokens = None  # Use standard name
+            completion_tokens = None # Use standard name
+            total_tokens = None
             try:
                 if response.llm_output and isinstance(response.llm_output, dict):
-                    token_usage = response.llm_output.get('token_usage')
-                    if token_usage:
-                        outputs['usage'] = {
-                            'prompt_tokens': token_usage.get('prompt_tokens'),
-                            'completion_tokens': token_usage.get('completion_tokens'),
-                            'total_tokens': token_usage.get('total_tokens')
+                    # Check for OpenAI/standard 'token_usage' first
+                    if 'token_usage' in response.llm_output:
+                        token_usage = response.llm_output.get('token_usage')
+                        if token_usage and isinstance(token_usage, dict):
+                            self._log(f"  Extracted OpenAI token usage for run_id={run_id}: {token_usage}")
+                            prompt_tokens = token_usage.get('prompt_tokens')
+                            completion_tokens = token_usage.get('completion_tokens')
+                            total_tokens = token_usage.get('total_tokens')
+                    # Check for Anthropic 'usage'
+                    elif 'usage' in response.llm_output:
+                        token_usage = response.llm_output.get('usage')
+                        if token_usage and isinstance(token_usage, dict):
+                            self._log(f"  Extracted Anthropic token usage for run_id={run_id}: {token_usage}")
+                            prompt_tokens = token_usage.get('input_tokens') # Anthropic uses input_tokens
+                            completion_tokens = token_usage.get('output_tokens') # Anthropic uses output_tokens
+                            # Calculate total if possible
+                            if prompt_tokens is not None and completion_tokens is not None:
+                                total_tokens = prompt_tokens + completion_tokens
+                            else:
+                                self._log(f"  Could not calculate total_tokens from Anthropic usage: input={prompt_tokens}, output={completion_tokens}")
+
+                    # Add to outputs if any tokens were found
+                    if input_tokens is not None or output_tokens is not None or total_tokens is not None:
+                        outputs['usage'] = { # Add under 'usage' key
+                            'prompt_tokens': input_tokens, # Use standard keys
+                            'completion_tokens': output_tokens,
+                            'total_tokens': total_tokens
                         }
+                    else:
+                         self._log(f"  Could not extract token usage structure from llm_output for run_id={run_id}")
+                else: self._log(f"  llm_output not available/dict for run_id={run_id}")
             except Exception as e:
-                pass
+                self._log(f"  ERROR extracting token usage for run_id={run_id}: {e}")
 
             self._end_span_tracking(trace_client, run_id, span_type="llm", outputs=outputs)
         except Exception as e:
