@@ -1071,8 +1071,20 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
         chat_model_name = name or serialized.get("name", "ChatModel Call")
         # Add OPENAI_API_CALL suffix if model is OpenAI and not present
         is_openai = any(key.startswith('openai') for key in serialized.get('secrets', {}).keys()) or 'openai' in chat_model_name.lower()
+        is_anthropic = any(key.startswith('anthropic') for key in serialized.get('secrets', {}).keys()) or 'anthropic' in chat_model_name.lower() or 'claude' in chat_model_name.lower()
+        is_together = any(key.startswith('together') for key in serialized.get('secrets', {}).keys()) or 'together' in chat_model_name.lower()
+        # Add more checks for other providers like Google if needed
+        is_google = any(key.startswith('google') for key in serialized.get('secrets', {}).keys()) or 'google' in chat_model_name.lower() or 'gemini' in chat_model_name.lower()
+
         if is_openai and "OPENAI_API_CALL" not in chat_model_name:
             chat_model_name = f"{chat_model_name} OPENAI_API_CALL"
+        elif is_anthropic and "ANTHROPIC_API_CALL" not in chat_model_name:
+            chat_model_name = f"{chat_model_name} ANTHROPIC_API_CALL"
+        elif is_together and "TOGETHER_API_CALL" not in chat_model_name:
+            chat_model_name = f"{chat_model_name} TOGETHER_API_CALL"
+
+        elif is_google and "GOOGLE_API_CALL" not in chat_model_name:
+             chat_model_name = f"{chat_model_name} GOOGLE_API_CALL"
 
         tc_id_on_entry = id(self._trace_client) if self._trace_client else 'None'
         # print(f"{log_prefix} ENTERING on_chat_model_start: name='{chat_model_name}', run_id={run_id}. Current TraceClient ID: {tc_id_on_entry}")
@@ -1914,8 +1926,22 @@ class AsyncJudgevalCallbackHandler(AsyncCallbackHandler):
         chat_model_name = name or serialized.get("name", "ChatModel Call")
         # Add OPENAI_API_CALL suffix if model is OpenAI and not present
         is_openai = any(key.startswith('openai') for key in serialized.get('secrets', {}).keys()) or 'openai' in chat_model_name.lower()
+        is_anthropic = any(key.startswith('anthropic') for key in serialized.get('secrets', {}).keys()) or 'anthropic' in chat_model_name.lower() or 'claude' in chat_model_name.lower()
+        is_together = any(key.startswith('together') for key in serialized.get('secrets', {}).keys()) or 'together' in chat_model_name.lower()
+        # Add more checks for other providers like Google if needed
+        is_google = any(key.startswith('google') for key in serialized.get('secrets', {}).keys()) or 'google' in chat_model_name.lower() or 'gemini' in chat_model_name.lower()
+
         if is_openai and "OPENAI_API_CALL" not in chat_model_name:
             chat_model_name = f"{chat_model_name} OPENAI_API_CALL"
+        elif is_anthropic and "ANTHROPIC_API_CALL" not in chat_model_name:
+            chat_model_name = f"{chat_model_name} ANTHROPIC_API_CALL"
+        elif is_together and "TOGETHER_API_CALL" not in chat_model_name:
+            chat_model_name = f"{chat_model_name} TOGETHER_API_CALL"
+        # Add elif for Google: check for 'google' or 'gemini'?
+        # elif is_google and "GOOGLE_API_CALL" not in chat_model_name:
+        #     chat_model_name = f"{chat_model_name} GOOGLE_API_CALL"
+        elif is_google and "GOOGLE_API_CALL" not in chat_model_name:
+            chat_model_name = f"{chat_model_name} GOOGLE_API_CALL"
 
         tc_id_on_entry = id(self._trace_client) if self._trace_client else 'None'
         # print(f"{log_prefix} ENTERING on_chat_model_start: name='{chat_model_name}', run_id={run_id}. Current TraceClient ID: {tc_id_on_entry}")
