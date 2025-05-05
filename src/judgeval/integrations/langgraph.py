@@ -1874,10 +1874,10 @@ class AsyncJudgevalCallbackHandler(AsyncCallbackHandler):
                                 self._log(f"  Could not calculate total_tokens from Anthropic usage: input={prompt_tokens}, output={completion_tokens}")
 
                     # Add to outputs if any tokens were found
-                    if input_tokens is not None or output_tokens is not None or total_tokens is not None:
+                    if prompt_tokens is not None or completion_tokens is not None or total_tokens is not None:
                         outputs['usage'] = { # Add under 'usage' key
-                            'prompt_tokens': input_tokens, # Use standard keys
-                            'completion_tokens': output_tokens,
+                            'prompt_tokens': prompt_tokens, # Use standard keys
+                            'completion_tokens': completion_tokens,
                             'total_tokens': total_tokens
                         }
                     else:
