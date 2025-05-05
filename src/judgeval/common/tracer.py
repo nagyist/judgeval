@@ -1441,14 +1441,19 @@ class Tracer:
         # --- Get trace_id passed explicitly (if any) ---
         passed_trace_id = kwargs.pop('trace_id', None) # Get and remove trace_id from kwargs
 
-        # --- Fallback Logic ---
-        if not current_trace_var.get():
+        # --- Get current trace from context FIRST ---
+        current_trace = current_trace_var.get()
+
+        # --- Fallback Logic: Use active client only if context var is empty ---
+        if not current_trace:
             current_trace = self._active_trace_client # Use the fallback
-            # if current_trace:
-                # print(f"[Tracer.async_evaluate] Using fallback _active_trace_client: {current_trace.trace_id}") # Removed this line
         # --- End Fallback Logic ---
-        
+
         if current_trace:
+            # Pass the explicitly provided trace_id if it exists, otherwise let async_evaluate handle it
+            # (Note: TraceClient.async_evaluate doesn't currently use an explicit trace_id, but this is for future proofing/consistency)
+            if passed_trace_id:
+                kwargs['trace_id'] = passed_trace_id # Re-add if needed by TraceClient.async_evaluate
             current_trace.async_evaluate(*args, **kwargs)
         else:
             warnings.warn("No trace found (context var or fallback), skipping evaluation") # Modified warning
