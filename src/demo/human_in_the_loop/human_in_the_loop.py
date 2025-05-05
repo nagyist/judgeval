@@ -26,7 +26,7 @@ class State(TypedDict):
 judgment = Tracer(api_key=os.getenv("JUDGMENT_API_KEY"), project_name=PROJECT_NAME)
 
 
-@judgment.observe(name="search_restaurants", span_type="tool")
+# @judgment.observe(name="search_restaurants", span_type="tool")
 def search_restaurants(location: str, cuisine: str) -> str:
     """Search for restaurants in a location with specific cuisine"""
     ans = f"Top 3 {cuisine} restaurants in {location}: 1. Le Gourmet 2. Spice Palace 3. Carbones"
@@ -41,7 +41,7 @@ def search_restaurants(location: str, cuisine: str) -> str:
     )
     return ans
 
-@judgment.observe(name="check_opening_hours", span_type="tool")
+# @judgment.observe(name="check_opening_hours", span_type="tool")
 def check_opening_hours(restaurant: str) -> str:
     """Check opening hours for a specific restaurant"""
     ans = f"{restaurant} hours: Mon-Sun 11AM-10PM"
@@ -57,7 +57,7 @@ def check_opening_hours(restaurant: str) -> str:
     )
     return ans
 
-@judgment.observe(name="get_menu_items", span_type="tool")
+# @judgment.observe(name="get_menu_items", span_type="tool")
 def get_menu_items(restaurant: str) -> str:
     """Get popular menu items for a restaurant"""
     ans = f"{restaurant} popular dishes: 1. Chef's Special 2. Seafood Platter 3. Vegan Delight"
@@ -74,7 +74,7 @@ def get_menu_items(restaurant: str) -> str:
 
 
 
-@judgment.observe(name="ask_human", span_type="tool")
+# @judgment.observe(name="ask_human", span_type="tool")
 def ask_human(state):
     """Ask the human a question about location"""
     tool_call_id = state["messages"][-1].tool_calls[0]["id"]
@@ -95,7 +95,7 @@ def should_continue(state):
 
 
 
-@judgment.observe(span_type="Run Agent", overwrite=True)
+# @judgment.observe(span_type="Run Agent", overwrite=True)
 def run_agent(prompt: str, follow_up_inputs: dict):
     tools = [
         TavilySearchResults(max_results=2),
@@ -154,15 +154,20 @@ def run_agent(prompt: str, follow_up_inputs: dict):
     if next_node:
         print("Resuming from checkpoint")
         print(next_node)
-        input = f"{follow_up_inputs[next_node[0]]}"
-        
-        for event in graph.stream(Command(resume=f"{input}"), config, stream_mode="values"):
-            event["messages"][-1].pretty_print()
+        node_name_to_resume = next_node[0]
+        # Check if the required key exists in follow_up_inputs
+        if node_name_to_resume in follow_up_inputs:
+            input_value = follow_up_inputs[node_name_to_resume]
+            print(f"Resuming with input for '{node_name_to_resume}': {input_value}")
+            for event in graph.stream(Command(resume=f"{input_value}"), config, stream_mode="values"):
+                event["messages"][-1].pretty_print()
+        else:
+            print(f"Warning: Required follow-up input for node '{node_name_to_resume}' not found in follow_up_inputs. Skipping resume.")
+            # Optionally, handle the missing input case differently, e.g., raise an error
 
     return handler
     
 
-@judgment.observe(name="Test Evaluation Dataset Loop", overwrite=True)
 def test_eval_dataset():
     dataset = EvalDataset()
 
@@ -170,15 +175,10 @@ def test_eval_dataset():
     dataset.add_from_yaml(os.path.join(os.path.dirname(__file__), "test.yaml"))
     
     for example in dataset.examples:
-        print(f"Running agent for input: {example.input}")
-        # Define follow-up inputs based on potential interrupt nodes
-        follow_up_inputs = {"wait": "Manhattan", "ask_human": "Manhattan"}
-        try:
-            handler = run_agent(example.input, follow_up_inputs)
-            print("Executed Node-Tools:", handler.executed_node_tools if handler else "N/A")
-            example.actual_output = handler.executed_node_tools
-        except Exception as e:
-            print(f"Error running agent: {e}")
+        # Run your agent here
+        follow_up = getattr(example, 'follow_up_inputs', {})
+        handler = run_agent(example.input, follow_up)
+        example.actual_output = handler.executed_node_tools
 
     client = JudgmentClient()
     client.run_evaluation(
