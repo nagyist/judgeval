@@ -868,15 +868,6 @@ class TraceClient:
         
         condensed_entries, evaluation_runs = self.condense_trace(raw_entries)
 
-        # Calculate total token counts from LLM API calls
-        total_prompt_tokens = 0
-        total_completion_tokens = 0
-        total_tokens = 0
-        
-        total_prompt_tokens_cost = 0.0
-        total_completion_tokens_cost = 0.0
-        total_cost = 0.0
-        
         # Only count tokens for actual LLM API call spans
         llm_span_names = {"OPENAI_API_CALL", "TOGETHER_API_CALL", "ANTHROPIC_API_CALL", "GOOGLE_API_CALL"}
         for entry in condensed_entries:
@@ -943,42 +934,54 @@ class TraceClient:
                     prompt_tokens = usage.get("prompt_tokens", 0)
                     completion_tokens = usage.get("completion_tokens", 0)
 
-                    # --- DEBUG PRINT 3: Check extracted tokens --- 
-             #       print(f"[DEBUG TraceClient.save]     Extracted prompt_tokens: {prompt_tokens}, completion_tokens: {completion_tokens}")
-                    # --- END DEBUG --- 
-
-                    total_prompt_tokens += prompt_tokens
-                    total_completion_tokens += completion_tokens
-
-                    # --- DEBUG PRINT 4: Check accumulated totals --- 
-           #         print(f"[DEBUG TraceClient.save]     AFTER accumulation: total_prompt_tokens={total_prompt_tokens}, total_completion_tokens={total_completion_tokens}")
-                    # --- END DEBUG --- 
-
-                # Handle Anthropic format (checks within the 'usage' dict)
+                # Handle Anthropic format - MAP values to standard keys
                 elif "input_tokens" in usage:
-                    # (Similar debug prints could be added here if needed for Anthropic)
-                    prompt_tokens = usage.get("input_tokens", 0)
-                    completion_tokens = usage.get("output_tokens", 0)
-                    total_prompt_tokens += prompt_tokens
-                    total_completion_tokens += completion_tokens
-                
-                # Use total_tokens from usage if available, otherwise sum prompt and completion
-                total_tokens += usage.get("total_tokens", prompt_tokens + completion_tokens) # Modified fallback
+                    prompt_tokens = usage.get("input_tokens", 0)       # Get value from input_tokens
+                    completion_tokens = usage.get("output_tokens", 0)    # Get value from output_tokens
+
+                    # *** Overwrite the usage dict in the entry to use standard keys ***
+                    original_total = usage.get("total_tokens", 0)
+                    original_total_cost = usage.get("total_cost_usd", 0.0) # Preserve if already calculated
+                    # Recalculate cost just in case it wasn't done correctly before
+                    temp_prompt_cost, temp_completion_cost = 0.0, 0.0
+                    if model_name:
+                        try:
+                           temp_prompt_cost, temp_completion_cost = cost_per_token(
+                                model=model_name,
+                                prompt_tokens=prompt_tokens,
+                                completion_tokens=completion_tokens
+                           )
+                        except Exception:
+                           pass # Ignore cost calculation errors here, focus on keys
+                    # Replace the usage dict with one using standard keys but Anthropic values
+                    output["usage"] = {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": original_total,
+                        "prompt_tokens_cost_usd": temp_prompt_cost, # Use standard cost key
+                        "completion_tokens_cost_usd": temp_completion_cost, # Use standard cost key
+                        "total_cost_usd": original_total_cost if original_total_cost > 0 else (temp_prompt_cost + temp_completion_cost)
+                    }
+                    usage = output["usage"]
+
+                # Calculate costs if model name is available and ensure they are stored with standard keys
+                prompt_tokens = usage.get("prompt_tokens", 0)
+                completion_tokens = usage.get("completion_tokens", 0)
                 
                 # Calculate costs if model name is available
                 if model_name:
                     try:
+                        # Recalculate costs based on potentially mapped tokens
                         prompt_cost, completion_cost = cost_per_token(
                             model=model_name, 
                             prompt_tokens=prompt_tokens, 
                             completion_tokens=completion_tokens
                         )
-                        total_prompt_tokens_cost += prompt_cost
-                        total_completion_tokens_cost += completion_cost
-                        total_cost += prompt_cost + completion_cost
                         
                         # Add cost information directly to the usage dictionary in the condensed entry
                         # Ensure 'usage' exists in the output dict before modifying it
+                        # Add/Update cost information using standard keys
+
                         if "usage" not in output:
                             output["usage"] = {} # Initialize if missing
                         elif not isinstance(output["usage"], dict): # Handle cases where 'usage' might not be a dict (e.g., placeholder string)
@@ -996,21 +999,13 @@ class TraceClient:
                      print(f"[WARN TraceClient.save] Could not determine model name for cost calculation (span: {entry.get('span_id')}). Inputs: {entry_inputs}")
 
 
-        # Create trace document
+        # Create trace document - Always use standard keys for top-level counts
         trace_data = {
             "trace_id": self.trace_id,
             "name": self.name,
             "project_name": self.project_name,
             "created_at": datetime.utcfromtimestamp(self.start_time).isoformat(),
             "duration": total_duration,
-            "token_counts": {
-                "prompt_tokens": total_prompt_tokens,
-                "completion_tokens": total_completion_tokens,
-                "total_tokens": total_tokens,
-                "prompt_tokens_cost_usd": total_prompt_tokens_cost,
-                "completion_tokens_cost_usd": total_completion_tokens_cost,
-                "total_cost_usd": total_cost
-            },
             "entries": condensed_entries,
             "evaluation_runs": evaluation_runs,
             "overwrite": overwrite,
@@ -1018,12 +1013,6 @@ class TraceClient:
             "parent_name": self.parent_name
         }        
         # --- Log trace data before saving ---
-        # try:
-        #     rprint(f"[TraceClient.save] Saving trace data for trace_id {self.trace_id}:")
-        #     rprint(json.dumps(trace_data, indent=2))
-        # except Exception as log_e:
-        #     rprint(f"[TraceClient.save] Error logging trace data: {log_e}")
-        # # --- End logging ---
         self.trace_manager_client.save_trace(trace_data)
 
         return self.trace_id, trace_data
@@ -1721,8 +1710,8 @@ def _format_output_data(client: ApiClient, response: Any) -> dict:
     return {
         "content": response.content[0].text,
         "usage": {
-            "input_tokens": response.usage.input_tokens,
-            "output_tokens": response.usage.output_tokens,
+            "prompt_tokens": response.usage.input_tokens,
+            "completion_tokens": response.usage.output_tokens,
             "total_tokens": response.usage.input_tokens + response.usage.output_tokens
         }
     }
@@ -2012,8 +2001,8 @@ async def _async_stream_wrapper(
         anthropic_final_usage = None
         if isinstance(client, (AsyncAnthropic, Anthropic)) and (anthropic_input_tokens > 0 or anthropic_output_tokens > 0):
              anthropic_final_usage = {
-                 "input_tokens": anthropic_input_tokens,
-                 "output_tokens": anthropic_output_tokens,
+                 "prompt_tokens": anthropic_input_tokens,
+                 "completion_tokens": anthropic_output_tokens,
                  "total_tokens": anthropic_input_tokens + anthropic_output_tokens
              }
 
