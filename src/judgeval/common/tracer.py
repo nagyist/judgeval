@@ -1314,7 +1314,7 @@ class Tracer:
         current_trace_var.set(trace)
     
     def get_current_trace(self) -> Optional[TraceClient]:
-        """        
+        """
         Get the current trace context.
 
         Tries to get the trace client from the context variable first.
