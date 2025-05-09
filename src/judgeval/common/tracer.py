@@ -1552,7 +1552,6 @@ class Tracer:
                                 'kwargs': kwargs
                             })
                             
-                            print(f"[DEBUG observe] use_deep_tracing: {use_deep_tracing}")
                             if use_deep_tracing:
                                 with _DeepProfiler():
                                     result = func(*args, **kwargs)
@@ -1582,7 +1581,6 @@ class Tracer:
                                 'kwargs': kwargs
                             })
                             
-                            print(f"[DEBUG observe else] use_deep_tracing: {use_deep_tracing}")
                             if use_deep_tracing:
                                 with _DeepProfiler():
                                     result = func(*args, **kwargs)
