@@ -1110,10 +1110,9 @@ class _DeepProfiler:
                 self._skip_stack.set(skip_stack)
                 return
             
-            
             if skip_stack:
                 return
-        
+            
         span_stack = self._span_stack.get()
         if event == "call":
             if not self._should_trace(frame):
@@ -1325,6 +1324,19 @@ class Tracer:
         if trace_from_context:
             return trace_from_context
         
+        # Fallback: Check the active client potentially set by a callback handler
+        if hasattr(self, '_active_trace_client') and self._active_trace_client:
+            # warnings.warn("Falling back to _active_trace_client in get_current_trace. ContextVar might be lost.", RuntimeWarning)
+            return self._active_trace_client
+            
+        # If neither is available
+        # warnings.warn("No current trace found in context variable or active client fallback.", RuntimeWarning)
+        return None
+        
+    def get_active_trace_client(self) -> Optional[TraceClient]:
+        """Returns the TraceClient instance currently marked as active by the handler."""
+        return self._active_trace_client
+
 
     @contextmanager
     def trace(
@@ -1407,8 +1419,10 @@ class Tracer:
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
                 # Check if we're already in a traced function
-                if in_traced_function_var.get():
-                    return await func(*args, **kwargs)
+
+                # NOTE: question? why is this needed?
+                # if in_traced_function_var.get():
+                #     return await func(*args, **kwargs)
                 
                 # Set in_traced_function_var to True
                 token = in_traced_function_var.set(True)
@@ -1496,8 +1510,10 @@ class Tracer:
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
                 # Check if we're already in a traced function
-                if in_traced_function_var.get():
-                    return func(*args, **kwargs)
+
+                # NOTE: question? why is this needed?
+                # if in_traced_function_var.get():
+                #     return func(*args, **kwargs)
                 
                 # Set in_traced_function_var to True
                 token = in_traced_function_var.set(True)
@@ -1536,6 +1552,7 @@ class Tracer:
                                 'kwargs': kwargs
                             })
                             
+                            print(f"[DEBUG observe] use_deep_tracing: {use_deep_tracing}")
                             if use_deep_tracing:
                                 with _DeepProfiler():
                                     result = func(*args, **kwargs)
@@ -1565,6 +1582,7 @@ class Tracer:
                                 'kwargs': kwargs
                             })
                             
+                            print(f"[DEBUG observe else] use_deep_tracing: {use_deep_tracing}")
                             if use_deep_tracing:
                                 with _DeepProfiler():
                                     result = func(*args, **kwargs)
