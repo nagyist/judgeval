@@ -5,10 +5,10 @@ Scores `Example`s using ready-made Judgment evaluators.
 """
 
 from pydantic import BaseModel, field_validator
-from typing import List
+from typing import List, Optional
 from judgeval.common.logger import debug, info, warning, error
 from judgeval.data import ExampleParams
-from judgeval.constants import APIScorer, UNBOUNDED_SCORERS
+from judgeval.constants import APIScorer, UNBOUNDED_SCORERS, BINARY_SCORERS, STATIC_SCORERS
 
 
 class APIJudgmentScorer(BaseModel):
@@ -20,7 +20,7 @@ class APIJudgmentScorer(BaseModel):
         threshold (float): A value between 0 and 1 that determines the scoring threshold
     """
     score_type: APIScorer
-    threshold: float
+    threshold: Optional[float] = None
     required_params: List[ExampleParams] = [] # List of the required parameters on examples for the scorer
 
     @field_validator('threshold')
@@ -29,7 +29,16 @@ class APIJudgmentScorer(BaseModel):
         Validates that the threshold is between 0 and 1 inclusive.
         """
         score_type = info.data.get('score_type')
-        if score_type in UNBOUNDED_SCORERS:
+        
+        if score_type in BINARY_SCORERS:
+            return 1.0
+        
+        if v is None:
+            error(f"Threshold cannot be None for {score_type}")
+            raise ValueError(f"Threshold cannot be None for {score_type}")
+        
+        # Validate based on scorer type
+        if v is None or score_type in UNBOUNDED_SCORERS:
             if v < 0:
                 error(f"Threshold for {score_type} must be greater than 0, got: {v}")
                 raise ValueError(f"Threshold for {score_type} must be greater than 0, got: {v}")

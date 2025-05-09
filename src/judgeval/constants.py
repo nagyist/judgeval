@@ -27,6 +27,7 @@ class APIScorer(str, Enum):
     COMPARISON = "comparison"
     GROUNDEDNESS = "groundedness"
     DERAILMENT = "derailment"
+    TOOL_CORRECTNESS = "tool_correctness"
     
     @classmethod
     def _missing_(cls, value):
@@ -36,6 +37,8 @@ class APIScorer(str, Enum):
                 return member
 
 UNBOUNDED_SCORERS = set([APIScorer.COMPARISON])  # scorers whose scores are not bounded between 0-1
+BINARY_SCORERS = set([APIScorer.TOOL_CORRECTNESS])  # scorers whose scores are PASS/FAIL
+STATIC_SCORERS = set([APIScorer.TOOL_CORRECTNESS])  # scorers whose scores are not determined by the model
 
 ROOT_API = os.getenv("JUDGMENT_API_URL", "https://api.judgmentlabs.ai")
 # API URLs

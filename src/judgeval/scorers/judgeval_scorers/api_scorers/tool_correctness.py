@@ -14,11 +14,10 @@ from judgeval.constants import APIScorer
 from judgeval.data import ExampleParams
 
 class ToolCorrectnessScorer(APIJudgmentScorer):
-    tool_name: str = Field(None, exclude=True)
-    tool_arguments: BaseModel = Field(None, exclude=True)
     
-    def __init__(self):
+    def __init__(self, threshold: float = 0.5):
         super().__init__(
+            threshold=threshold,
             score_type=APIScorer.TOOL_CORRECTNESS,
             required_params = [
                 ExampleParams.ADDITIONAL_METADATA
@@ -28,7 +27,7 @@ class ToolCorrectnessScorer(APIJudgmentScorer):
     def to_dict(self):
         base_dict = super().to_dict()  # Get the parent class's dictionary
         base_dict["kwargs"] = {
-            "tool_arguments": self.tool_arguments.model_json_schema()
+            
         }
         return base_dict
 
