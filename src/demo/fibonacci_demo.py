@@ -9,6 +9,7 @@ judgment = Tracer(
     project_name="fibonacci_demo", 
 )
 
+@judgment.observe(span_type="TOOL", deep_tracing=False)
 def fibonacci(n: int):
     """Calculate the nth Fibonacci number recursively."""
     if n <= 0:

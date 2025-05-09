@@ -1110,10 +1110,9 @@ class _DeepProfiler:
                 self._skip_stack.set(skip_stack)
                 return
             
-            
             if skip_stack:
                 return
-        
+            
         span_stack = self._span_stack.get()
         if event == "call":
             if not self._should_trace(frame):
@@ -1338,45 +1337,6 @@ class Tracer:
         """Returns the TraceClient instance currently marked as active by the handler."""
         return self._active_trace_client
 
-    def _apply_deep_tracing(self, func, span_type="span"):
-        """
-        Apply deep tracing to all functions in the same module as the given function.
-        
-        Args:
-            func: The function being traced
-            span_type: Type of span to use for traced functions
-            
-        Returns:
-            A tuple of (module, original_functions_dict) where original_functions_dict
-            contains the original functions that were replaced with traced versions.
-        """
-        module = inspect.getmodule(func)
-        if not module:
-            return None, {}
-            
-        # Save original functions
-        original_functions = {}
-        
-        # Find all functions in the module
-        for name, obj in inspect.getmembers(module, inspect.isfunction):
-            # Skip already wrapped functions
-            if hasattr(obj, '_judgment_traced'):
-                continue
-                
-            # Create a traced version of the function
-            # Always use default span type "span" for child functions
-            traced_func = _create_deep_tracing_wrapper(obj, self, "span")
-            
-            # Mark the function as traced to avoid double wrapping
-            traced_func._judgment_traced = True
-            
-            # Save the original function
-            original_functions[name] = obj
-            
-            # Replace with traced version
-            setattr(module, name, traced_func)
-            
-        return module, original_functions
 
     @contextmanager
     def trace(
@@ -1459,8 +1419,10 @@ class Tracer:
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
                 # Check if we're already in a traced function
-                if in_traced_function_var.get():
-                    return await func(*args, **kwargs)
+
+                # NOTE: question? why is this needed?
+                # if in_traced_function_var.get():
+                #     return await func(*args, **kwargs)
                 
                 # Set in_traced_function_var to True
                 token = in_traced_function_var.set(True)
@@ -1548,8 +1510,10 @@ class Tracer:
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
                 # Check if we're already in a traced function
-                if in_traced_function_var.get():
-                    return func(*args, **kwargs)
+
+                # NOTE: question? why is this needed?
+                # if in_traced_function_var.get():
+                #     return func(*args, **kwargs)
                 
                 # Set in_traced_function_var to True
                 token = in_traced_function_var.set(True)
@@ -1588,6 +1552,7 @@ class Tracer:
                                 'kwargs': kwargs
                             })
                             
+                            print(f"[DEBUG observe] use_deep_tracing: {use_deep_tracing}")
                             if use_deep_tracing:
                                 with _DeepProfiler():
                                     result = func(*args, **kwargs)
@@ -1617,6 +1582,7 @@ class Tracer:
                                 'kwargs': kwargs
                             })
                             
+                            print(f"[DEBUG observe else] use_deep_tracing: {use_deep_tracing}")
                             if use_deep_tracing:
                                 with _DeepProfiler():
                                     result = func(*args, **kwargs)
