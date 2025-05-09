@@ -205,7 +205,7 @@ async def orchestrate(num_sources: int = 3, items_per_source: int = 5) -> Dict[s
         "execution_time": end_time - start_time
     }
 
-@judgment.observe(name="orchestrate", span_type="function")
+@judgment.observe(name="orchestrate", span_type="function", deep_tracing=True)
 async def main():
     """Main entry point for the application"""
     print("=== Starting Complex Async Example ===")
