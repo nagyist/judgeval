@@ -1086,23 +1086,13 @@ class _DeepProfiler:
         module_name = frame.f_globals.get("__name__", "unknown_module")
         
         try:
-            args_info = inspect.getargvalues(frame)
-            if args_info.args:
-                first_arg = args_info.locals.get(args_info.args[0])
-                
-                # instance.foo(...)
-                if hasattr(first_arg, "__class__") and not isinstance(first_arg, type):
-                    class_name = first_arg.__class__.__name__
-                    return f"{module_name}.{class_name}.{func_name}"
-                
-                # class method, maybe need a better way to distinguish for the frontend
-                elif isinstance(first_arg, type):
-                    class_name = first_arg.__name__
-                    return f"{module_name}.{class_name}.{func_name}"
+            func = frame.f_globals.get(func_name)
+            if func is None:
+                return f"{module_name}.{func_name}"
+            if hasattr(func, "__qualname__"):
+                 return f"{module_name}.{func.__qualname__}"
         except Exception:
-            pass
-            
-        return f"{module_name}.{func_name}"
+            return f"{module_name}.{func_name}"
     
     def __new__(cls):
         with cls._lock:
