@@ -11,7 +11,6 @@ judgment = Tracer(project_name="complex_async_test")
 class DataProcessor:
     """A class with methods that will be traced"""
     
-    @judgment.observe(name="process_batch", span_type="method")
     async def process_batch(self, batch_id: int, items: List[str]) -> Dict[str, Any]:
         """Process a batch of items with multiple sub-operations"""
         print(f"[Batch {batch_id}] Starting processing of {len(items)} items")
@@ -31,7 +30,6 @@ class DataProcessor:
             "results": results
         }
     
-    @judgment.observe(name="process_item", span_type="method")
     async def process_item(self, batch_id: int, item_id: int, data: str) -> Dict[str, Any]:
         """Process a single item with simulated work"""
         print(f"[Batch {batch_id}] Processing item {item_id}: {data}")
@@ -52,20 +50,17 @@ class DataProcessor:
             "processing_time": processing_time
         }
     
-    @judgment.observe(name="validate_result", span_type="method")
     async def validate_result(self, batch_id: int, item_id: int, data: str) -> bool:
         """Validate the result of processing an item"""
         print(f"[Batch {batch_id}] Validating item {item_id}")
         await asyncio.sleep(0.05)
         return True
     
-    @judgment.observe(name="post_process", span_type="method")
     async def post_process(self, batch_id: int, results: List[Dict[str, Any]]) -> None:
         """Perform post-processing on batch results"""
         print(f"[Batch {batch_id}] Post-processing {len(results)} results")
         await asyncio.sleep(0.1)
 
-@judgment.observe(name="fetch_data", span_type="function")
 async def fetch_data(source_id: int, limit: int = 10) -> List[str]:
     """Simulate fetching data from an external source"""
     print(f"Fetching data from source {source_id} (limit: {limit})")
@@ -80,7 +75,6 @@ async def fetch_data(source_id: int, limit: int = 10) -> List[str]:
     
     return data
 
-@judgment.observe(name="fetch_metadata", span_type="function")
 async def fetch_metadata(source_id: int) -> Dict[str, Any]:
     """Fetch metadata for a data source"""
     await asyncio.sleep(0.1)
@@ -90,7 +84,6 @@ async def fetch_metadata(source_id: int) -> Dict[str, Any]:
         "record_count": random.randint(100, 1000)
     }
 
-@judgment.observe(name="create_batches", span_type="function")
 async def create_batches(data: List[str], batch_size: int = 3) -> List[List[str]]:
     """Split data into batches for processing"""
     print(f"Creating batches from {len(data)} items (batch size: {batch_size})")
@@ -103,7 +96,6 @@ async def create_batches(data: List[str], batch_size: int = 3) -> List[List[str]
     results = await asyncio.gather(*tasks)
     return batches
 
-@judgment.observe(name="preprocess_batch", span_type="function")
 async def preprocess_batch(batch_id: int, batch: List[str]) -> None:
     """Preprocess a batch of data"""
     print(f"Preprocessing batch {batch_id} with {len(batch)} items")
@@ -115,7 +107,6 @@ def sync_heavy_computation(data: str) -> Dict[str, Any]:
     time.sleep(0.2)  
     return {"input": data, "result": f"processed_{data}", "timestamp": time.time()}
 
-@judgment.observe(name="run_sync_tasks", span_type="function")
 async def run_sync_tasks(data_list: List[str]) -> List[Dict[str, Any]]:
     """Run synchronous tasks in a thread pool with tracing"""
     print(f"Running {len(data_list)} synchronous tasks in thread pool")
@@ -137,14 +128,12 @@ async def run_sync_tasks(data_list: List[str]) -> List[Dict[str, Any]]:
     
     return results
 
-@judgment.observe(name="post_process_sync_results", span_type="function")
 async def post_process_sync_results(results: List[Dict[str, Any]]) -> None:
     """Post-process results from synchronous computations"""
     print(f"Post-processing {len(results)} sync results")
     await asyncio.sleep(0.1)
 
 
-@judgment.observe(name="error_prone_function", span_type="function")
 async def error_prone_function(chance_of_error: float = 0.3) -> Dict[str, Any]:
     """A function that might throw an error, to test error handling in traces"""
     print(f"Running error-prone function (error chance: {chance_of_error})")
@@ -157,7 +146,6 @@ async def error_prone_function(chance_of_error: float = 0.3) -> Dict[str, Any]:
     
     return {"status": "success", "timestamp": time.time()}
 
-@judgment.observe(name="with_error_handling", span_type="function")
 async def with_error_handling() -> Dict[str, Any]:
     """Run multiple error-prone functions with proper error handling"""
     print("Starting function with error handling")
@@ -175,14 +163,12 @@ async def with_error_handling() -> Dict[str, Any]:
     
     return results
 
-@judgment.observe(name="handle_error", span_type="function")
 async def handle_error(error_msg: str) -> None:
     """Handle an error from another function"""
     print(f"Handling error: {error_msg}")
     await asyncio.sleep(0.05)
 
 
-@judgment.observe(name="orchestrate", span_type="function")
 async def orchestrate(num_sources: int = 3, items_per_source: int = 5) -> Dict[str, Any]:
     """Orchestrate the entire process end to end"""
     print(f"Starting orchestration with {num_sources} sources")
@@ -219,6 +205,7 @@ async def orchestrate(num_sources: int = 3, items_per_source: int = 5) -> Dict[s
         "execution_time": end_time - start_time
     }
 
+@judgment.observe(name="main", span_type="function")
 async def main():
     """Main entry point for the application"""
     print("=== Starting Complex Async Example ===")
