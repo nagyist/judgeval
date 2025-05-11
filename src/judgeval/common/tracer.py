@@ -238,6 +238,26 @@ class TraceEntry:
         # Start serialization with the top-level output
         return serialize_value(self.output)
 
+# Temporary as a POC to have log use the existing annotations feature until log endpoints are ready
+@dataclass
+class TraceAnnotation:
+    """Represents a single annotation for a trace span."""
+    span_id: str
+    text: str
+    label: str
+    score: int
+
+    def to_dict(self) -> dict:
+        """Convert the annotation to a dictionary format for storage/transmission."""
+        return {
+            "span_id": self.span_id,
+            "annotation": {
+                "text": self.text,
+                "label": self.label,
+                "score": self.score
+            }
+        }
+    
 class TraceManagerClient:
     """
     Client for handling trace endpoints with the Judgment API
@@ -274,8 +294,6 @@ class TraceManagerClient:
             raise ValueError(f"Failed to fetch traces: {response.text}")
         
         return response.json()
-    
-
 
     def save_trace(self, trace_data: dict):
         """
@@ -317,6 +335,33 @@ class TraceManagerClient:
         if "ui_results_url" in response.json():
             pretty_str = f"\n🔍 You can view your trace data here: [rgb(106,0,255)][link={response.json()['ui_results_url']}]View Trace[/link]\n"
             rprint(pretty_str)
+
+    ## TODO: Should have a log endpoint, endpoint should also support batched payloads
+    def save_annotation(self, annotation: TraceAnnotation):
+        json_data = {
+            "span_id": annotation.span_id,
+            "annotation": {
+                "text": annotation.text,
+                "label": annotation.label,
+                "score": annotation.score
+            }
+        }       
+
+        response = requests.post(
+            'https://api.judgmentlabs.ai/traces/add_annotation/',
+            json=json_data,
+            headers={
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {self.judgment_api_key}',
+                'X-Organization-Id': self.organization_id
+            },
+            verify=True
+        )
+        
+        if response.status_code != HTTPStatus.OK:
+            raise ValueError(f"Failed to save annotation: {response.text}")
+        
+        return response.json()
 
     def delete_trace(self, trace_id: str):
         """
@@ -410,13 +455,13 @@ class TraceClient:
         self.parent_name = parent_name
         self.client: JudgmentClient = tracer.client
         self.entries: List[TraceEntry] = []
+        self.annotations: List[TraceAnnotation] = []
         self.start_time = time.time()
         self.trace_manager_client = TraceManagerClient(tracer.api_key, tracer.organization_id, tracer)
         self.visited_nodes = []
         self.executed_tools = []
         self.executed_node_tools = []
         self._span_depths: Dict[str, int] = {} # NEW: To track depth of active spans
-    
     def get_current_span(self):
         """Get the current span from the context var"""
         return current_span_var.get()
@@ -603,6 +648,11 @@ class TraceClient:
                 span_type="evaluation"
             ))
 
+    def add_annotation(self, annotation: TraceAnnotation):
+       """Add an annotation to this trace context"""
+       self.annotations.append(annotation)
+       return self
+    
     def record_input(self, inputs: dict):
         current_span_id = current_span_var.get()
         if current_span_id:
@@ -882,10 +932,8 @@ class TraceClient:
 
             # --- DEBUG PRINT 1: Check if condition passes --- 
             # if is_llm_entry and has_api_suffix and output_is_dict:
-            #   #  print(f"[DEBUG TraceClient.save] Processing entry: {entry.get('span_id')} ({entry_function_name}) - Condition PASSED")
             # elif is_llm_entry:
             #      # Print why it failed if it was an LLM entry
-            #      print(f"[DEBUG TraceClient.save] Skipping LLM entry: {entry.get('span_id')} ({entry_function_name}) - Suffix Match: {has_api_suffix}, Output is Dict: {output_is_dict}")
             # # --- END DEBUG --- 
 
             if is_llm_entry and has_api_suffix and output_is_dict:
@@ -893,13 +941,11 @@ class TraceClient:
                 usage = output.get("usage", {}) # Gets the 'usage' dict from the 'output' field
 
                 # --- DEBUG PRINT 2: Check extracted usage --- 
-                # print(f"[DEBUG TraceClient.save]   Extracted usage dict: {usage}")
                 # --- END DEBUG --- 
 
                 # --- NEW: Extract model_name correctly from nested inputs ---
                 model_name = None
                 entry_inputs = entry.get("inputs", {})
-                # print(f"[DEBUG TraceClient.save]   Inspecting inputs for span {entry.get('span_id')}: {entry_inputs}") # DEBUG Inputs
                 if entry_inputs:
                     # Try common locations for model name within the inputs structure
                     invocation_params = entry_inputs.get("invocation_params", {})
@@ -926,7 +972,6 @@ class TraceClient:
                         model_name = entry_inputs.get("model")
 
 
-                # print(f"[DEBUG TraceClient.save]     Determined model_name: {model_name}") # DEBUG Model Name
                 # --- END NEW ---
 
                 prompt_tokens = 0
@@ -1018,6 +1063,11 @@ class TraceClient:
         # --- Log trace data before saving ---
         self.trace_manager_client.save_trace(trace_data)
 
+        # upload annotations
+        # TODO: batch to the log endpoint
+        for annotation in self.annotations:
+            self.trace_manager_client.save_annotation(annotation)
+
         return self.trace_id, trace_data
 
     def delete(self):
@@ -1097,7 +1147,6 @@ class _DeepProfiler:
             return
             
         qual_name = self._get_qual_name(frame)
-        
         skip_stack = self._skip_stack.get()
         
         if event == "call":
@@ -1116,8 +1165,6 @@ class _DeepProfiler:
                 if not skip_stack:
                     self._skip_stack.set([qual_name])
                 return
-
-                
         elif event == "return":
             # If we have entries in skip stack and current qual_name matches the top entry,
             # pop it to track exiting from the skipped section
@@ -1399,6 +1446,23 @@ class Tracer:
             finally:
                 # Reset the context variable
                 current_trace_var.reset(token)
+
+
+    def log(self, msg: str, label: str = "log", score: int = 1):
+        """Log a message with the current span context"""
+        current_span_id = current_span_var.get()
+        current_trace = current_trace_var.get()
+        if current_span_id:
+            annotation = TraceAnnotation(
+                span_id=current_span_id,
+                text=msg,
+                label=label,
+                score=score
+            )
+
+            current_trace.add_annotation(annotation)
+
+        rprint(f"[bold]{label}:[/bold] {msg}")
     
     def observe(self, func=None, *, name=None, span_type: SpanType = "span", project_name: str = None, overwrite: bool = False, deep_tracing: bool = None):
         """
