@@ -1028,10 +1028,31 @@ class _DeepProfiler:
     _instance: Optional["_DeepProfiler"] = None
     _lock: threading.Lock = threading.Lock()
     _refcount: int = 0
-    _active: bool = False
     _span_stack: contextvars.ContextVar[List[Dict[str, Any]]] = contextvars.ContextVar("_deep_profiler_span_stack", default=[])
     _skip_stack: contextvars.ContextVar[List[str]] = contextvars.ContextVar("_deep_profiler_skip_stack", default=[])
 
+    def _get_qual_name(self, frame) -> str:
+        func_name = frame.f_code.co_name
+        module_name = frame.f_globals.get("__name__", "unknown_module")
+        
+        try:
+            args_info = inspect.getargvalues(frame)
+            if args_info.args:
+                first_arg = args_info.locals.get(args_info.args[0])
+                
+                # instance.foo(...)
+                if hasattr(first_arg, "__class__") and not isinstance(first_arg, type):
+                    class_name = first_arg.__class__.__name__
+                    return f"{module_name}.{class_name}.{func_name}"
+                
+                # class method, maybe need a better way to distinguish for the frontend
+                elif isinstance(first_arg, type):
+                    class_name = first_arg.__name__
+                    return f"{module_name}.{class_name}.{func_name}"
+        except Exception:
+            pass
+            
+        return f"{module_name}.{func_name}"
     
     def __new__(cls):
         with cls._lock:
@@ -1074,11 +1095,8 @@ class _DeepProfiler:
         parent_span_id = current_span_var.get()
         if not parent_span_id:
             return
-        
-        print(event, frame.f_code, frame.f_code.co_name)
-        func_name = frame.f_code.co_name
-        module_name = frame.f_globals.get("__name__", "unknown_module")
-        qual_name = f"{module_name}.{func_name}"
+            
+        qual_name = self._get_qual_name(frame)
         
         skip_stack = self._skip_stack.get()
         
@@ -1194,7 +1212,9 @@ class _DeepProfiler:
                 span_type="span",
             ))
 
-            current_trace.record_output(arg)
+            # arg[0] should always be the full return object
+            # TODO: look into other possible cases
+            current_trace.record_output(None if len(arg) == 0 else arg[0])
             
             if span_data["span_id"] in current_trace._span_depths:
                 del current_trace._span_depths[span_data["span_id"]]
@@ -1215,16 +1235,14 @@ class _DeepProfiler:
             if self._refcount == 1:
                 sys.setprofile(self._profile)
                 threading.setprofile(self._profile)
-                self._active = True
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         with self._lock:
             self._refcount -= 1
-            if self._refcount == 0 and self._active:
+            if self._refcount == 0:
                 sys.setprofile(None)
                 threading.setprofile(None)
-                self._active = False
 
 
 def log(self, message: str, level: str = "info"):
@@ -1555,10 +1573,10 @@ class Tracer:
                                     result = func(*args, **kwargs)
                             else:
                                 result = func(*args, **kwargs)
-                                                        
+                            
                             # Record output
                             span.record_output(result)
-                            
+                        
                         # Save the completed trace
                         current_trace.save(overwrite=overwrite)
                         return result
