@@ -1048,14 +1048,11 @@ class _DeepProfiler:
         
         func_name = frame.f_code.co_name
         module_name = frame.f_globals.get("__name__", "")
-        module_root = module_name.split(".")[0] if module_name else ""
 
         if (
             module_name == ""
-            or func_name.startswith("<")
-            or func_name.startswith("_") and func_name != "__call__"
-            or module_root in _TRACE_STDLIB_MODULE_BLOCKLIST
-            or func_name in _TRACE_BLOCKLIST
+            or func_name.startswith("<") # ex: <listcomp>
+            or func_name.startswith("__") and func_name != "__call__" # dunders
             or not self._is_user_code(frame.f_code.co_filename)
         ):
             return False
@@ -1066,7 +1063,7 @@ class _DeepProfiler:
     def _is_user_code(self, filename: str):
         return bool(filename) and not os.path.realpath(filename).startswith(_TRACE_NON_USER)
     
-    def _profile(self, frame, event, arg):
+    def _profile(self, frame, event, *arg):
         if event not in ("call", "return"):
             return
         
@@ -1078,6 +1075,7 @@ class _DeepProfiler:
         if not parent_span_id:
             return
         
+        print(event, frame.f_code, frame.f_code.co_name)
         func_name = frame.f_code.co_name
         module_name = frame.f_globals.get("__name__", "unknown_module")
         qual_name = f"{module_name}.{func_name}"
@@ -1260,7 +1258,7 @@ class Tracer:
         s3_aws_access_key_id: Optional[str] = None,
         s3_aws_secret_access_key: Optional[str] = None,
         s3_region_name: Optional[str] = None,
-        deep_tracing: bool = False  # Deep tracing is disabled by default
+        deep_tracing: bool = True  # Deep tracing is enabled by default
         ):
         if not hasattr(self, 'initialized'):
             if not api_key:
@@ -1875,26 +1873,6 @@ def _format_output_data(client: ApiClient, response: Any) -> dict:
         }
     }
 
-# Define a blocklist of functions that should not be traced
-# These are typically utility functions, print statements, logging, etc.
-_TRACE_BLOCKLIST = {
-    # Built-in functions
-    'print', 'str', 'int', 'float', 'bool', 'list', 'dict', 'set', 'tuple',
-    'len', 'range', 'enumerate', 'zip', 'map', 'filter', 'sorted', 'reversed',
-    'min', 'max', 'sum', 'any', 'all', 'abs', 'round', 'format',
-    # Logging functions
-    'debug', 'info', 'warning', 'error', 'critical', 'exception', 'log',
-    # Common utility functions
-    'sleep', 'time', 'datetime', 'json', 'dumps', 'loads',
-    # String operations
-    'join', 'split', 'strip', 'lstrip', 'rstrip', 'replace', 'lower', 'upper',
-    # Dict operations
-    'get', 'items', 'keys', 'values', 'update',
-    # List operations
-    'append', 'extend', 'insert', 'remove', 'pop', 'clear', 'index', 'count', 'sort',
-}
-
-_TRACE_STDLIB_MODULE_BLOCKLIST = frozenset(sys.stdlib_module_names.union(sys.builtin_module_names).union({"judgeval"}))
 
 # NOTE: This builds once, can be tweaked if we are missing / capturing other unncessary modules
 # @link https://docs.python.org/3.13/library/sysconfig.html
