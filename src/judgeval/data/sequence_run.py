@@ -31,7 +31,7 @@ class SequenceRun(BaseModel):
     eval_name: Optional[str] = None
     sequences: Optional[List[Sequence]] = None
     scorers: List[Union[APIJudgmentScorer, JudgevalScorer]]
-    model: Union[str, List[str], JudgevalJudge]
+    model: Optional[Union[str, List[str], JudgevalJudge]] = "gpt-4.1"
     aggregator: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     trace_span_id: Optional[str] = None

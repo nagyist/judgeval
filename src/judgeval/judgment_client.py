@@ -33,6 +33,7 @@ from judgeval.constants import (
     JUDGMENT_PROJECT_DELETE_API_URL,
     JUDGMENT_PROJECT_CREATE_API_URL
 )
+from judgeval.utils.data_utils import add_from_yaml
 from judgeval.common.exceptions import JudgmentAPIError
 from langchain_core.callbacks import BaseCallbackHandler
 from pydantic import BaseModel
@@ -75,7 +76,7 @@ class JudgmentClient(metaclass=SingletonMeta):
         self, 
         examples: List[Example],
         scorers: List[Union[APIJudgmentScorer, JudgevalScorer]],
-        model: Union[str, List[str], JudgevalJudge],
+        model: Optional[Union[str, List[str], JudgevalJudge]] = "gpt-4.1",
         aggregator: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         log_results: bool = True,
@@ -103,10 +104,11 @@ class JudgmentClient(metaclass=SingletonMeta):
 
     def run_sequence_evaluation(
         self,
-        model: Union[str, List[str], JudgevalJudge],
         scorers: List[Union[APIJudgmentScorer, JudgevalScorer]],
+        model: Optional[Union[str, List[str], JudgevalJudge]] = "gpt-4.1",
         sequences: Optional[List[Sequence]] = None,
         examples: Optional[List[Example]] = None,
+        test_file: Optional[str] = None,
         aggregator: Optional[str] = None,
         project_name: str = "default_project",
         eval_run_name: str = "default_eval_sequence",
@@ -118,7 +120,14 @@ class JudgmentClient(metaclass=SingletonMeta):
         function: Optional[Callable] = None,
         handler: Optional[BaseCallbackHandler] = None
     ) -> List[ScoringResult]:
-        try:            
+        try:         
+            
+            if test_file:
+                try:
+                    examples = add_from_yaml(test_file)
+                except FileNotFoundError:
+                    raise FileNotFoundError(f"Test file not found: {test_file}")
+
             if examples and not function:
                 raise ValueError("Cannot pass in examples without a function")
             
@@ -150,7 +159,7 @@ class JudgmentClient(metaclass=SingletonMeta):
         self, 
         examples: Union[List[Example], List[CustomExample]],
         scorers: List[Union[APIJudgmentScorer, JudgevalScorer]],
-        model: Union[str, List[str], JudgevalJudge],
+        model: Optional[Union[str, List[str], JudgevalJudge]] = "gpt-4.1",
         aggregator: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         log_results: bool = True,
@@ -494,9 +503,10 @@ class JudgmentClient(metaclass=SingletonMeta):
     
     def assert_test(
         self, 
-        examples: List[Example],
         scorers: List[Union[APIJudgmentScorer, JudgevalScorer]],
-        model: Union[str, List[str], JudgevalJudge],
+        examples: Optional[List[Example]] = None,
+        model: Optional[Union[str, List[str], JudgevalJudge]] = "gpt-4.1",
+        test_file: Optional[str] = None,
         aggregator: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         log_results: bool = True,
@@ -511,7 +521,8 @@ class JudgmentClient(metaclass=SingletonMeta):
         Asserts a test by running the evaluation and checking the results for success
         
         Args:
-            examples (List[Example]): The examples to evaluate
+            examples (Optional[List[Example]]): The examples to evaluate. Must be provided if test_file is not.
+            test_file (Optional[str]): Path to a YAML file containing test examples. Must be provided if examples is not.
             scorers (List[Union[APIJudgmentScorer, JudgevalScorer]]): A list of scorers to use for evaluation
             model (Union[str, List[str], JudgevalJudge]): The model used as a judge when using LLM as a Judge
             aggregator (Optional[str]): The aggregator to use for evaluation if using Mixture of Judges
@@ -522,6 +533,10 @@ class JudgmentClient(metaclass=SingletonMeta):
             override (bool): Whether to override an existing evaluation run with the same name
             rules (Optional[List[Rule]]): Rules to evaluate against scoring results
         """
+        # Validate that exactly one of examples or test_file is provided
+        if (examples is None and test_file is None) or (examples is not None and test_file is not None):
+            raise ValueError("Exactly one of 'examples' or 'test_file' must be provided, but not both")
+
         if function:
             results = self.run_sequence_evaluation(
                 examples=examples,
@@ -534,7 +549,8 @@ class JudgmentClient(metaclass=SingletonMeta):
                 override=override,
                 rules=rules,
                 function=function,
-                handler=handler
+                handler=handler,
+                test_file=test_file
             )
         else:
             results = self.run_evaluation(

@@ -701,10 +701,14 @@ def assert_test(scoring_results: List[ScoringResult]) -> None:
                 # If the result was not successful, check each scorer_data
                 for scorer_data in result.get("scorers_data"):
                     if not scorer_data.get("success"):
+                        if scorer_data.get("name") == "Tool Order":
+                            # Remove evaluation model for Tool Order scorer
+                            scorer_data.pop('evaluation_model')
                         test_case['failed_scorers'].append(scorer_data)
             failed_cases.append(test_case)
 
     if failed_cases:
+
         error_msg = f"The following test cases failed: \n"
         for fail_case in failed_cases:
             # error_msg += f"\nInput: {fail_case['input']}\n"
