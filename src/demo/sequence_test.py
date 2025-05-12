@@ -104,7 +104,7 @@ from judgeval.data import Sequence
 from judgeval.scorers import ToolOrderScorer    
 from judgeval import JudgmentClient
 
-if __name__ == "__main__":
+def test():
     judgment = JudgmentClient()
     sequence = Sequence(   
         inputs="Paris",
@@ -130,44 +130,14 @@ if __name__ == "__main__":
             {
                 "tool_name": "search_tavily",
                 "parameters": {
-                    "query": "Weather forecast for Paris from 2025-06-01 to 2025-06-02"
+                    "query": "Weather forecast for Paris from 2025-06-01 to 2025-06-03"
                 }
             }
         ]
     )
 
-    sequence2 = Sequence(
-        inputs="Tokyo",
-        expected_tools=[
-            {
-                "tool_name": "search_tavily",
-                "parameters": {
-                    "query": "Best tourist attractions in Tokyo"
-                }
-            },
-            {
-                "tool_name": "search_tavily",
-                "parameters": {
-                    "query": "Best hotels in Tokyo"
-                }
-            },
-            {
-                "tool_name": "search_tavily",
-                "parameters": {
-                    "query": "Flights to Tokyo from major cities"
-                }
-            },
-            {
-                "tool_name": "search_tavily",
-                "parameters": {
-                    "query": "Weather forecast for Tokyo from 2025-06-01 to 2025-06-02"
-                }
-            }
-        ]
-    )
-
-    judgment.run_sequence_evaluation(
-        sequences=[sequence, sequence2],
+    judgment.sequence_assert_test(
+        sequences=[sequence],
         scorers=[ToolOrderScorer(threshold=0.5)],
         model="gpt-4o-mini",
         function=generate_itinerary,

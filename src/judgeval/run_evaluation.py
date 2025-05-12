@@ -464,6 +464,8 @@ def run_sequence_eval(sequence_run: SequenceRun, override: bool = False, ignore_
     if sequence_run.log_results:
         pretty_str = run_with_spinner("Logging Results: ", log_evaluation_results, response_data["results"], sequence_run)
         rprint(pretty_str)
+
+    return response_data["results"]
     
     
 
@@ -668,55 +670,47 @@ def assert_test(scoring_results: List[ScoringResult]) -> None:
     failed_cases: List[ScorerData] = []
 
     for result in scoring_results:
-        if not result.success:
+        if not result.get("success"):
 
             # Create a test case context with all relevant fields
             test_case = {
-                'input': result.data_object.input,
-                'actual_output': result.data_object.actual_output,
-                'expected_output': result.data_object.expected_output,
-                'context': result.data_object.context,
-                'retrieval_context': result.data_object.retrieval_context,
-                'additional_metadata': result.data_object.additional_metadata,
-                'tools_called': result.data_object.tools_called,
-                'expected_tools': result.data_object.expected_tools,
-                'failed_scorers': []
+                "failed_scorers": []
             }
-            if result.scorers_data:
+            if result.get("scorers_data"):
                 # If the result was not successful, check each scorer_data
-                for scorer_data in result.scorers_data:
-                    if not scorer_data.success:
+                for scorer_data in result.get("scorers_data"):
+                    if not scorer_data.get("success"):
                         test_case['failed_scorers'].append(scorer_data)
             failed_cases.append(test_case)
 
     if failed_cases:
         error_msg = f"The following test cases failed: \n"
         for fail_case in failed_cases:
-            error_msg += f"\nInput: {fail_case['input']}\n"
-            error_msg += f"Actual Output: {fail_case['actual_output']}\n"
-            error_msg += f"Expected Output: {fail_case['expected_output']}\n"
-            error_msg += f"Context: {fail_case['context']}\n"
-            error_msg += f"Retrieval Context: {fail_case['retrieval_context']}\n"
-            error_msg += f"Additional Metadata: {fail_case['additional_metadata']}\n"
-            error_msg += f"Tools Called: {fail_case['tools_called']}\n"
-            error_msg += f"Expected Tools: {fail_case['expected_tools']}\n"
+            # error_msg += f"\nInput: {fail_case['input']}\n"
+            # error_msg += f"Actual Output: {fail_case['actual_output']}\n"
+            # error_msg += f"Expected Output: {fail_case['expected_output']}\n"
+            # error_msg += f"Context: {fail_case['context']}\n"
+            # error_msg += f"Retrieval Context: {fail_case['retrieval_context']}\n"
+            # error_msg += f"Additional Metadata: {fail_case['additional_metadata']}\n"
+            # error_msg += f"Tools Called: {fail_case['tools_called']}\n"
+            # error_msg += f"Expected Tools: {fail_case['expected_tools']}\n"
     
             for fail_scorer in fail_case['failed_scorers']:
 
                 error_msg += (
-                    f"\nScorer Name: {fail_scorer.name}\n"
-                    f"Threshold: {fail_scorer.threshold}\n"
-                    f"Success: {fail_scorer.success}\n" 
-                    f"Score: {fail_scorer.score}\n"
-                    f"Reason: {fail_scorer.reason}\n"
-                    f"Strict Mode: {fail_scorer.strict_mode}\n"
-                    f"Evaluation Model: {fail_scorer.evaluation_model}\n"
-                    f"Error: {fail_scorer.error}\n"
-                    f"Evaluation Cost: {fail_scorer.evaluation_cost}\n"
-                    f"Verbose Logs: {fail_scorer.verbose_logs}\n"
-                    f"Additional Metadata: {fail_scorer.additional_metadata}\n"
+                    f"\nScorer Name: {fail_scorer.get('name')}\n"
+                    f"Threshold: {fail_scorer.get('threshold')}\n"
+                    f"Success: {fail_scorer.get('success')}\n" 
+                    f"Score: {fail_scorer.get('score')}\n"
+                    f"Reason: {fail_scorer.get('reason')}\n"
+                    f"Strict Mode: {fail_scorer.get('strict_mode')}\n"
+                    f"Evaluation Model: {fail_scorer.get('evaluation_model')}\n"
+                    f"Error: {fail_scorer.get('error')}\n"
+                    f"Evaluation Cost: {fail_scorer.get('evaluation_cost')}\n"
+                    f"Verbose Logs: {fail_scorer.get('verbose_logs')}\n"
+                    f"Additional Metadata: {fail_scorer.get('additional_metadata')}\n"
                 )
             error_msg += "-"*100
     
-        raise AssertionError(error_msg)
+        raise AssertionError(failed_cases)
     
