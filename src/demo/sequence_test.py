@@ -95,19 +95,19 @@ def create_travel_plan(destination, start_date, end_date, research_data):
     return response
 
 @judgment.observe(span_type="function")
-def generate_itinerary(destination):
+def generate_itinerary(destination, start_date, end_date):
     """Main function to generate a travel itinerary."""
-    research_data = research_destination(destination, "2025-06-01", "2025-06-02")
-    res = create_travel_plan(destination, "2025-06-01", "2025-06-02", research_data)
+    research_data = research_destination(destination, start_date, end_date)
+    res = create_travel_plan(destination, start_date, end_date, research_data)
 
 from judgeval.data import Sequence
 from judgeval.scorers import ToolOrderScorer    
 from judgeval import JudgmentClient
 
-def test():
+if __name__ == "__main__":
     judgment = JudgmentClient()
     sequence = Sequence(   
-        inputs="Paris",
+        inputs={"destination": "Paris", "start_date": "2025-06-01", "end_date": "2025-06-02"},
         expected_tools=[
             {
                 "tool_name": "search_tavily",

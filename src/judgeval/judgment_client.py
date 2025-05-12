@@ -34,6 +34,7 @@ from judgeval.constants import (
     JUDGMENT_PROJECT_CREATE_API_URL
 )
 from judgeval.common.exceptions import JudgmentAPIError
+from langchain_core.callbacks import BaseCallbackHandler
 from pydantic import BaseModel
 from judgeval.rules import Rule
 
@@ -113,7 +114,8 @@ class JudgmentClient(metaclass=SingletonMeta):
         override: bool = False,
         ignore_errors: bool = True,
         rules: Optional[List[Rule]] = None,
-        function: Callable = None
+        function: Callable = None,
+        handler: BaseCallbackHandler = None
     ) -> List[ScoringResult]:
         try:
             for sequence in sequences:
@@ -130,7 +132,7 @@ class JudgmentClient(metaclass=SingletonMeta):
                 judgment_api_key=self.judgment_api_key,
                 organization_id=self.organization_id,
             )
-            return run_sequence_eval(sequence_run, override, ignore_errors, function)
+            return run_sequence_eval(sequence_run, override, ignore_errors, function, handler)
         except ValueError as e:
             raise ValueError(f"Please check your SequenceRun object, one or more fields are invalid: \n{str(e)}")
         except Exception as e:
@@ -494,7 +496,8 @@ class JudgmentClient(metaclass=SingletonMeta):
         eval_run_name: str = "default_eval_run",
         override: bool = False,
         rules: Optional[List[Rule]] = None,
-        function: Callable = None
+        function: Callable = None,
+        handler: BaseCallbackHandler = None
     ) -> None:
         """
         Asserts a test by running the evaluation and checking the results for success
@@ -521,7 +524,8 @@ class JudgmentClient(metaclass=SingletonMeta):
             eval_run_name=eval_run_name,
             override=override,
             rules=rules,
-            function=function
+            function=function,
+            handler=handler
         )
         
         assert_test(results)

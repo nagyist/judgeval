@@ -68,6 +68,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
         self.executed_nodes: List[str] = []
         self.executed_tools: List[str] = []
         self.executed_node_tools: List[str] = []
+        self.traces: List[Dict[str, Any]] = []
     # --- END NEW __init__ ---
 
     # --- MODIFIED _ensure_trace_client ---
@@ -354,7 +355,8 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                 if self._trace_client and not self._trace_saved: # Check if not already saved
                     try:
                         # TODO: Check if trace_client.save needs await if TraceClient becomes async
-                        trace_id, _ = self._trace_client.save(overwrite=self._trace_client.overwrite) # Use client's overwrite setting
+                        trace_id, trace_data = self._trace_client.save(overwrite=self._trace_client.overwrite) # Use client's overwrite setting
+                        self.traces.append(trace_data)
                         self._log(f"Trace {trace_id} successfully saved.")
                         self._trace_saved = True # Set flag only after successful save
                         trace_saved_successfully = True # Mark success
@@ -744,7 +746,8 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                     try:
                         # Save might need to be async if TraceClient methods become async
                         # Pass overwrite=True based on client's setting
-                        trace_id_saved, _ = trace_client.save(overwrite=trace_client.overwrite)
+                        trace_id_saved, trace_data = trace_client.save(overwrite=trace_client.overwrite)
+                        self.traces.append(trace_data)
                         self._trace_saved = True
                         self._log(f"Trace {trace_id_saved} successfully saved.")
                         # Reset tracer's active client *after* successful save
@@ -1162,6 +1165,7 @@ class AsyncJudgevalCallbackHandler(AsyncCallbackHandler):
         self.executed_nodes: List[str] = []
         self.executed_tools: List[str] = []
         self.executed_node_tools: List[str] = []
+        self.traces: List[Dict[str, Any]] = []
 
     # NOTE: _ensure_trace_client remains synchronous as it doesn't involve async I/O
     def _ensure_trace_client(self, run_id: UUID, event_name: str) -> Optional[TraceClient]:
@@ -1378,7 +1382,8 @@ class AsyncJudgevalCallbackHandler(AsyncCallbackHandler):
                 if self._trace_client and not self._trace_saved: # Check if not already saved
                     try:
                         # TODO: Check if trace_client.save needs await if TraceClient becomes async
-                        trace_id, _ = self._trace_client.save(overwrite=self._trace_client.overwrite) # Use client's overwrite setting
+                        trace_id, trace_data = self._trace_client.save(overwrite=self._trace_client.overwrite) # Use client's overwrite setting
+                        self.traces.append(trace_data)
                         self._log(f"Trace {trace_id} successfully saved.")
                         self._trace_saved = True # Set flag only after successful save
                         trace_saved_successfully = True # Mark success

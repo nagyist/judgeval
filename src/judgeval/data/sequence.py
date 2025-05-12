@@ -17,8 +17,8 @@ class Sequence(BaseModel):
     parent_sequence_id: Optional[str] = None
     sequence_order: Optional[int] = 0
     root_sequence_id: Optional[str] = None
-    inputs: Optional[str] = None
-    output: Optional[str] = None
+    inputs: Optional[Dict[str, Any]] = None
+    output: Optional[Any] = None
     expected_tools: Optional[List[Dict[str, Any]]] = None
 
     @field_validator("scorers")

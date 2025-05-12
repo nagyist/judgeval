@@ -39,6 +39,7 @@ from judgeval.common.logger import (
 )
 from judgeval.evaluation_run import EvaluationRun
 from judgeval.data.sequence_run import SequenceRun
+from langchain_core.callbacks import BaseCallbackHandler
 
 def send_to_rabbitmq(evaluation_run: EvaluationRun) -> None:
     """
@@ -412,7 +413,7 @@ def check_examples(examples: List[Example], scorers: List[Union[APIJudgmentScore
             if missing_params:
                 print(f"WARNING: Example {example.example_id} is missing the following parameters: {missing_params} for scorer {scorer.score_type.value}")
 
-def run_sequence_eval(sequence_run: SequenceRun, override: bool = False, ignore_errors: bool = True, function: Optional[Callable] = None) -> List[ScoringResult]:
+def run_sequence_eval(sequence_run: SequenceRun, override: bool = False, ignore_errors: bool = True, function: Optional[Callable] = None, handler: Optional[BaseCallbackHandler] = None) -> List[ScoringResult]:
     # Call endpoint to check to see if eval run name exists (if we DON'T want to override and DO want to log results)
     if not override and sequence_run.log_results and not sequence_run.append:
         check_eval_run_name_exists(
@@ -432,11 +433,14 @@ def run_sequence_eval(sequence_run: SequenceRun, override: bool = False, ignore_
             True
         )
 
-    if function:
+    if function and not handler:
         info("Starting function evaluation")
         new_sequences: List[Sequence] = []
         for sequence in sequence_run.sequences:
-            result, trace = run_with_spinner("Running agent function: ", function, sequence.inputs)
+            if sequence.inputs:
+                result, trace = run_with_spinner("Running agent function: ", function, **sequence.inputs)
+            else:
+                result, trace = run_with_spinner("Running agent function: ", function)
             trace_id = trace['trace_id']
             parent_span = trace['entries'][0]['span_id']
             new_sequence = retrieve_sequence_from_trace(trace_id, parent_span, sequence_run.judgment_api_key, sequence_run.organization_id)
@@ -445,6 +449,23 @@ def run_sequence_eval(sequence_run: SequenceRun, override: bool = False, ignore_
             new_sequences.append(new_sequence)
         sequence_run.sequences = new_sequences
     
+    if function and handler:
+        new_sequences: List[Sequence] = []
+        for sequence in sequence_run.sequences:
+            if sequence.inputs:
+                result = run_with_spinner("Running agent function: ", function, **sequence.inputs)
+            else:
+                result = run_with_spinner("Running agent function: ", function)
+                
+        for trace in handler.traces:
+            trace_id = trace['trace_id']
+            parent_span = trace['entries'][0]['span_id']
+            new_sequence = retrieve_sequence_from_trace(trace_id, parent_span, sequence_run.judgment_api_key, sequence_run.organization_id)
+            new_sequence.expected_tools = sequence.expected_tools
+            new_sequence.scorers = sequence.scorers
+        new_sequences.append(new_sequence)
+    sequence_run.sequences = new_sequences
+        
     # Execute evaluation using Judgment API
     info("Starting API evaluation")
     try:  # execute an EvaluationRun with just JudgmentScorers

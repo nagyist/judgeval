@@ -47,7 +47,6 @@ from openai import OpenAI, AsyncOpenAI
 from together import Together, AsyncTogether
 from anthropic import Anthropic, AsyncAnthropic
 from google import genai
-from judgeval.run_evaluation import check_examples
 
 # Local application/library-specific imports
 from judgeval.constants import (
@@ -582,7 +581,8 @@ class TraceClient:
                 raise ValueError("Either 'example' or at least one of the individual parameters (input, actual_output, etc.) must be provided")
         
         # Check examples before creating evaluation run
-        check_examples([example], scorers)
+        
+        # check_examples([example], scorers)
         
         # --- Modification: Capture span_id immediately ---
         # span_id_at_eval_call = current_span_var.get()
