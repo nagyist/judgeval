@@ -1,6 +1,6 @@
 
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Union, Callable
 from judgeval.data import Sequence
 from judgeval.scorers import APIJudgmentScorer, JudgevalScorer
 from judgeval.judges import JudgevalJudge

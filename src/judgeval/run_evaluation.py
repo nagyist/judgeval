@@ -4,7 +4,7 @@ import time
 import sys
 import itertools
 import threading
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Union, Optional, Callable
 from datetime import datetime
 from rich import print as rprint
 
@@ -12,7 +12,8 @@ from judgeval.data import (
     ScorerData, 
     ScoringResult,
     Example,
-    CustomExample
+    CustomExample,
+    Sequence
 )
 from judgeval.scorers import (
     JudgevalScorer, 
@@ -26,7 +27,8 @@ from judgeval.constants import (
     JUDGMENT_SEQUENCE_EVAL_API_URL,
     JUDGMENT_EVAL_LOG_API_URL,
     MAX_CONCURRENT_EVALUATIONS,
-    JUDGMENT_ADD_TO_RUN_EVAL_QUEUE_API_URL
+    JUDGMENT_ADD_TO_RUN_EVAL_QUEUE_API_URL,
+    JUDGMENT_RETRIEVE_SEQUENCE_FROM_TRACE_API_URL
 )
 from judgeval.common.exceptions import JudgmentAPIError
 from judgeval.common.logger import (
@@ -322,6 +324,51 @@ def log_evaluation_results(merged_results: List[ScoringResult], run: Union[Evalu
         error(f"Failed to save evaluation results to DB: {str(e)}")
         raise ValueError(f"Failed to save evaluation results to DB: {str(e)}")
 
+def retrieve_sequence_from_trace(trace_id: str, parent_span: str, judgment_api_key: str, organization_id: str) -> Sequence:
+    """
+    Retrieves a sequence from a trace ID.
+    """
+    """
+    Logs evaluation results to the Judgment API database.
+
+    Args:
+        merged_results (List[ScoringResult]): The results to log
+        evaluation_run (EvaluationRun): The evaluation run containing project info and API key
+
+    Raises:
+        JudgmentAPIError: If there's an API error during logging
+        ValueError: If there's a validation error with the results
+    """
+    try:
+        res = requests.post(
+            JUDGMENT_RETRIEVE_SEQUENCE_FROM_TRACE_API_URL,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {judgment_api_key}",
+                "X-Organization-Id": organization_id
+            },
+            json={
+                "trace_id": trace_id,
+                "trace_span_id": parent_span,
+            },
+            verify=True
+        )
+        
+        if not res.ok:
+            response_data = res.json()
+            error_message = response_data.get('detail', 'An unknown error occurred.')
+            error(f"Error {res.status_code}: {error_message}")
+            raise JudgmentAPIError(error_message)
+        
+        return Sequence(**res.json())
+    except requests.exceptions.RequestException as e:
+        error(f"Request failed while saving evaluation results to DB: {str(e)}")
+        raise JudgmentAPIError(f"Request failed while saving evaluation results to DB: {str(e)}")
+    except Exception as e:
+        error(f"Failed to save evaluation results to DB: {str(e)}")
+        raise ValueError(f"Failed to save evaluation results to DB: {str(e)}")
+
+
 def run_with_spinner(message: str, func, *args, **kwargs) -> Any:
         """Run a function with a spinner in the terminal."""
         spinner = itertools.cycle(['|', '/', '-', '\\'])
@@ -365,7 +412,7 @@ def check_examples(examples: List[Example], scorers: List[Union[APIJudgmentScore
             if missing_params:
                 print(f"WARNING: Example {example.example_id} is missing the following parameters: {missing_params} for scorer {scorer.score_type.value}")
 
-def run_sequence_eval(sequence_run: SequenceRun, override: bool = False, ignore_errors: bool = True) -> List[ScoringResult]:
+def run_sequence_eval(sequence_run: SequenceRun, override: bool = False, ignore_errors: bool = True, function: Optional[Callable] = None) -> List[ScoringResult]:
     # Call endpoint to check to see if eval run name exists (if we DON'T want to override and DO want to log results)
     if not override and sequence_run.log_results and not sequence_run.append:
         check_eval_run_name_exists(
@@ -384,8 +431,20 @@ def run_sequence_eval(sequence_run: SequenceRun, override: bool = False, ignore_
             sequence_run.organization_id,
             True
         )
-    
 
+    if function:
+        info("Starting function evaluation")
+        new_sequences: List[Sequence] = []
+        for sequence in sequence_run.sequences:
+            result, trace = run_with_spinner("Running agent function: ", function, sequence.inputs)
+            trace_id = trace['trace_id']
+            parent_span = trace['entries'][0]['span_id']
+            new_sequence = retrieve_sequence_from_trace(trace_id, parent_span, sequence_run.judgment_api_key, sequence_run.organization_id)
+            new_sequence.expected_tools = sequence.expected_tools
+            new_sequence.scorers = sequence.scorers
+            new_sequences.append(new_sequence)
+        sequence_run.sequences = new_sequences
+    
     # Execute evaluation using Judgment API
     info("Starting API evaluation")
     try:  # execute an EvaluationRun with just JudgmentScorers

@@ -2,7 +2,7 @@
 Implements the JudgmentClient to interact with the Judgment API.
 """
 import os
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, Callable
 import requests
 
 from judgeval.constants import ROOT_API
@@ -112,28 +112,13 @@ class JudgmentClient(metaclass=SingletonMeta):
         append: bool = False,
         override: bool = False,
         ignore_errors: bool = True,
-        rules: Optional[List[Rule]] = None
+        rules: Optional[List[Rule]] = None,
+        function: Callable = None
     ) -> List[ScoringResult]:
         try:
-            def get_all_sequences(root: Sequence) -> List[Sequence]:
-                all_sequences = [root]
-
-                for item in root.items:
-                    if isinstance(item, Sequence):
-                        all_sequences.extend(get_all_sequences(item))
-
-                return all_sequences
-
-            def flatten_sequence_list(sequences: List[Sequence]) -> List[Sequence]:
-                flattened = []
-                for seq in sequences:
-                    flattened.extend(get_all_sequences(seq))
-                return flattened
-            
-            flattened_sequences = flatten_sequence_list(sequences)
-            for sequence in flattened_sequences:
+            for sequence in sequences:
                 sequence.scorers = scorers
-                    
+            
             sequence_run = SequenceRun(
                 project_name=project_name,
                 eval_name=eval_run_name,
@@ -143,9 +128,9 @@ class JudgmentClient(metaclass=SingletonMeta):
                 log_results=log_results,
                 append=append,
                 judgment_api_key=self.judgment_api_key,
-                organization_id=self.organization_id
+                organization_id=self.organization_id,
             )
-            return run_sequence_eval(sequence_run, override, ignore_errors)
+            return run_sequence_eval(sequence_run, override, ignore_errors, function)
         except ValueError as e:
             raise ValueError(f"Please check your SequenceRun object, one or more fields are invalid: \n{str(e)}")
         except Exception as e:

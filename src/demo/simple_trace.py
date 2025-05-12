@@ -18,7 +18,7 @@ judgment = Tracer(
 async def get_weather(city: str):
     """Simulated weather tool call."""
     weather_data = f"It is sunny and 72°F in {city}."
-    judgment.log(f"Weather data: {weather_data}")
+    # judgment.log(f"Weather data: {weather_data}")
     return weather_data
 
 @judgment.observe(span_type="tool")

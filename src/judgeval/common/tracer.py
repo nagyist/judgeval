@@ -1526,10 +1526,8 @@ class Tracer:
                         # This sets the current_span_var
                         with current_trace.span(span_name, span_type=span_type) as span: # MODIFIED: Use span_name directly
                             # Record inputs
-                            span.record_input({
-                                'args': str(args),
-                                'kwargs': kwargs
-                            })
+                            inputs = combine_args_kwargs(func, args, kwargs)
+                            span.record_input(inputs)
                             
                             if use_deep_tracing:
                                 with _DeepProfiler():
@@ -1541,8 +1539,8 @@ class Tracer:
                             span.record_output(result)
                             
                         # Save the completed trace
-                        current_trace.save(overwrite=overwrite)
-                        return result
+                        trace_id, trace = current_trace.save(overwrite=overwrite)
+                        return result, trace
                     finally:
                         # Reset trace context (span context resets automatically)
                         current_trace_var.reset(trace_token)
@@ -1555,10 +1553,8 @@ class Tracer:
                     try:
                         with current_trace.span(span_name, span_type=span_type) as span: # MODIFIED: Use span_name directly
                             # Record inputs
-                            span.record_input({
-                                'args': str(args),
-                                'kwargs': kwargs
-                            })
+                            inputs = combine_args_kwargs(func, args, kwargs)
+                            span.record_input(inputs)
                             
                             if use_deep_tracing:
                                 with _DeepProfiler():
@@ -1617,10 +1613,8 @@ class Tracer:
                         # This sets the current_span_var
                         with current_trace.span(span_name, span_type=span_type) as span: # MODIFIED: Use span_name directly
                             # Record inputs
-                            span.record_input({
-                                'args': str(args),
-                                'kwargs': kwargs
-                            })
+                            inputs = combine_args_kwargs(func, args, kwargs)
+                            span.record_input(inputs)
                             
                             if use_deep_tracing:
                                 with _DeepProfiler():
@@ -1632,8 +1626,8 @@ class Tracer:
                             span.record_output(result)
                         
                         # Save the completed trace
-                        current_trace.save(overwrite=overwrite)
-                        return result
+                        trace_id, trace = current_trace.save(overwrite=overwrite)
+                        return result, trace
                     finally:
                         # Reset trace context (span context resets automatically)
                         current_trace_var.reset(trace_token)
@@ -1646,10 +1640,8 @@ class Tracer:
                     try:
                         with current_trace.span(span_name, span_type=span_type) as span: # MODIFIED: Use span_name directly
                             # Record inputs
-                            span.record_input({
-                                'args': str(args),
-                                'kwargs': kwargs
-                            })
+                            inputs = combine_args_kwargs(func, args, kwargs)
+                            span.record_input(inputs)
                             
                             if use_deep_tracing:
                                 with _DeepProfiler():
@@ -1945,6 +1937,34 @@ def _format_output_data(client: ApiClient, response: Any) -> dict:
         }
     }
 
+def combine_args_kwargs(func, args, kwargs):
+    """
+    Combine positional arguments and keyword arguments into a single dictionary.
+    
+    Args:
+        func: The function being called
+        args: Tuple of positional arguments
+        kwargs: Dictionary of keyword arguments
+        
+    Returns:
+        A dictionary combining both args and kwargs
+    """
+    try:
+        import inspect
+        sig = inspect.signature(func)
+        param_names = list(sig.parameters.keys())
+        
+        args_dict = {}
+        for i, arg in enumerate(args):
+            if i < len(param_names):
+                args_dict[param_names[i]] = arg
+            else:
+                args_dict[f"arg{i}"] = arg
+        
+        return {**args_dict, **kwargs}
+    except Exception as e:
+        # Fallback if signature inspection fails
+        return {**{f"arg{i}": arg for i, arg in enumerate(args)}, **kwargs}
 
 # NOTE: This builds once, can be tweaked if we are missing / capturing other unncessary modules
 # @link https://docs.python.org/3.13/library/sysconfig.html
