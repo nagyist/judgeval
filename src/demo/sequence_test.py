@@ -106,8 +106,8 @@ from judgeval import JudgmentClient
 
 if __name__ == "__main__":
     judgment = JudgmentClient()
-    sequence = Sequence(   
-        inputs={"destination": "Paris", "start_date": "2025-06-01", "end_date": "2025-06-02"},
+    example = Example(   
+        input={"destination": "Paris", "start_date": "2025-06-01", "end_date": "2025-06-02"},
         expected_tools=[
             {
                 "tool_name": "search_tavily",
@@ -136,8 +136,8 @@ if __name__ == "__main__":
         ]
     )
 
-    judgment.sequence_assert_test(
-        sequences=[sequence],
+    judgment.assert_test(
+        examples=[example],
         scorers=[ToolOrderScorer(threshold=0.5)],
         model="gpt-4o-mini",
         function=generate_itinerary,

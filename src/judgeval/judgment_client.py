@@ -103,9 +103,10 @@ class JudgmentClient(metaclass=SingletonMeta):
 
     def run_sequence_evaluation(
         self,
-        sequences: List[Sequence],
         model: Union[str, List[str], JudgevalJudge],
         scorers: List[Union[APIJudgmentScorer, JudgevalScorer]],
+        sequences: Optional[List[Sequence]] = None,
+        examples: Optional[List[Example]] = None,
         aggregator: Optional[str] = None,
         project_name: str = "default_project",
         eval_run_name: str = "default_eval_sequence",
@@ -114,17 +115,24 @@ class JudgmentClient(metaclass=SingletonMeta):
         override: bool = False,
         ignore_errors: bool = True,
         rules: Optional[List[Rule]] = None,
-        function: Callable = None,
-        handler: BaseCallbackHandler = None
+        function: Optional[Callable] = None,
+        handler: Optional[BaseCallbackHandler] = None
     ) -> List[ScoringResult]:
-        try:
-            for sequence in sequences:
-                sequence.scorers = scorers
+        try:            
+            if examples and not function:
+                raise ValueError("Cannot pass in examples without a function")
+            
+            if sequences and function:
+                raise ValueError("Cannot pass in sequences and function")
+            
+            if examples and sequences:
+                raise ValueError("Cannot pass in both examples and sequences")
             
             sequence_run = SequenceRun(
                 project_name=project_name,
                 eval_name=eval_run_name,
                 sequences=sequences,
+                scorers=scorers,
                 model=model,
                 aggregator=aggregator,
                 log_results=log_results,
@@ -132,7 +140,7 @@ class JudgmentClient(metaclass=SingletonMeta):
                 judgment_api_key=self.judgment_api_key,
                 organization_id=self.organization_id,
             )
-            return run_sequence_eval(sequence_run, override, ignore_errors, function, handler)
+            return run_sequence_eval(sequence_run, override, ignore_errors, function, handler, examples)
         except ValueError as e:
             raise ValueError(f"Please check your SequenceRun object, one or more fields are invalid: \n{str(e)}")
         except Exception as e:
@@ -484,52 +492,6 @@ class JudgmentClient(metaclass=SingletonMeta):
             
         return response.json()["slug"]
     
-    def sequence_assert_test(
-        self, 
-        sequences: List[Sequence],
-        scorers: List[Union[APIJudgmentScorer, JudgevalScorer]],
-        model: Union[str, List[str], JudgevalJudge],
-        aggregator: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        log_results: bool = True,
-        project_name: str = "default_project",
-        eval_run_name: str = "default_eval_run",
-        override: bool = False,
-        rules: Optional[List[Rule]] = None,
-        function: Callable = None,
-        handler: BaseCallbackHandler = None
-    ) -> None:
-        """
-        Asserts a test by running the evaluation and checking the results for success
-        
-        Args:
-            sequences (List[Sequence]): The sequences to evaluate
-            scorers (List[Union[APIJudgmentScorer, JudgevalScorer]]): A list of scorers to use for evaluation
-            model (Union[str, List[str], JudgevalJudge]): The model used as a judge when using LLM as a Judge
-            aggregator (Optional[str]): The aggregator to use for evaluation if using Mixture of Judges
-            metadata (Optional[Dict[str, Any]]): Additional metadata to include for this evaluation run
-            log_results (bool): Whether to log the results to the Judgment API
-            project_name (str): The name of the project the evaluation results belong to
-            eval_run_name (str): A name for this evaluation run
-            override (bool): Whether to override an existing evaluation run with the same name
-            rules (Optional[List[Rule]]): Rules to evaluate against scoring results
-        """
-        results = self.run_sequence_evaluation(
-            sequences=sequences,
-            scorers=scorers,
-            model=model,
-            aggregator=aggregator,
-            log_results=log_results,
-            project_name=project_name,
-            eval_run_name=eval_run_name,
-            override=override,
-            rules=rules,
-            function=function,
-            handler=handler
-        )
-        
-        assert_test(results)
-    
     def assert_test(
         self, 
         examples: List[Example],
@@ -541,7 +503,9 @@ class JudgmentClient(metaclass=SingletonMeta):
         project_name: str = "default_project",
         eval_run_name: str = "default_eval_run",
         override: bool = False,
-        rules: Optional[List[Rule]] = None
+        rules: Optional[List[Rule]] = None,
+        function: Optional[Callable] = None,
+        handler: Optional[BaseCallbackHandler] = None
     ) -> None:
         """
         Asserts a test by running the evaluation and checking the results for success
@@ -558,17 +522,32 @@ class JudgmentClient(metaclass=SingletonMeta):
             override (bool): Whether to override an existing evaluation run with the same name
             rules (Optional[List[Rule]]): Rules to evaluate against scoring results
         """
-        results = self.run_evaluation(
-            examples=examples,
-            scorers=scorers,
-            model=model,
-            aggregator=aggregator,
-            metadata=metadata,
-            log_results=log_results,
-            project_name=project_name,
-            eval_run_name=eval_run_name,
-            override=override,
-            rules=rules
-        )
+        if function:
+            results = self.run_sequence_evaluation(
+                examples=examples,
+                scorers=scorers,
+                model=model,
+                aggregator=aggregator,
+                log_results=log_results,
+                project_name=project_name,
+                eval_run_name=eval_run_name,
+                override=override,
+                rules=rules,
+                function=function,
+                handler=handler
+            )
+        else:
+            results = self.run_evaluation(
+                examples=examples,
+                scorers=scorers,
+                model=model,
+                aggregator=aggregator,
+                metadata=metadata,
+                log_results=log_results,
+                project_name=project_name,
+                eval_run_name=eval_run_name,
+                override=override,
+                rules=rules
+            )
         
         assert_test(results)

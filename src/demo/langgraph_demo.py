@@ -238,11 +238,12 @@ workflow.set_entry_point("ask_question")
 graph = workflow.compile()
 
 # Main function
-def music_recommendation_bot():
+def music_recommendation_bot(message2: str):
     """Main function to run the music recommendation bot."""
     print("🎵 Welcome to the Music Recommendation Bot! 🎵")
     print("I'll ask you a few questions to understand your music taste, then suggest some songs you might enjoy.")
     print("\nRunning with predefined answers for testing...\n")
+    print(message2)
     
     # Initialize state with predefined answers
     initial_state = initialize_state()
@@ -267,11 +268,12 @@ def music_recommendation_bot():
 
 if __name__ == "__main__":
     from judgeval import JudgmentClient
-    from judgeval.data import Sequence
+    from judgeval.data import Example
     from judgeval.scorers import ToolOrderScorer
     handler = AsyncJudgevalCallbackHandler(judgment) 
     client = JudgmentClient()
-    sequence = Sequence(   
+    example = Example(   
+        input={"message2": "temp"},
         expected_tools=[
             {
                 "tool_name": "search_tavily",
@@ -282,8 +284,8 @@ if __name__ == "__main__":
         ]
     )
 
-    client.sequence_assert_test(
-        sequences=[sequence],
+    client.assert_test(
+        examples=[example],
         scorers=[ToolOrderScorer(threshold=0.5)],
         model="gpt-4o-mini",
         function=music_recommendation_bot,

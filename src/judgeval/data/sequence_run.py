@@ -29,7 +29,8 @@ class SequenceRun(BaseModel):
     organization_id: Optional[str] = None
     project_name: Optional[str] = None
     eval_name: Optional[str] = None
-    sequences: List[Sequence]
+    sequences: Optional[List[Sequence]] = None
+    scorers: List[Union[APIJudgmentScorer, JudgevalScorer]]
     model: Union[str, List[str], JudgevalJudge]
     aggregator: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
