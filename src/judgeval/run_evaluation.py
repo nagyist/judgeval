@@ -445,7 +445,6 @@ def run_sequence_eval(sequence_run: SequenceRun, override: bool = False, ignore_
             parent_span = trace['entries'][0]['span_id']
             new_sequence = retrieve_sequence_from_trace(trace_id, parent_span, sequence_run.judgment_api_key, sequence_run.organization_id)
             new_sequence.expected_tools = example.expected_tools
-            new_sequence.scorers = sequence_run.scorers
             new_sequences.append(new_sequence)
         sequence_run.sequences = new_sequences
     
@@ -462,9 +461,11 @@ def run_sequence_eval(sequence_run: SequenceRun, override: bool = False, ignore_
             parent_span = trace['entries'][0]['span_id']
             new_sequence = retrieve_sequence_from_trace(trace_id, parent_span, sequence_run.judgment_api_key, sequence_run.organization_id)
             new_sequence.expected_tools = example.expected_tools
-            new_sequence.scorers = sequence_run.scorers
             new_sequences.append(new_sequence)
         sequence_run.sequences = new_sequences
+    
+    for sequence in sequence_run.sequences:
+        sequence.scorers = sequence_run.scorers
         
     # Execute evaluation using Judgment API
     info("Starting API evaluation")
