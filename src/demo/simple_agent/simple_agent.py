@@ -91,7 +91,7 @@ if __name__ == "__main__":
 
     judgment.assert_test(
         examples=[example, wrong_order],  # Use examples for Example objects
-        scorers=[ToolOrderScorer(threshold=0.5)],
+        scorers=[ToolOrderScorer()],
         function=agent.run_agent,
         override=True
     )

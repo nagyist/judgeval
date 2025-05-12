@@ -703,7 +703,8 @@ def assert_test(scoring_results: List[ScoringResult]) -> None:
                 for scorer_data in result.get("scorers_data"):
                     if not scorer_data.get("success"):
                         if scorer_data.get("name") == "Tool Order":
-                            # Remove evaluation model for Tool Order scorer
+                            # Remove threshold, evaluation model for Tool Order scorer
+                            scorer_data.pop('threshold')
                             scorer_data.pop('evaluation_model')
                         test_case['failed_scorers'].append(scorer_data)
             failed_cases.append(test_case)
