@@ -1690,7 +1690,7 @@ def wrap(client: Any) -> Any:
     Supports OpenAI, Together, Anthropic, and Google GenAI clients.
     Patches both '.create' and Anthropic's '.stream' methods using a wrapper class.
     """
-    span_name, original_create, original_stream = _get_client_config(client)
+    span_name, original_create, responses_create, original_stream = _get_client_config(client)
 
     # --- Define Traced Async Functions ---
     async def traced_create_async(*args, **kwargs):
@@ -1788,7 +1788,41 @@ def wrap(client: Any) -> Any:
                  span.record_output(output_data)
                  return response_or_iterator
 
+        # --- Define Traced Sync Functions ---
+    def traced_response_create_sync(*args, **kwargs):
+         # [Existing logic - unchanged]
+        current_trace = current_trace_var.get()
+        if not current_trace:
+             return responses_create(*args, **kwargs)
 
+        is_streaming = kwargs.get("stream", False)
+        with current_trace.span(span_name, span_type="llm") as span:
+             span.record_input(kwargs)
+
+             # Warn about token counting limitations with streaming
+             if isinstance(client, (AsyncOpenAI, OpenAI)) and is_streaming:
+                 if not kwargs.get("stream_options", {}).get("include_usage"):
+                     warnings.warn(
+                         "OpenAI streaming calls don't include token counts by default. "
+                         "To enable token counting with streams, set stream_options={'include_usage': True} "
+                         "in your API call arguments.",
+                         UserWarning
+                     )
+
+             try:
+                 response_or_iterator = responses_create(*args, **kwargs)
+             except Exception as e:
+                 print(f"Error during wrapped sync API call ({span_name}): {e}")
+                 span.record_output({"error": str(e)})
+                 raise
+             if is_streaming:
+                 output_entry = span.record_output("<pending stream>")
+                 return _sync_stream_wrapper(response_or_iterator, client, output_entry)
+             else:
+                 output_data = _format_response_output_data(client, response_or_iterator)
+                 span.record_output(output_data)
+                 return response_or_iterator
+             
     # Function replacing sync .stream()
     def traced_stream_sync(*args, **kwargs):
          current_trace = current_trace_var.get()
@@ -1839,6 +1873,7 @@ def wrap(client: Any) -> Any:
         client.generate_content = traced_create_async
     elif isinstance(client, (OpenAI, Together)):
          client.chat.completions.create = traced_create_sync
+         client.responses.create = traced_response_create_sync
     elif isinstance(client, Anthropic):
          client.messages.create = traced_create_sync
          if original_stream:
@@ -1860,19 +1895,20 @@ def _get_client_config(client: ApiClient) -> tuple[str, callable, Optional[calla
         tuple: (span_name, create_method, stream_method)
             - span_name: String identifier for tracing
             - create_method: Reference to the client's creation method
+            - responses_method: Reference to the client's responses method (if applicable)
             - stream_method: Reference to the client's stream method (if applicable)
             
     Raises:
         ValueError: If client type is not supported
     """
     if isinstance(client, (OpenAI, AsyncOpenAI)):
-        return "OPENAI_API_CALL", client.chat.completions.create, None
+        return "OPENAI_API_CALL", client.chat.completions.create, client.responses.create, None
     elif isinstance(client, (Together, AsyncTogether)):
-        return "TOGETHER_API_CALL", client.chat.completions.create, None
+        return "TOGETHER_API_CALL", client.chat.completions.create, None, None
     elif isinstance(client, (Anthropic, AsyncAnthropic)):
-        return "ANTHROPIC_API_CALL", client.messages.create, client.messages.stream
+        return "ANTHROPIC_API_CALL", client.messages.create, None, client.messages.stream
     elif isinstance(client, (genai.Client, genai.client.AsyncClient)):
-        return "GOOGLE_API_CALL", client.models.generate_content, None
+        return "GOOGLE_API_CALL", client.models.generate_content, None, None
     raise ValueError(f"Unsupported client type: {type(client)}")
 
 def _format_input_data(client: ApiClient, **kwargs) -> dict:
@@ -1897,6 +1933,26 @@ def _format_input_data(client: ApiClient, **kwargs) -> dict:
         "messages": kwargs.get("messages"),
         "max_tokens": kwargs.get("max_tokens")
     }
+
+def _format_response_output_data(client: ApiClient, response: Any) -> dict:
+    """Format API response data based on client type.
+    
+    Normalizes different response formats into a consistent structure
+    for tracing purposes.
+    """
+    if isinstance(client, (OpenAI, Together, AsyncOpenAI, AsyncTogether)):
+        return {
+            "content": response.output,
+            "usage": {
+                "prompt_tokens": response.usage.input_tokens,
+                "completion_tokens": response.usage.output_tokens,
+                "total_tokens": response.usage.total_tokens
+            }
+        }
+    else:
+        warnings.warn(f"Unsupported client type: {type(client)}")
+        return {}
+
 
 def _format_output_data(client: ApiClient, response: Any) -> dict:
     """Format API response data based on client type.
