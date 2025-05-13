@@ -72,7 +72,6 @@ from collections.abc import Iterator, AsyncIterator # Add Iterator and AsyncIter
 # Define context variables for tracking the current trace and the current span within a trace
 current_trace_var = contextvars.ContextVar[Optional['TraceClient']]('current_trace', default=None)
 current_span_var = contextvars.ContextVar('current_span', default=None) # ContextVar for the active span name
-in_traced_function_var = contextvars.ContextVar('in_traced_function', default=False) # Track if we're in a traced function
 
 # Define type aliases for better code readability and maintainability
 ApiClient: TypeAlias = Union[OpenAI, Together, Anthropic, AsyncOpenAI, AsyncAnthropic, AsyncTogether, genai.Client, genai.client.AsyncClient]  # Supported API clients
@@ -1490,9 +1489,6 @@ class Tracer:
         if asyncio.iscoroutinefunction(func):
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
-                # Set in_traced_function_var to True
-                token = in_traced_function_var.set(True)
-                
                 # Get current trace from context
                 current_trace = current_trace_var.get()
                 
@@ -1540,8 +1536,6 @@ class Tracer:
                     finally:
                         # Reset trace context (span context resets automatically)
                         current_trace_var.reset(trace_token)
-                        # Reset in_traced_function_var
-                        in_traced_function_var.reset(token)
                 else:
                     # Already have a trace context, just create a span in it
                     # The span method handles current_span_var
@@ -1563,17 +1557,13 @@ class Tracer:
                         
                         return result
                     finally:
-                        # Reset in_traced_function_var
-                        in_traced_function_var.reset(token)
+                        pass
                 
             return async_wrapper
         else:
             # Non-async function implementation with deep tracing
             @functools.wraps(func)
-            def wrapper(*args, **kwargs):
-                # Set in_traced_function_var to True
-                token = in_traced_function_var.set(True)
-                
+            def wrapper(*args, **kwargs):                
                 # Get current trace from context
                 current_trace = current_trace_var.get()
                 
@@ -1621,8 +1611,6 @@ class Tracer:
                     finally:
                         # Reset trace context (span context resets automatically)
                         current_trace_var.reset(trace_token)
-                        # Reset in_traced_function_var
-                        in_traced_function_var.reset(token)
                 else:
                     # Already have a trace context, just create a span in it
                     # The span method handles current_span_var
@@ -1644,8 +1632,7 @@ class Tracer:
                         
                         return result
                     finally:
-                        # Reset in_traced_function_var
-                        in_traced_function_var.reset(token)
+                        pass
                 
             return wrapper
         
