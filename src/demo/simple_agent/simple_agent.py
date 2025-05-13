@@ -90,7 +90,8 @@ if __name__ == "__main__":
     yaml_path = os.path.join(current_dir, "tests.yaml")
 
     judgment.assert_test(
-        examples=[example, wrong_order],  # Use examples for Example objects
+        # examples=[example, wrong_order],  # Use examples for Example objects
+        test_file=yaml_path,
         scorers=[ToolOrderScorer()],
         function=agent.run_agent,
         override=True

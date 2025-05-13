@@ -738,6 +738,37 @@ def assert_test(scoring_results: List[ScoringResult]) -> None:
                     f"Additional Metadata: {fail_scorer.get('additional_metadata')}\n"
                 )
             error_msg += "-"*100
-    
-        raise AssertionError(failed_cases)
+
+        total_tests = len(scoring_results)
+        failed_tests = len(failed_cases)
+        passed_tests = total_tests - failed_tests
+
+        # Print summary with colors
+        rprint("\n" + "="*80)
+        if failed_tests == 0:
+            rprint(f"[bold green]🎉 ALL TESTS PASSED! {passed_tests}/{total_tests} tests successful[/bold green]")
+        else:
+            rprint(f"[bold red]⚠️  TEST RESULTS: {passed_tests}/{total_tests} passed ({failed_tests} failed)[/bold red]")
+        rprint("="*80 + "\n")
+
+        # Print individual test cases
+        for i, result in enumerate(scoring_results):
+            test_num = i + 1
+            if result.get("success"):
+                rprint(f"[green]✓ Test {test_num}: PASSED[/green]")
+            else:
+                rprint(f"[red]✗ Test {test_num}: FAILED[/red]")
+                if result.get("scorers_data"):
+                    for scorer_data in result.get("scorers_data"):
+                        if not scorer_data.get("success"):
+                            rprint(f"  [yellow]Scorer: {scorer_data.get('name')}[/yellow]")
+                            rprint(f"  [red]  Score: {scorer_data.get('score')}[/red]")
+                            rprint(f"  [red]  Reason: {scorer_data.get('reason')}[/red]")
+                            if scorer_data.get('error'):
+                                rprint(f"  [red]  Error: {scorer_data.get('error')}[/red]")
+                rprint("  " + "-"*40)
+
+        rprint("\n" + "="*80)
+        if failed_tests > 0:
+            raise AssertionError(failed_cases)
     
