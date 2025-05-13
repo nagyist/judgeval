@@ -11,6 +11,16 @@ from judgeval.judgment_client import JudgmentClient
 from judgeval.common.exceptions import JudgmentAPIError
 
 @pytest.fixture
+def mock_validate_api_key(monkeypatch):
+    """Mock the validate_api_key function."""
+    def _mock_validate_api_key(judgment_api_key):
+        return True, "Valid API key"
+    
+    monkeypatch.setattr('judgeval.common.utils.validate_api_key', _mock_validate_api_key)
+    return _mock_validate_api_key
+
+
+@pytest.fixture
 def tracer(mocker):
     """Provide a configured tracer instance"""
     
@@ -26,10 +36,6 @@ def tracer(mocker):
     # Create mocks for POST requests
     mock_post = mocker.patch('requests.post', autospec=True)
     mock_post.return_value = mock_post_response
-    
-    # Mock the JudgmentClient
-    mock_judgment_client = mocker.Mock(spec=JudgmentClient)
-    mocker.patch('judgeval.common.tracer.JudgmentClient', return_value=mock_judgment_client)
     
     yield Tracer(api_key=str(uuid4()), organization_id="test_org")
 
@@ -56,14 +62,11 @@ def trace_client(tracer):
         # Clean up the trace context
         current_trace_var.reset(token)
 
-def test_tracer_singleton(mocker):
+from unittest.mock import patch
+
+def test_tracer_singleton(mock_validate_api_key):
     """Test that Tracer maintains singleton pattern"""
-    # Clear any existing singleton instance first
     Tracer._instance = None
-    
-    # Mock the JudgmentClient
-    mock_judgment_client = mocker.Mock(spec=JudgmentClient)
-    mocker.patch('judgeval.common.tracer.JudgmentClient', return_value=mock_judgment_client)
     
     tracer1 = Tracer(api_key=str(uuid4()), organization_id="test_org")
     tracer2 = Tracer(api_key=str(uuid4()), organization_id="test_org")
@@ -375,14 +378,13 @@ def test_tracer_invalid_api_key(mocker):
     """Test that Tracer handles invalid API keys"""
     # Clear the singleton instance first
     Tracer._instance = None
-    JudgmentClient._instances = {}  # Clear JudgmentClient singleton too
     
     # Directly patch the _validate_api_key method in JudgmentClient
-    mocker.patch('judgeval.judgment_client.JudgmentClient._validate_api_key',
-                return_value=(False, "API key is invalid"))
+    mocker.patch('judgeval.common.utils.validate_api_key',
+                return_value=(False, "Invalid API key"))
     
     # Now when Tracer tries to initialize JudgmentClient, it will receive our mocked result
-    with pytest.raises(JudgmentAPIError, match="Issue with passed in Judgment API key: API key is invalid"):
+    with pytest.raises(JudgmentAPIError, match="Issue with passed in Judgment API key: Invalid API key"):
         Tracer(api_key="invalid_key", organization_id="test_org")
 
 def test_observe_decorator(tracer):
