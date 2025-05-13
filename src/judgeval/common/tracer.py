@@ -1135,7 +1135,7 @@ class _DeepProfiler:
         parent_span_id = current_span_var.get()
         if not parent_span_id:
             return
-            
+
         qual_name = self._get_qual_name(frame)
         skip_stack = self._skip_stack.get()
         
@@ -1270,6 +1270,8 @@ class _DeepProfiler:
         with self._lock:
             self._refcount += 1
             if self._refcount == 1:
+                self._skip_stack.set([])
+                self._span_stack.set([])
                 sys.setprofile(self._profile)
                 threading.setprofile(self._profile)
         return self
@@ -1488,12 +1490,6 @@ class Tracer:
         if asyncio.iscoroutinefunction(func):
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
-                # Check if we're already in a traced function
-
-                # NOTE: question? why is this needed?
-                # if in_traced_function_var.get():
-                #     return await func(*args, **kwargs)
-                
                 # Set in_traced_function_var to True
                 token = in_traced_function_var.set(True)
                 
@@ -1575,12 +1571,6 @@ class Tracer:
             # Non-async function implementation with deep tracing
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
-                # Check if we're already in a traced function
-
-                # NOTE: question? why is this needed?
-                # if in_traced_function_var.get():
-                #     return func(*args, **kwargs)
-                
                 # Set in_traced_function_var to True
                 token = in_traced_function_var.set(True)
                 
