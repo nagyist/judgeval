@@ -11,6 +11,7 @@ import site
 import sysconfig
 import threading
 import time
+import traceback
 import uuid
 import warnings
 import contextvars
@@ -1121,10 +1122,16 @@ class _DeepProfiler:
     
     @functools.cache
     def _is_user_code(self, filename: str):
-        return bool(filename) and not os.path.realpath(filename).startswith(_TRACE_FILEPATH_BLOCKLIST)
+        return bool(filename) and not filename.startswith("<") and not os.path.realpath(filename).startswith(_TRACE_FILEPATH_BLOCKLIST)
     
-    def _profile(self, frame, event, *arg):
-        if event not in ("call", "return"):
+    def _profile(self, frame, event, arg):
+        frame.f_trace_lines = False
+        frame.f_trace_opcodes = False
+
+        if not self._should_trace(frame):
+            return
+
+        if event not in ("call", "return", "exception"):
             return
         
         current_trace = current_trace_var.get()
@@ -1136,40 +1143,9 @@ class _DeepProfiler:
             return
 
         qual_name = self._get_qual_name(frame)
-        skip_stack = self._skip_stack.get()
         
-        if event == "call":
-            # If we have entries in the skip stack and the current qual_name matches the top entry,
-            # push it again to track nesting depth and skip
-            # As an optimization, we only care about duplicate qual_names.
-            if skip_stack:
-                if qual_name == skip_stack[-1]:
-                    skip_stack.append(qual_name)
-                    self._skip_stack.set(skip_stack)
-                return
-            
-            should_trace = self._should_trace(frame)
-            
-            if not should_trace:
-                if not skip_stack:
-                    self._skip_stack.set([qual_name])
-                return
-        elif event == "return":
-            # If we have entries in skip stack and current qual_name matches the top entry,
-            # pop it to track exiting from the skipped section
-            if skip_stack and qual_name == skip_stack[-1]:
-                skip_stack.pop()
-                self._skip_stack.set(skip_stack)
-                return
-            
-            if skip_stack:
-                return
-            
         span_stack = self._span_stack.get()
-        if event == "call":
-            if not self._should_trace(frame):
-                return
-                
+        if event == "call":                
             span_id = str(uuid.uuid4())
             
             parent_depth = current_trace._span_depths.get(parent_span_id, 0)
@@ -1248,9 +1224,7 @@ class _DeepProfiler:
                 span_type="span",
             ))
 
-            # arg[0] should always be the full return object
-            # TODO: look into other possible cases
-            current_trace.record_output(None if len(arg) == 0 else arg[0])
+            current_trace.record_output(arg)
             
             if span_data["span_id"] in current_trace._span_depths:
                 del current_trace._span_depths[span_data["span_id"]]
@@ -1263,7 +1237,23 @@ class _DeepProfiler:
             if "_span_token" in frame.f_locals:
                 current_span_var.reset(frame.f_locals["_span_token"])
         
-        return
+        elif event == "exception":
+            exc_type, exc_value, exc_traceback = arg
+            formatted_exception = {
+                "type": exc_type.__name__,
+                "message": str(exc_value),
+                "traceback": traceback.format_tb(exc_traceback)
+            }
+            current_trace = current_trace_var.get()
+
+            # TODO: This should be current_trace.record_error. Error should be separate.
+            # current_trace.record_error({
+            #     "exception": formatted_exception
+            # })
+            current_trace.tracer.log(f"Exception: {formatted_exception['type']}: {formatted_exception['message']}", "error")
+            
+
+        return self._profile
     
     def __enter__(self):
         with self._lock:
@@ -1271,17 +1261,16 @@ class _DeepProfiler:
             if self._refcount == 1:
                 self._skip_stack.set([])
                 self._span_stack.set([])
-                sys.setprofile(self._profile)
-                threading.setprofile(self._profile)
+                sys.settrace(self._profile)
+                threading.settrace(self._profile)
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         with self._lock:
             self._refcount -= 1
             if self._refcount == 0:
-                sys.setprofile(None)
-                threading.setprofile(None)
-
+                sys.settrace(None)
+                threading.settrace(None)
 
 def log(self, message: str, level: str = "info"):
         """ Log a message with the span context """
@@ -1491,6 +1480,7 @@ class Tracer:
             async def async_wrapper(*args, **kwargs):
                 # Get current trace from context
                 current_trace = current_trace_var.get()
+                trace_token = None
                 
                 # If there's no current trace, create a root trace
                 if not current_trace:
@@ -1530,34 +1520,14 @@ class Tracer:
                             # Record output
                             span.record_output(result)
                             
-                        # Save the completed trace
-                        trace_id, trace = current_trace.save(overwrite=overwrite)
-                        return result, trace
-                    finally:
-                        # Reset trace context (span context resets automatically)
-                        current_trace_var.reset(trace_token)
-                else:
-                    # Already have a trace context, just create a span in it
-                    # The span method handles current_span_var
-                    
-                    try:
-                        with current_trace.span(span_name, span_type=span_type) as span: # MODIFIED: Use span_name directly
-                            # Record inputs
-                            inputs = combine_args_kwargs(func, args, kwargs)
-                            span.record_input(inputs)
-                            
-                            if use_deep_tracing:
-                                with _DeepProfiler():
-                                    result = await func(*args, **kwargs)
-                            else:
-                                result = await func(*args, **kwargs)
-                            
-                            # Record output
-                            span.record_output(result)
-                        
                         return result
                     finally:
-                        pass
+                        # Save the completed trace
+                        trace_id, trace = current_trace.save(overwrite=overwrite)
+
+                        if trace_token: 
+                            # Reset trace context (span context resets automatically)
+                            current_trace_var.reset(trace_token)
                 
             return async_wrapper
         else:
@@ -1566,7 +1536,8 @@ class Tracer:
             def wrapper(*args, **kwargs):                
                 # Get current trace from context
                 current_trace = current_trace_var.get()
-                
+                trace_token = None
+
                 # If there's no current trace, create a root trace
                 if not current_trace:
                     trace_id = str(uuid.uuid4())
@@ -1605,35 +1576,15 @@ class Tracer:
                             # Record output
                             span.record_output(result)
                         
-                        # Save the completed trace
-                        trace_id, trace = current_trace.save(overwrite=overwrite)
-                        return result, trace
-                    finally:
-                        # Reset trace context (span context resets automatically)
-                        current_trace_var.reset(trace_token)
-                else:
-                    # Already have a trace context, just create a span in it
-                    # The span method handles current_span_var
-                    
-                    try:
-                        with current_trace.span(span_name, span_type=span_type) as span: # MODIFIED: Use span_name directly
-                            # Record inputs
-                            inputs = combine_args_kwargs(func, args, kwargs)
-                            span.record_input(inputs)
-                            
-                            if use_deep_tracing:
-                                with _DeepProfiler():
-                                    result = func(*args, **kwargs)
-                            else:
-                                result = func(*args, **kwargs)
-                            
-                            # Record output
-                            span.record_output(result)
-                        
                         return result
                     finally:
-                        pass
-                
+                        # Save the completed trace
+                        trace_id, trace = current_trace.save(overwrite=overwrite)
+
+                        if trace_token:
+                            # Reset trace context (span context resets automatically)
+                            current_trace_var.reset(trace_token)
+    
             return wrapper
         
     def async_evaluate(self, *args, **kwargs):
