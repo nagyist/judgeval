@@ -51,6 +51,7 @@ from google import genai
 
 # Local application/library-specific imports
 from judgeval.constants import (
+    JUDGMENT_ADD_ANNOTATION_API_URL,
     JUDGMENT_TRACES_SAVE_API_URL,
     JUDGMENT_TRACES_FETCH_API_URL,
     RABBITMQ_HOST,
@@ -347,7 +348,7 @@ class TraceManagerClient:
         }       
 
         response = requests.post(
-            'https://api.judgmentlabs.ai/traces/add_annotation/',
+            JUDGMENT_ADD_ANNOTATION_API_URL,
             json=json_data,
             headers={
                 'Content-Type': 'application/json',
