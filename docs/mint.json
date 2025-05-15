@@ -31,6 +31,10 @@
       "url": "api-reference"
     },
     {
+      "name": "Insights",
+      "url": "clustering/clustering" 
+    },
+    {
       "name": "Blog",
       "url": "https://judgmentlabs.ai/"
     }
@@ -45,7 +49,7 @@
       ]
     },
     {
-      "group": "Evaluation (Experiments)",
+      "group": "Evaluation & Experiments",
       "pages": [
         "evaluation/introduction",
         "evaluation/data_examples",
@@ -78,11 +82,17 @@
           ]
         },
         "evaluation/judges",
-        "evaluation/unit_testing"
+        "evaluation/unit_testing",
+        {
+          "group": "Synthetic Data",
+          "pages": [
+            "synthetic_data/synthetic_data"
+          ]
+        }
       ]
     },
     {
-      "group": "Monitoring",
+      "group": "Monitoring", 
       "pages": [
         "monitoring/introduction",
         {
@@ -92,7 +102,26 @@
             "monitoring/tracing_s3"
           ]
         },
-        "monitoring/annotations"
+        "monitoring/annotations",
+        {
+          "group": "Alerts",
+          "pages": [
+            "alerts/rules",
+            "alerts/notifications",
+            "alerts/platform_notifications"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Insights",
+      "pages": [
+        {
+          "group": "Clustering",
+          "pages": [
+            "clustering/clustering"
+          ]
+        }
       ]
     },
     {
@@ -102,61 +131,57 @@
       ]
     },
     {
-      "group": "Alerts",
+      "group": "Cookbooks",
       "pages": [
-        "alerts/rules",
-        "alerts/notifications",
-        "alerts/platform_notifications"
+        {
+          "group": "OpenAI Cookbooks",
+          "pages": [
+            "cookbooks/openai_cookbooks/food_recommendation",
+            "cookbooks/openai_cookbooks/travel_agent" 
+          ]
+        },
+        {
+          "group": "LangGraph Cookbooks",
+          "pages": [
+            "cookbooks/langgraph_cookbooks/langgraph_human_in_the_loop",
+            "cookbooks/langgraph_cookbooks/langgraph_basic",
+            "cookbooks/langgraph_cookbooks/movie_recommendation",
+            "cookbooks/langgraph_cookbooks/financial_agent" 
+          ]
+        }
       ]
     },
     {
-      "group": "Clustering",
+      "group": "Developer Resources",
       "pages": [
-        "clustering/clustering"
+        {
+          "group": "Judgment CLI",
+          "pages": [
+            "judgment_cli/installation",
+            "judgment_cli/self-hosting"
+          ]
+        },
+        {
+          "group": "API Reference",
+          "pages": [
+            "api_reference/judgment_client",
+            "api_reference/trace"
+          ]
+        }
       ]
     },
     {
-      "group": "Self-Hosting",
+      "group": "Platform",
       "pages": [
-        "self_hosting/get_started"
-      ]
-    },
-    {
-      "group": "Judgment CLI",
-      "pages": [
-        "judgment_cli/installation",
-        "judgment_cli/self-hosting"
-      ]
-    },
-    {
-      "group": "Synthetic Data",
-      "pages": [
-        "synthetic_data/synthetic_data"
-      ]
-    },
-    {
-      "group": "Optimization",
-      "pages": [
-        "optimization/osiris_agent"
-      ]
-    },
-    {
-      "group": "API Reference",
-      "pages": [
-        "api_reference/judgment_client",
-        "api_reference/trace"
-      ]
-    },
-    {
-      "group": "Security & Compliance",
-      "pages": [
-        "compliance/certifications"
-      ]
-    },
-    {
-      "group": "Changelog",
-      "pages": [
-        "changelog/2025-04-21"
+          "self_hosting/get_started",
+          "optimization/osiris_agent",
+          "compliance/certifications",
+        {
+          "group": "Changelog",
+          "pages": [
+            "changelog/2025-04-21"
+          ]
+        }
       ]
     }
   ],

@@ -1,0 +1,157 @@
+# Cookbook: LangGraph Human-in-the-Loop Agent
+
+*   **Find it at:** `cookbooks/langgraph_agent/human_in_the_loop/human_in_the_loop.py`
+
+### 1. What it Does (Purpose)
+
+This agent demonstrates how to build a LangGraph agent that can pause during its execution to ask a human for input, and then resume once the input is provided. This is useful for scenarios where the agent might need clarification, or when a human needs to make a decision or provide information that the agent cannot source itself (e.g., user's current location if not provided initially). The cookbook also shows how to test such an interactive agent using a dataset and evaluate the correctness of its execution flow.
+
+### 2. How it's Built
+
+The agent is constructed in `cookbooks/langgraph_agent/human_in_the_loop/human_in_the_loop.py`.
+
+*   **Core Idea:** An extension of a typical LangGraph agent, with added nodes and logic to handle interruptions for human feedback and subsequent resumption of the graph.
+*   **Key Components:**
+    *   **State Definition (`State` TypedDict):** Similar to the basic agent, it holds `messages`.
+        ```python
+        from typing import Annotated, List
+        from langchain_core.messages import BaseMessage
+        from typing_extensions import TypedDict
+        from langgraph.graph.message import add_messages
+
+        class State(TypedDict):
+            messages: Annotated[List[BaseMessage], add_messages]
+        ```
+    *   **Judgeval Tracer and Tools:** Initializes `Tracer` and defines tools like `search_restaurants`, `check_opening_hours`, `get_menu_items`, and `TavilySearchResults`. These tools use `judgment.get_current_trace().async_evaluate` for in-step evaluations.
+        ```python
+        # Tracer initialization (example)
+        # from judgeval.common.tracer import Tracer
+        # import os
+        # from dotenv import load_dotenv
+        # load_dotenv()
+        # PROJECT_NAME = "LANGGRAPH_TEST_AGENT"
+        # judgment = Tracer(api_key=os.getenv("JUDGMENT_API_KEY"), project_name=PROJECT_NAME)
+
+        # Example tool with async_evaluate
+        # @judgment.observe(name="search_restaurants", span_type="tool")
+        # def search_restaurants(location: str, cuisine: str) -> str:
+        #     ans = f"Top 3 {cuisine} restaurants in {location}: ..."
+        #     example = Example(...)
+        #     judgment.get_current_trace().async_evaluate(scorers=[...], example=example, model="gpt-4.1")
+        #     return ans
+        ```
+    *   **`ask_human` Node:** This is a dedicated node in the graph whose function is to signal an interruption. It uses `langgraph.types.interrupt`. When the LLM decides it needs to ask the human (e.g., for a location), the graph routes to this node.
+        ```python
+        from langgraph.types import interrupt
+
+        @judgment.observe(name="ask_human", span_type="tool") # Though it's a node, it acts like a tool prompting interaction
+        def ask_human(state: State): # The 'state' might be used if the question needs context
+            """Ask the human a question about location"""
+            # The actual question/prompt for the human can be part of the interrupt metadata
+            # or handled by the UI/system that manages the interrupt.
+            # The example script has a specific way of handling the tool_call_id if this
+            # node is invoked via an LLM tool call.
+            # For simplicity, the core is the interrupt call:
+            return interrupt("Please provide your location:") # This string can be a prompt or identifier
+        ```
+    *   **Conditional Logic (`should_continue`):** This function routes the graph after the `assistant` node. It checks if the assistant's last message has tool calls. If the tool call is for "ask_human", it routes to the `ask_human` node. If other tools are called, it routes to the `tools` node. If no tools are called, it `END`s.
+        ```python
+        from langgraph.graph import END
+
+        def should_continue(state: State):
+            messages = state["messages"]
+            last_message = messages[-1]
+            if not last_message.tool_calls:
+                return END
+            elif last_message.tool_calls[0]["name"] == "ask_human": # LLM decided to call the ask_human tool
+                return "ask_human" # Route to the node that will interrupt
+            else:
+                return "tools" # Route to regular tools node
+        ```
+    *   **Graph Construction (in `run_agent`):**
+        *   The `ChatOpenAI` LLM is bound with all tools, *including* `ask_human` (so the LLM can decide to invoke it).
+        *   Nodes for `assistant`, `tools` (a `ToolNode`), and `ask_human` are added.
+        *   Conditional edges from `assistant` use `should_continue`.
+        *   Edges from `tools` and `ask_human` loop back to `assistant` to process results or resumed input.
+        *   A `MemorySaver` is used as a checkpointer to allow the graph's state to be saved and resumed.
+        ```python
+        from langchain_openai import ChatOpenAI
+        from langgraph.graph import StateGraph
+        from langgraph.prebuilt import ToolNode
+        from langgraph.checkpoint.memory import MemorySaver
+
+        # tools = [...] # list of regular tools
+        # llm = ChatOpenAI(model="gpt-4.1")
+        # llm_with_tools = llm.bind_tools(tools + [ask_human]) # ask_human is callable by LLM
+
+        # graph_builder = StateGraph(State)
+        # def assistant(state: State):
+        #     response = llm_with_tools.invoke(state["messages"])
+        #     return {"messages": [response]}
+        # tool_node = ToolNode(tools) # For regular tools
+
+        # graph_builder.add_node("assistant", assistant)
+        # graph_builder.add_node("tools", tool_node)
+        # graph_builder.add_node("ask_human", ask_human) # The node that calls interrupt
+
+        # graph_builder.set_entry_point("assistant")
+        # graph_builder.add_conditional_edges("assistant", should_continue)
+        # graph_builder.add_edge("tools", "assistant")
+        # graph_builder.add_edge("ask_human", "assistant") # After interrupt & resume, flow back to assistant
+        
+        # checkpointer = MemorySaver()
+        # graph = graph_builder.compile(checkpointer=checkpointer)
+        ```
+    *   **Graph Streaming and Resumption:** The agent is run using `graph.stream()`. If the graph interrupts (at `ask_human`), the main loop in the script provides a predefined `follow_up_input` and resumes the stream using `graph.stream(Command(resume=...), config=...)`.
+        ```python
+        from langgraph.types import Command # For resuming
+
+        # config = {"configurable": {"thread_id": "unique_thread_id"}, "callbacks": [handler]}
+        # Initial run:
+        # for event in graph.stream({"messages": [("user", prompt)]}, config, stream_mode="values"):
+        #     event["messages"][-1].pretty_print()
+
+        # Resuming after interrupt:
+        # next_node_info = graph.get_state(config).next
+        # if next_node_info and "ask_human" in next_node_info: # Simplified check
+        #     human_provided_input = follow_up_inputs.get("ask_human", "Default fallback input")
+        #     for event in graph.stream(Command(resume=human_provided_input), config, stream_mode="values"):
+        #         event["messages"][-1].pretty_print()
+        ```
+
+### 3. How to Test it with Judgeval
+
+*   **`JudgevalCallbackHandler`:** Captures the entire interactive flow, including the interruption and resumption steps, sending it to Judgeval.
+*   **Dataset Testing (`test_eval_dataset` function):**
+    *   The script loads test cases from a `test.yaml` file using `judgeval.data.datasets.EvalDataset`. This YAML likely contains initial user inputs and potentially expected sequences or outcomes.
+    *   For each test case, `run_agent` is called. If an interruption is expected (like the `ask_human` node), pre-defined `follow_up_inputs` (e.g., "Manhattan") are supplied to allow the agent to resume.
+    *   The `example.actual_output` from the dataset is populated with the `handler.executed_node_tools`, which provides the sequence of (node, tool_name) tuples executed by the LLM via the `ToolNode`.
+    *   **`ExecutionOrderScorer`:** `JudgmentClient().run_evaluation()` is then called with these examples, using `ExecutionOrderScorer`. This scorer compares the `actual_output` (the observed execution order) against an `expected_output` (the desired execution order, likely also defined in the `test.yaml` or constructed in the script) to verify the agent's control flow, especially around human interaction points.
+    ```python
+    from judgeval.data.datasets import EvalDataset
+    from judgeval import JudgmentClient # Ensure client is initialized
+    from judgeval.scorers import ExecutionOrderScorer
+    import os
+
+    # In test_eval_dataset():
+    # dataset = EvalDataset()
+    # dataset.add_from_yaml(os.path.join(os.path.dirname(__file__), "test.yaml"))
+    
+    # processed_examples = []
+    # for example_from_yaml in dataset.examples:
+    #     follow_up_inputs = {"wait": "Manhattan", "ask_human": "Manhattan"} # Predefined human inputs for test
+    #     handler = run_agent(example_from_yaml.input, follow_up_inputs)
+    #     example_from_yaml.actual_output = str(handler.executed_node_tools) # Storing tool execution path
+    #     # example_from_yaml.expected_output would come from the YAML or be defined based on test case
+    #     processed_examples.append(example_from_yaml)
+
+    # client = JudgmentClient()
+    # client.run_evaluation(
+    #     examples=processed_examples,
+    #     scorers=[ExecutionOrderScorer(threshold=1, should_consider_ordering=True)],
+    #     model="gpt-4.1", # Model for any LLM-based scorers if used
+    #     project_name=PROJECT_NAME,
+    #     eval_run_name="EVAL_NAME",
+    #)
+
+    

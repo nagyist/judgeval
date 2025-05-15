@@ -1,0 +1,157 @@
+# Cookbook: Anime Recommendation Agent (LangGraph based)
+
+*   **Find it at:** `cookbooks/movie_recommendation_agent/movieRecommendationBot.py`
+*   *(Note: The folder name is `movie_recommendation_agent`, but the implemented bot in `movieRecommendationBot.py` is an Anime Recommendation Bot.)*
+
+### 1. What it Does (Purpose)
+
+This agent recommends anime to users. It's a sophisticated LangGraph-based agent that decides which data source to use for a query:
+1.  A **vector database** (ChromaDB) with information on top anime.
+2.  The **Jikan API** (an unofficial MyAnimeList API) for detailed information about specific anime.
+3.  A **web search tool** (Tavily) for recent anime news or articles.
+
+The agent refines user queries, retrieves information from the chosen source, and then generates a final answer. It also includes logic to retry with a different approach if the initial attempt yields insufficient information.
+
+### 2. How it's Built
+
+The agent is constructed in `cookbooks/movie_recommendation_agent/movieRecommendationBot.py`.
+
+*   **Core Idea:** A LangGraph agent that manages a multi-step process: understanding the query, choosing a data source, fetching data, and synthesizing an answer, with a retry mechanism.
+*   **Key Components:**
+    *   **`ChatState` (TypedDict):** Manages the agent's state throughout the conversation, including the user's query, any refined query, retrieved information, the final answer, the next node to execute, an attempt counter, and flags for retrying.
+        ```python
+        from typing import TypedDict, List # Ensure List is imported
+
+        class ChatState(TypedDict):
+            query: str
+            refined_query: str
+            retrieved_info: List[str]
+            final_answer: str
+            next_node: str             # Data source decision for routing
+            attempt_count: int         # Number of attempts made
+            retry_flag: bool           # Flag indicating whether to retry
+            node_decision: str         # Stores the chosen data source
+        ```
+    *   **Judgeval Tracer and Wrapped OpenAI Client:**
+        ```python
+        from judgeval.common.tracer import Tracer, wrap
+        from openai import OpenAI 
+        import os
+        from dotenv import load_dotenv
+
+        load_dotenv()
+        # OpenAI client is wrapped for automatic tracing of LLM calls
+        client = wrap(OpenAI(api_key=os.getenv("OPENAI_API_KEY"))) 
+        judgment = Tracer(
+            api_key=os.getenv("JUDGMENT_API_KEY"),
+            organization_id=os.getenv("JUDGMENT_ORG_ID"),
+            project_name="MOVIE_RECOMMENDATION_AGENT" # Note: Original project name
+        )
+        ```
+    *   **Vector Database Setup (ChromaDB):**
+        *   `chroma_client` is initialized.
+        *   An OpenAI embedding function is used.
+        *   A collection named `anime_data` is created/retrieved.
+        *   `populate_vector_db` function loads anime data (fetched by `fetch_top_anime` from Jikan API) into this collection.
+        ```python
+        import chromadb
+        from chromadb.utils import embedding_functions
+
+        # chroma_client = chromadb.Client()
+        # embedding_fn = embedding_functions.OpenAIEmbeddingFunction(
+        #     api_key=os.getenv("OPENAI_API_KEY"),
+        #     model_name="text-embedding-ada-002"
+        # )
+        # collection = chroma_client.get_or_create_collection(
+        #     name="anime_data",
+        #     embedding_function=embedding_fn
+        # )
+        # # def fetch_top_anime(total=350): ... 
+        # # def populate_vector_db(coll, anime_list): ...
+        ```
+    *   **Decision Node (`decision_node`):**
+        *   This is the first main step. It uses an LLM (`client.chat.completions.create`) to analyze the user's query, decide the best data source ('vector', 'jikan', or 'web'), and refine the query.
+        *   It considers feedback from previous failed attempts.
+        *   Decorated with `@judgment.observe(span_type="LLM decision")`.
+        *   Uses `judgment.async_evaluate` with `AnswerRelevancyScorer` to check the LLM's decision.
+        ```python
+        import json # For parsing LLM response
+        from judgeval.data import Example # For async_evaluate
+        from judgeval.scorers import AnswerRelevancyScorer
+
+        # @judgment.observe(span_type="LLM decision")
+        # def decision_node(state: ChatState) -> ChatState:
+        #     # ... (constructs prompt with query, feedback, data source options) ...
+        #     prompt_text = (
+        #         "You have three available data sources:\n"
+        #         "1. 'vector': A Chroma vector database ... anime information.\n"
+        #         "2. 'jikan': The Jikan API ... specific anime...\n"
+        #         "3. 'web': A web search tool ... recent anime news articles.\n..."
+        #         f"User Query: {state["query"]}\n..."
+        #         "Return your answer in JSON ... 'chosen_node', 'refined_query'..."
+        #     )
+        #     # response = client.chat.completions.create(model="gpt-4", messages=[...])
+        #     # content = response.choices[0].message.content.strip()
+        #     # parsed = json.loads(content)
+        #     # state["next_node"] = parsed.get("chosen_node", "web").strip().lower()
+        #     # state["refined_query"] = parsed.get("refined_query", state["query"]).strip()
+        #     # example = Example(input=prompt_text, actual_output=content)
+        #     # judgment.async_evaluate(scorers=[AnswerRelevancyScorer(threshold=0.5)], example=example, model="gpt-4.1")
+        #     # return state
+        #     pass # Placeholder for full code in docs
+        ```
+    *   **Data Retrieval Nodes:**
+        *   `anime_vector_node`: Queries ChromaDB. `@judgment.observe(span_type="retriever")`.
+        *   `anime_jikan_node`: Fetches from Jikan API. `@judgment.observe(span_type="API call")`.
+        *   `anime_web_node`: Uses `TavilySearchResults`. `@judgment.observe(span_type="web search")`.
+        *   Each uses `judgment.async_evaluate` with `AnswerRelevancyScorer`.
+    *   **Finalize Answer Node (`finalize_answer_node`):**
+        *   Takes `retrieved_info`, uses an LLM to evaluate if info is sufficient, generate a final answer, or suggest keywords for retry.
+        *   Decorated with `@judgment.observe(span_type="LLM evaluation")`.
+        *   Uses `judgment.async_evaluate` with `FaithfulnessScorer` and `AnswerRelevancyScorer`.
+    *   **Graph Construction:** A `StateGraph` connecting `decision` -> (`vector`|`jikan`|`web`) -> `finalize`. `finalize` can loop back to `decision` or `END`.
+        ```python
+        from langgraph.graph import StateGraph, START, END
+        from langgraph.checkpoint.memory import MemorySaver # For checkpointer
+
+        # graph_builder = StateGraph(ChatState)
+        # # ... add_node for decision, anime_vector_node (as "vector"), anime_jikan_node (as "jikan"), etc. ...
+        # graph_builder.add_edge(START, "decision")
+        # def route_from_decision(state: ChatState) -> str: return state["next_node"]
+        # graph_builder.add_conditional_edges("decision", route_from_decision, {...})
+        # # ... add edges from data nodes to "finalize" ...
+        # MAX_ATTEMPTS = 2 # From script
+        # def route_from_finalize(state: ChatState) -> str:
+        #     if state.get("retry_flag", False) and state.get("attempt_count", 0) < MAX_ATTEMPTS:
+        #         return "decision"
+        #     else:
+        #         return END
+        # graph_builder.add_conditional_edges("finalize", route_from_finalize, {...})
+        # memory_saver = MemorySaver()
+        # graph = graph_builder.compile(checkpointer=memory_saver)
+        ```
+    *   **Main Execution Loop (`async def main()`):** Fetches anime data, populates DB, then enters a loop for user input, calling `graph.invoke()` for each query.
+
+### 3. How to Test it with Judgeval
+
+*   **`@judgment.observe` on Nodes:** All key nodes in the LangGraph are decorated, enabling Judgeval to trace their execution, inputs, and outputs.
+*   **Wrapped OpenAI Client:** The `openai.Client` is wrapped, so all LLM calls (in `decision_node` and `finalize_answer_node`) are automatically traced by Judgeval, capturing prompts, responses, and model details.
+*   **`judgment.async_evaluate` within Nodes:** Each node (decision, data retrieval, finalize) uses `async_evaluate` to perform targeted checks:
+    *   `decision_node`: Checks relevance of the LLM's chosen data source and refined query.
+    *   Data Retrieval Nodes: Check relevance of the retrieved anime information or search results.
+    *   `finalize_answer_node`: Checks the final generated answer for faithfulness (to the retrieved context) and relevance (to the user's query).
+*   **Running the Agent:** When `movieRecommendationBot.py` is run, the interactive loop allows testing with various queries. Judgeval captures traces from `@judgment.observe`, the wrapped client, and `async_evaluate` calls.
+*   **For Full LangGraph Traces:** The `graph.invoke` call in the `main` function does not currently include a `JudgevalCallbackHandler`. Adding it (as shown in other LangGraph cookbooks) would provide even more detailed traces of the LangGraph internal operations (like edge routing and precise state changes between nodes) to Judgeval.
+    ```python
+    # To add full LangGraph tracing in main():
+    # from judgeval.integrations.langgraph import JudgevalCallbackHandler
+    # # ... inside main() before graph.invoke ...
+    # # handler = JudgevalCallbackHandler(judgment) # judgment is the Tracer instance
+    # # results = graph.invoke(
+    # #     init_state,
+    # #     config={"configurable": {"thread_id": "some_unique_id"}, "callbacks": [handler]}
+    # # )
+    ```
+
+This agent structure allows for evaluating a complex decision-making and retrieval process, with multiple points for feedback and scoring through Judgeval.
+

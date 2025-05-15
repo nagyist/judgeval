@@ -1,0 +1,69 @@
+# Cookbook: OpenAI Travel Agent
+
+*   **Find it at:** `cookbooks/openai_travel_agent/agent.py`
+
+### 1. What it Does (Purpose)
+
+This agent helps plan trips. You tell it where and when you want to go, and it finds attractions, hotels, flights, and weather. It uses OpenAI's API directly (it does *not* use LangGraph) and combines stored info from a local database (RAG) with live web searches using Tavily.
+
+### 2. How it's Built
+
+*   **Core Idea:** A Python script that directly calls the OpenAI API for planning and uses custom Python functions as "tools" for searching information. It also retrieves existing information from a local vector database.
+*   **Key Parts:**
+    *   **OpenAI Client:** The standard `openai.Client()` is used, but it's `wrap()`-ped by `judgeval.tracer.wrap`. This special wrapper automatically tracks all calls made to the OpenAI API (like `client.chat.completions.create`) and sends them to Judgeval.
+    *   **Tool Functions:** Functions like `get_attractions`, `get_hotels`, `get_flights`, and `get_weather` are defined. These typically use `TavilyClient` to perform live web searches for up-to-date information. Each of these tool functions is decorated with `@judgment.observe(span_type="tool")`, so Judgeval tracks when they are called and what they return.
+    *   **Vector Database (ChromaDB):** A local ChromaDB instance is set up to store some pre-existing travel information (e.g., about destinations). Functions like `initialize_vector_db` and `query_vector_db` manage this. The `query_vector_db` function is also decorated with `@judgment.observe(span_type="retriever")`.
+    *   **Main Logic Functions:**
+        1.  `research_destination`: This function first queries the local vector database for stored info about the destination. Then, it calls the various tool functions (for attractions, hotels, etc.) to get current information. This whole research step is also `@judgment.observe`-d.
+        2.  `create_travel_plan`: This function takes all the information gathered by `research_destination` (from both the database and the live searches), formats it into a prompt, and sends it to the OpenAI API (`client.chat.completions.create`) to generate a structured travel itinerary. This planning step is `@judgment.observe`-d.
+        3.  `generate_itinerary`: The main function that a user would call. It orchestrates the call to `research_destination` and then `create_travel_plan`.
+
+    ```python
+    # Simplified: A tool function using Tavily
+    # from tavily import TavilyClient
+    # from judgeval.common.tracer import Tracer # Assume judgment = Tracer(...)
+    # from judgeval.data import Example
+    # from judgeval.scorers import AnswerRelevancyScorer
+    # import os # For getenv
+
+    # tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+
+    # @judgment.observe(span_type="tool")
+    # async def get_attractions(destination: str):
+    #     prompt = f"Best tourist attractions in {destination}"
+    #     # attractions_search_results = tavily_client.search(query=prompt, search_depth="basic")
+    #     # example = Example(input=prompt, actual_output=str(attractions_search_results.get("results")))
+    #     # judgment.async_evaluate(scorers=[AnswerRelevancyScorer(threshold=0.7)], example=example, model="gpt-4o")
+    #     # return attractions_search_results
+    #     pass # Placeholder
+
+    # Simplified: Creating the travel plan using OpenAI client
+    # import openai
+    # from judgeval.common.tracer import wrap # For wrapping openai client
+    # from judgeval.scorers import FaithfulnessScorer # For FaithfulnessScorer
+    # # Assume client is initialized: client = wrap(openai.Client(api_key=os.getenv("OPENAI_API_KEY")))
+
+    # @judgment.observe(span_type="function") 
+    # async def create_travel_plan(destination: str, start_date: str, end_date: str, research_data: dict):
+    #     vector_db_context = "\n".join(research_data.get('vector_db_results', []))
+    #     prompt_content = f"Create an itinerary for {destination} from {start_date} to {end_date}. " \
+    #     #                  f"Stored info: {vector_db_context}. Current data: {research_data}..."
+    #     # response = client.chat.completions.create(
+    #     #     model="gpt-4o",
+    #     #     messages=[{"role": "system", "content": "You are a travel planner."}, 
+    #     #               {"role": "user", "content": prompt_content}]
+    #     # ).choices[0].message.content
+    #     # example = Example(input=prompt_content, actual_output=response, retrieval_context=[vector_db_context, str(research_data)])
+    #     # judgment.async_evaluate(scorers=[FaithfulnessScorer(threshold=0.7)], example=example, model="gpt-4o")
+    #     # return response
+    #     pass # Placeholder
+    ```
+
+### 3. How to Test it with Judgeval
+
+*   **Automatic OpenAI Tracing:** Because the `openai.Client` is `wrap()`-ped, all calls to `client.chat.completions.create` are automatically traced by Judgeval, capturing the prompt, response, model parameters, etc.
+*   **`@judgment.observe` for Custom Functions:** Key Python functions (tools, RAG retrievers, research orchestrator, final plan generator) are decorated with `@judgment.observe`. This ensures their execution, inputs, and outputs are also part of the Judgeval trace, providing a complete picture of the agent's operation.
+*   **`judgment.async_evaluate` for In-Code Checks:**
+    *   Inside some tool functions (like `get_flights`, `get_weather`), `judgment.async_evaluate` is used with `AnswerRelevancyScorer` to immediately check if the search results from Tavily are relevant to the prompt sent to Tavily.
+    *   After the main travel plan is generated by the LLM in `create_travel_plan`, `judgment.async_evaluate` is used with `FaithfulnessScorer` to check if the generated itinerary is faithful to the information that was retrieved (from both the vector DB and the live tool searches).
+*   **Overall Trace:** When the script is run, Judgeval collects a comprehensive trace of the entire `generate_itinerary` process, including all observed Python functions, all OpenAI API calls, and any explicit `async_evaluate` calls. This allows for detailed debugging and performance analysis in the Judgeval UI. 
