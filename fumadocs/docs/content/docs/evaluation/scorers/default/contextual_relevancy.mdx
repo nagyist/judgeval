@@ -31,7 +31,7 @@ Our contextual relevancy scorer is based on Stanford NLP's [ARES](https://arxiv.
 ## Sample Implementation
 
 <CodeGroup>
-```Python Python
+```py
 from judgeval import JudgmentClient
 from judgeval.data import Example
 from judgeval.scorers import ContextualRelevancyScorer
@@ -54,7 +54,7 @@ results = client.run_evaluation(
 )
 print(results)
 ```
-```Typescript Typescript
+```ts
 import { JudgmentClient, ExampleBuilder, ContextualRelevancyScorer, logger } from 'judgeval';
 
 async function runContextualRelevancy() {

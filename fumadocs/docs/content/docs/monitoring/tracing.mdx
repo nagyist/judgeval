@@ -23,13 +23,13 @@ Setting up tracing with `judgeval` takes two simple steps:
 ### 1. Initialize a tracer with your API keys and project name
 
 <CodeGroup>
-```Python Python
+```py
 from judgeval.tracer import Tracer
 
 # loads from JUDGMENT_API_KEY and JUDGMENT_ORG_ID env vars
 judgment = Tracer(project_name="my_project")
 ```
-```Typescript Typescript
+```ts
 import { Tracer } from 'judgeval';
 
 // The getInstance method ensures a singleton Tracer is used
@@ -56,13 +56,13 @@ The `wrap()` function goes over your LLM client (e.g. OpenAI, Anthropic, etc.) a
 
 Here's an example of using `wrap()` on an OpenAI client:
 <CodeGroup>
-```Python Python
+```py
 from openai import OpenAI
 from judgeval.tracer import wrap
 
 client = wrap(OpenAI())
 ```
-```Typescript Typescript
+```ts
 import OpenAI from 'openai';
 import { wrap } from 'judgeval';
 
@@ -92,7 +92,7 @@ The `@observe` decorator (Python) or the `observe()` higher-order function (Type
 
 Here's an example of using the observer mechanism:
 <CodeGroup>
-```Python Python
+```py
 from judgeval.tracer import Tracer
 
 # loads from JUDGMENT_API_KEY env var
@@ -103,7 +103,7 @@ def my_tool():
     print("Hello world!")
 
 ```
-```Typescript Typescript
+```ts
 import { Tracer } from 'judgeval';
 
 const judgment = Tracer.getInstance({ projectName: "my_project" });
@@ -134,7 +134,7 @@ Judgeval includes automatic deep tracing, which significantly reduces the amount
 When you decorate a function with `@observe` (Python) or wrap it with `observe()` (TypeScript), the tracer automatically instruments all functions called within that function, creating a complete trace of your execution flow without requiring explicit decorators on every function.
 
 <CodeGroup>
-```Python Python
+```py
 # Deep tracing is enabled by default
 judgment = Tracer(project_name="my_project")
 
@@ -160,7 +160,7 @@ main()  # Traces main, helper_function, and process_result
 If you prefer more control over what gets traced, you can disable deep tracing:
 
 <CodeGroup>
-```Python Python
+```py
 # Disable deep tracing globally
 judgment = Tracer(project_name="my_project", deep_tracing=False)
 
@@ -177,7 +177,7 @@ With deep tracing disabled, you'll need to explicitly observe each function you 
 #### Putting it all Together
 Here's a complete example of using judgeval's tracing mechanisms:
 <CodeGroup>
-```Python Python
+```py
 from judgeval.tracer import Tracer, wrap
 from openai import OpenAI
 
@@ -202,7 +202,7 @@ def my_llm_call():
 # and saves it upon completion or error.
 main_result = my_llm_call()
 ```
-```Typescript Typescript
+```ts
 import { Tracer, wrap } from 'judgeval';
 import OpenAI from 'openai';
 
@@ -248,7 +248,7 @@ And the trace will appear on the Judgment platform as follows:
 When using streaming responses with a wrapped client, you need to explicitly enable token usage tracking:
 
 <CodeGroup>
-```Python Python
+```py
 @judgment.observe(span_type="function")
 def my_llm_streaming_call():
     # Enable token counting with streaming API calls
@@ -269,7 +269,7 @@ def my_llm_streaming_call():
     
     return full_response
 ```
-```Typescript Typescript
+```ts
 const observedStreamingCall = judgment.observe({ spanType: "function" })(async () => {
     // Enable token counting with streaming API calls
     const stream = await openaiClient.chat.completions.create({
@@ -310,7 +310,7 @@ This enables you to run evaluations on your **production data in real-time**, wh
 To execute an asynchronous evaluation, you can use the `trace.asyncEvaluate()` method (Typescript) or `judgment.async_evaluate()` (Python, assuming it operates on the currently active trace).
 
 <CodeGroup>
-```Python Python
+```py
 from judgeval.tracer import Tracer
 from judgeval.scorers import AnswerRelevancyScorer
 from judgeval.data import Example
@@ -338,7 +338,7 @@ def main():
 
 main() # Call the observed function
 ```
-```Typescript Typescript
+```ts
 import { Tracer, AnswerRelevancyScorer } from 'judgeval';
 
 const judgment = Tracer.getInstance({ projectName: "my_project" });
@@ -416,7 +416,7 @@ This is useful for debugging or exporting any state of your workflow to run an e
 
 Here's an example of using explicit trace management:
 <CodeGroup>
-```Python Python
+```py
 from judgeval.tracer import Tracer, wrap
 from openai import OpenAI
 
@@ -440,7 +440,7 @@ def main():
 
     return res.choices[0].message.content
 ```
-```Typescript Typescript
+```ts
 import { Tracer, wrap } from 'judgeval';
 import OpenAI from 'openai';
 

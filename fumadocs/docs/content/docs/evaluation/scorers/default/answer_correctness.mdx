@@ -27,7 +27,7 @@ $$
 ## Sample Implementation
 
 <CodeGroup>
-```Python Python
+```py
 from judgeval import JudgmentClient
 from judgeval.data import Example
 from judgeval.scorers import AnswerCorrectnessScorer
@@ -50,7 +50,7 @@ results = client.run_evaluation(
 )
 print(results)
 ```
-```Typescript Typescript
+```ts
 import { JudgmentClient, ExampleBuilder, AnswerCorrectnessScorer, logger } from 'judgeval';
 
 async function runAnswerCorrectness() {

@@ -12,7 +12,7 @@ Experiment comparisons allow you to systematically A/B test changes in your LLM 
 Let's walk through how to create and run experiment comparisons:
 
 <CodeGroup>
-```Python Python
+```py
 from judgeval import JudgmentClient
 from judgeval.data import Example
 from judgeval.scorers import AnswerCorrectnessScorer
@@ -54,7 +54,7 @@ experiment_2 = client.run_evaluation(
     eval_name="gpt35_experiment"
 )
 ```
-```Typescript Typescript
+```ts
 import { JudgmentClient, ExampleBuilder, AnswerCorrectnessScorer } from 'judgeval';
 
 async function runComparativeExperiments() {

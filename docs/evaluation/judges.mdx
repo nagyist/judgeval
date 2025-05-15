@@ -18,7 +18,7 @@ In Python, this is handled via LiteLLM integration. In TypeScript, the built-in 
 You simply pass the model name (e.g., "gpt-4o") to the `model` parameter in your evaluation call:
 
 <CodeGroup>
-```Python Python
+```py
 from judgeval import JudgmentClient # Added import
 from judgeval.data import Example # Added import
 from judgeval.scorers import AnswerRelevancyScorer # Added import
@@ -32,7 +32,7 @@ results = client.run_evaluation(
     model="gpt-4o"  # Uses LiteLLM
 )
 ```
-```Typescript Typescript
+```ts
 import { JudgmentClient, ExampleBuilder, AnswerRelevancyScorer, logger } from 'judgeval';
 
 const client = JudgmentClient.getInstance();
@@ -63,7 +63,7 @@ This includes models like the Llama, Mistral, QWEN, and DeepSeek families availa
 To use one, pass the model name (e.g., "meta-llama/Meta-Llama-3-8B-Instruct-Turbo") to the `model` parameter:
 
 <CodeGroup>
-```Python Python
+```py
 from judgeval import JudgmentClient # Added import
 from judgeval.data import Example # Added import
 from judgeval.scorers import AnswerRelevancyScorer # Added import
@@ -77,7 +77,7 @@ results = client.run_evaluation(
     model="Qwen/Qwen2.5-72B-Instruct-Turbo"  # Uses LiteLLM + TogetherAI
 )
 ```
-```Typescript Typescript
+```ts
 import { JudgmentClient, ExampleBuilder, AnswerRelevancyScorer, logger } from 'judgeval';
 
 const client = JudgmentClient.getInstance();
@@ -106,7 +106,7 @@ If you have a custom model or need to integrate with a different API (e.g., Vert
 In Python, this involves inheriting from the `judgevalJudge` base class and implementing the required methods. In TypeScript, you implement the `Judge` interface.
 
 <CodeGroup>
-```Python Python
+```py
 import vertexai
 from vertexai.generative_models import GenerativeModel
 from judgeval.judges import judgevalJudge # Assuming import path
@@ -149,7 +149,7 @@ class VertexAIJudge(judgevalJudge):
 #     model=custom_judge # Pass the custom judge instance
 # )
 ```
-```Typescript Typescript
+```ts
 import { Judge, JudgmentClient, ExampleBuilder, AnswerRelevancyScorer, logger } from 'judgeval';
 
 // 1. Implement the Judge interface
