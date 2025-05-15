@@ -1,0 +1,183 @@
+# Cookbook: LangGraph Basic Agent
+
+*   **Find it at:** `cookbooks/langgraph_agent/basic/basic.py`
+
+### 1. What it Does (Purpose)
+
+This agent demonstrates a foundational agent built using the LangGraph library. It's designed to handle user queries by potentially using a set of predefined tools (like searching for restaurants, checking opening hours, getting menu items, or performing a web search) and then formulating an answer. The primary goal is to illustrate a basic LangGraph setup, including state management, tool definition and usage, conditional graph logic, and integration with Judgeval for tracing and asynchronous evaluations.
+
+### 2. How it's Built
+
+The agent is constructed in `cookbooks/langgraph_agent/basic/basic.py`.
+
+*   **Core Idea:** Utilizes LangGraph to create a stateful, graph-based agent that can process messages, use tools, and make decisions.
+*   **Key Components:**
+
+    *   **State Definition (`State` TypedDict):** Manages the conversation by holding a list of messages. `add_messages` helps in appending new messages to this list.
+        ```python
+        from typing import Annotated, List
+        from langchain_core.messages import BaseMessage
+        from typing_extensions import TypedDict
+        from langgraph.graph.message import add_messages
+
+        class State(TypedDict):
+            messages: Annotated[List[BaseMessage], add_messages]
+        ```
+
+    *   **Judgeval Tracer Initialization:** Sets up Judgeval tracing for the project. Environment variables (like API keys) are loaded using `dotenv`.
+        ```python
+        from judgeval.common.tracer import Tracer
+        import os
+        from dotenv import load_dotenv
+
+        load_dotenv() # Loads .env file
+
+        PROJECT_NAME = "LANGGRAPH_TEST_AGENT" # Defined project name
+        # Ensure JUDGMENT_API_KEY and optionally JUDGMENT_ORG_ID are in your .env file
+        judgment = Tracer(
+            # api_key=os.getenv("JUDGMENT_API_KEY"), # API key can be set via env or client init
+            project_name=PROJECT_NAME
+            # org_id=os.getenv("JUDGMENT_ORG_ID") # If required
+        )
+        ```
+        *Note: `Tracer` can also be initialized with `api_key` and `organization_id` directly or these can be set as environment variables `JUDGMENT_API_KEY` and `JUDGMENT_ORG_ID`.*
+
+
+    *   **Tool Definitions (Python Functions):** Custom functions are defined to act as tools. Each tool performs a specific task and uses `judgment.async_evaluate` to send an immediate evaluation of its output to Judgeval.
+        ```python
+        from judgeval.data import Example
+        from judgeval.scorers import AnswerRelevancyScorer, AnswerCorrectnessScorer
+
+        # Example Tool: search_restaurants
+        def search_restaurants(location: str, cuisine: str, state: State) -> str: # state param for context/compatibility
+            """Search for restaurants in a location with specific cuisine"""
+            ans = f"Top 3 {cuisine} restaurants in {location}: 1. Le Gourmet 2. Spice Palace 3. Carbones"
+            example = Example(
+                input=f"Search for {cuisine} restaurants in {location}", # More descriptive for evaluation
+                actual_output=ans
+            )
+            judgment.async_evaluate( # Or judgment.get_current_trace().async_evaluate
+                scorers=[AnswerRelevancyScorer(threshold=1)], # Example threshold
+                example=example,
+                model="gpt-4.1" # Specify model for LLM Judge
+            )
+            return ans
+
+        # Example Tool: check_opening_hours
+        def check_opening_hours(restaurant: str, state: State) -> str:
+            """Check opening hours for a specific restaurant"""
+            ans = f"{restaurant} hours: Mon-Sun 11AM-10PM"
+            example = Example(
+                input=f"Check opening hours for {restaurant}",
+                actual_output=ans,
+                expected_output=ans # Provide if ground truth is known
+            )
+            judgment.async_evaluate(
+                scorers=[AnswerCorrectnessScorer(threshold=1)],
+                example=example,
+                model="gpt-4.1"
+            )
+            return ans
+        
+        # Tool: get_menu_items
+        def get_menu_items(restaurant: str) -> str:
+            """Get popular menu items for a restaurant"""
+            ans = f"{restaurant} popular dishes: 1. Chef's Special 2. Seafood Platter 3. Vegan Delight"
+            example = Example(
+                input=f"Get popular menu items for {restaurant}",
+                actual_output=ans
+            )
+            judgment.async_evaluate(
+                scorers=[AnswerRelevancyScorer(threshold=1)],
+                example=example,
+                model="gpt-4.1"
+            )
+            return ans 
+        ```
+        The agent also utilizes the pre-built `TavilySearchResults` tool.
+
+    *   **LLM Initialization:** The Language Model (`ChatOpenAI`) is set up.
+        ```python
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(model="gpt-4.1") # Or your preferred OpenAI model
+        ```
+
+    *   **Graph Construction (within `run_agent` function):**
+        1.  A list of all tools (custom and pre-built) is created.
+        2.  A `StateGraph` is initialized with the `State` TypedDict.
+        3.  An `assistant` node is defined: this node uses the LLM (bound with tools) to process the current messages and decide on the next action (e.g., call a tool or respond to the user).
+        4.  A `ToolNode` is created: this node is responsible for executing any tool calls made by the assistant.
+        5.  Nodes are added to the graph builder.
+        6.  The entry point of the graph is set to the `assistant` node.
+        7.  Conditional edges determine the flow: If the assistant's last message contains tool calls, the graph routes to the `tools` node. Otherwise (if no tool calls, meaning the assistant is ready to give a final answer), the graph `END`s.
+        8.  An edge connects the `tools` node back to the `assistant` node, so the assistant can process the tool results.
+        9.  The graph is compiled.
+
+        ```python
+        from langchain_community.tools.tavily_search import TavilySearchResults
+        from langgraph.graph import StateGraph, END
+        from langgraph.prebuilt import ToolNode, tools_condition 
+
+        def run_agent(prompt: str):
+            tools = [
+                TavilySearchResults(max_results=2),
+                check_opening_hours,
+                get_menu_items,
+                search_restaurants,
+            ]
+            # llm = ChatOpenAI(model="gpt-4.1") # (Initialized earlier in the script)
+
+            graph_builder = StateGraph(State)
+
+            def assistant(state: State): # This is the assistant node logic
+                llm_with_tools = llm.bind_tools(tools)
+                response = llm_with_tools.invoke(state["messages"])
+                return {"messages": [response]} # Appends LLM response to messages in State
+
+            tool_node = ToolNode(tools) # This node executes the called tools
+            
+            graph_builder.add_node("assistant", assistant)
+            graph_builder.add_node("tools", tool_node)
+            
+            graph_builder.set_entry_point("assistant")
+            
+            graph_builder.add_conditional_edges(
+                "assistant",
+                tools_condition, # LangGraph's prebuilt condition to check for tool calls
+            )
+            graph_builder.add_edge("tools", "assistant") # Results from tools go back to assistant
+            
+            graph = graph_builder.compile()
+            
+            handler = JudgevalCallbackHandler(judgment) # judgment is the Tracer instance
+
+            result = graph.invoke(
+                {"messages": [HumanMessage(content=prompt)]}, 
+                config=dict(callbacks=[handler])
+            )
+            return result, handler 
+        ```
+
+### 3. How to Test it with Judgeval
+
+*   **`JudgevalCallbackHandler` for Full Tracing:**
+    *   The `JudgevalCallbackHandler` is crucial for comprehensive tracing. It's initialized with the `judgment` (Tracer) instance.
+    *   When `graph.invoke` is called, this handler is passed in the `config`.
+    *   It automatically captures all transitions and data within the LangGraph execution (inputs/outputs of each node, tool calls, LLM responses) and sends this detailed trace to your Judgeval project.
+
+*   **`judgment.async_evaluate` for In-Tool Checks:**
+    *   As shown in the tool definitions (e.g., `search_restaurants`), `judgment.async_evaluate` is called within the tools themselves.
+    *   This allows for immediate, specific evaluations of a tool's output as soon as it's generated, using scorers like `AnswerRelevancyScorer` or `AnswerCorrectnessScorer`. These results are also logged to Judgeval.
+
+*   **Main Execution Block (`if __name__ == "__main__":`)**
+    *   The script calls `run_agent` with a sample user prompt.
+    *   It then prints the final result from the agent and also `handler.executed_node_tools`. This attribute of the `JudgevalCallbackHandler` specifically lists which tools were invoked by the LLM through the `ToolNode`.
+
+    ```python
+    from langchain_core.messages import HumanMessage # Ensure this is imported if used in main
+
+    if __name__ == "__main__":
+        result, handler = run_agent("Find me a good Italian restaurant in Manhattan. Check their opening hours and most popular dishes.")
+        print(result) # Prints the final state, including all messages
+        
+        print("Executed Node-Tools (LLM-invoked tools via Tool Call)")

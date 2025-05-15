@@ -1,0 +1,72 @@
+# Cookbook: Food Recommendation Agent
+
+*   **Find it at:** `cookbooks/food_recommendation/basic_bot.py`
+*   *(Note: README previously listed this as `food_suggestion/`)*
+
+### 1. What it Does (Purpose)
+
+A straightforward bot that gives you food recommendations. You tell it what kind of cuisine you're in the mood for (e.g., "Italian"), and it suggests some restaurants and popular dishes. This agent uses OpenAI's API directly for its core logic.
+
+### 2. How it's Built
+
+*   **Core Idea:** Uses OpenAI LLM calls to simulate searching for restaurants and finding menu highlights. It then uses another LLM call to combine this information into a friendly, natural language recommendation.
+*   **Key Parts:**
+    *   **OpenAI Client:** The script uses an `openai.Client()`, which is `wrap()`-ped by `judgeval.tracer.wrap` for automatic tracing of all OpenAI API calls.
+    *   **`search_restaurants` function:**
+        *   Takes a `cuisine` type as input.
+        *   Creates a prompt for the LLM to find popular restaurants for that cuisine and return them as a JSON list (e.g., `[{"name": "Luigi's Pizza", "rating": 4.5, "price_range": "$$"}]`).
+        *   This function is decorated with `@judgment.observe(span_type="Research")`.
+    *   **`get_menu_highlights` function:**
+        *   Takes a `restaurant_name`.
+        *   Prompts the LLM to list 3 must-try dishes at that restaurant.
+        *   Decorated with `@judgment.observe(span_type="Research")`. It also includes an example of `judgment.async_evaluate` to check the relevancy of the dishes returned by the LLM.
+    *   **`generate_recommendation` function:**
+        *   Takes the cuisine, the list of restaurants, and a dictionary of menu items.
+        *   Sends all this information to the LLM with a prompt asking it to generate a natural language recommendation.
+        *   Decorated with `@judgment.observe(span_type="function")`.
+    *   **`get_food_recommendations` (Main Orchestrator):**
+        *   This function is the main entry point. It calls `search_restaurants`, then loops through the results to call `get_menu_highlights` for each restaurant. Finally, it calls `generate_recommendation`.
+        *   This orchestrator function is also decorated with `@judgment.observe(span_type="Research")` (or a more descriptive name like "Orchestration").
+        *   It uses `judgment.async_evaluate` at the end to check the final recommendation for `AnswerRelevancyScorer` and `FaithfulnessScorer` (ensuring the recommendation is based on the info gathered).
+
+    ```python
+    # Simplified: search_restaurants (simulated via LLM)
+    # from openai import OpenAI
+    # from judgeval.common.tracer import wrap, Tracer # Assume judgment = Tracer(...)
+    # import json
+    # import os # For os.getenv
+    # # client = wrap(OpenAI(api_key=os.getenv("OPENAI_API_KEY")))
+
+    # @judgment.observe(span_type="Research")
+    # async def search_restaurants(cuisine: str, location: str = "nearby") -> list:
+    #     prompt = f"Find 3 popular {cuisine} restaurants {location}. Return ONLY a JSON array of objects..."
+    #     # response = client.chat.completions.create(model="gpt-4", messages=[...], response_format={"type": "json_object"})
+    #     # try:
+    #     #     return json.loads(response.choices[0].message.content)
+    #     # except json.JSONDecodeError:
+    #     #     return [{"name": "Error fetching", "rating": 0, "price_range": "N/A"}]
+    #     pass # Placeholder
+
+    # Simplified: generate_recommendation
+    # @judgment.observe(span_type="function")
+    # async def generate_recommendation(cuisine: str, restaurants: list, menu_items: dict) -> str:
+    #     context_for_llm = f"Cuisine: {cuisine}\nRestaurants: {restaurants}\nPopular Items: {menu_items}"
+    #     # response = client.chat.completions.create(
+    #     #     model="gpt-4",
+    #     #     messages=[
+    #     #         {"role": "system", "content": "You are a helpful food recommendation bot..."},
+    #     #         {"role": "user", "content": context_for_llm}
+    #     #     ]
+    #     # )
+    #     # return response.choices[0].message.content
+    #     pass # Placeholder
+    ```
+
+### 3. How to Test it with Judgeval
+
+*   **Automatic OpenAI Tracing:** Since the `OpenAI()` client is wrapped, all LLM calls made by the agent (for searching restaurants, getting menus, generating the final text) are automatically captured by Judgeval.
+*   **`@judgment.observe` on Key Functions:** All the main Python functions (`search_restaurants`, `get_menu_highlights`, `generate_recommendation`, `get_food_recommendations`) are decorated. This gives a clear trace of the agent's internal steps.
+*   **`judgment.async_evaluate` for Specific Checks:**
+    *   Inside `get_menu_highlights`, `AnswerRelevancyScorer` checks if the dishes suggested by the LLM are relevant.
+    *   At the end of the main `get_food_recommendations` function, the final natural language recommendation is evaluated using `AnswerRelevancyScorer` (is it relevant to the original cuisine request?) and `FaithfulnessScorer` (does the recommendation accurately reflect the restaurant and menu data that was "found" by the earlier LLM calls?).
+*   **Viewing in Judgeval:** When you run the script (e.g., `python cookbooks/food_recommendation/basic_bot.py`), all this information—the trace of observed functions, the auto-traced OpenAI calls, and the results of `async_evaluate`—is sent to your Judgeval project for review. 

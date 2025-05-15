@@ -1,0 +1,57 @@
+# Cookbook: Financial Agent
+
+*   **Find it at:** `cookbooks/financial_agent/demo.py`
+
+### 1. What it Does (Purpose)
+
+This agent answers financial questions (like "What's our profit on Apple stock?"). It first figures out what kind of question it is (e.g., about profit, balance sheets, or stocks), then gets data from a database, and finally gives an answer (often a SQL query or a summary based on the data). This is an example of a RAG (Retrieval Augmented Generation) system built with LangGraph.
+
+### 2. How it's Built
+
+*   **Core Idea:** A LangGraph agent that classifies a financial query, retrieves relevant information from a specialized vector database, and then generates a response based on that information.
+*   **Key Parts:**
+    *   **`AgentState`:** Manages messages, the classified category of the query, and the retrieved documents.
+    *   **Vector Database (ChromaDB):** Stores financial data (like PNL statements, balance sheets, stock information). Functions like `populate_vector_db` load data into it.
+    *   **Classifier Node (`classify`):** Uses an LLM (e.g., `ChatOpenAI`) to determine if the user's question relates to 'pnl', 'balance_sheets', or 'stocks'.
+    *   **Retriever Nodes (`pnl_retriever`, `balance_sheet_retriever`, `stock_retriever`):** These functions query the ChromaDB to get documents specific to the classified category.
+    *   **Router Node:** A simple function that directs the agent to the correct retriever based on the output of the `classify` node.
+    *   **Response Generator Node (`generate_response`):** Takes the documents found by the retriever and generates a final answer. In the demo, it often produces a SQL query, but it could also generate a natural language summary.
+    *   **LangGraph Setup:** The graph connects these nodes: Classifier -> Router -> Specific Retriever -> Response Generator.
+
+    ```python
+    # Simplified: Classifier node
+    # from langchain_openai import ChatOpenAI
+    # from judgeval.data import Example
+    # from judgeval.scorers import AnswerCorrectnessScorer
+    # from langchain_core.messages import SystemMessage, HumanMessage # For LLM input
+    # # Assume AgentState is defined, and judgment (Tracer) is initialized
+
+    # async def classify(state: AgentState) -> AgentState:
+    #     user_query = state["messages"][-1].content
+    #     system_prompt = "You are a financial query classifier... Respond ONLY with category."
+    #     # llm_response = ChatOpenAI(model="gpt-4o-mini").invoke(
+    #     #     [SystemMessage(content=system_prompt), HumanMessage(content=user_query)]
+    #     # )
+    #     # category = llm_response.content 
+    #     # example = Example(input=user_query, actual_output=category, expected_output="pnl") # Example evaluation
+    #     # judgment.async_evaluate(scorers=[AnswerCorrectnessScorer(threshold=0.9)], example=example, model="gpt-4o-mini")
+    #     # return {"category": category, "messages": state["messages"]} # Update state
+    #     pass # Placeholder
+
+    # Simplified: Retriever node
+    # # Assume 'collection' is the initialized ChromaDB collection
+    # def pnl_retriever(state: AgentState) -> AgentState:
+    #     user_query = state["messages"][-1].content
+    #     # financial_docs_results = collection.query(query_texts=[user_query], where={"category": "pnl"}, n_results=3)
+    #     # financial_docs = financial_docs_results["documents"][0] if financial_docs_results["documents"] else []
+    #     # return {"documents": financial_docs, "messages": state["messages"]} # Update state
+    #     pass # Placeholder
+    ```
+
+### 3. How to Test it with Judgeval
+
+*   **Tracking the Flow:** The `JudgevalCallbackHandler` is used with `graph.ainvoke` to capture the complete execution trace of the agent, showing how it moved through classification, retrieval, and response generation.
+*   **Checking Key Steps with `async_evaluate`:**
+    *   **Classifier:** The `classify` node uses `judgment.async_evaluate` with `AnswerCorrectnessScorer` to check if the query was categorized correctly against an `expected_output`.
+    *   **Response Generator:** The `generate_response` node also uses `judgment.async_evaluate`. It can use `AnswerCorrectnessScorer` if a specific SQL query or answer is expected, and `FaithfulnessScorer` to check if the generated response is faithful to the `retrieval_context` (the documents found by the retriever).
+*   **"Bad" Versions for Testing Failures:** The demo script includes commented-out "bad" versions of the classifier (`bad_classify`) and SQL generator (`bad_sql_generator`). These are designed to produce incorrect outputs, demonstrating how Judgeval evaluations can catch these failures and help pinpoint issues. 
