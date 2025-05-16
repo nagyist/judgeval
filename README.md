@@ -9,7 +9,7 @@
     </div>
     <br>
     <div style="font-size: 0.85em; display: block; margin-bottom: 0.5em;"> 
-        Open-source framework for building evaluation pipelines for multi-step agent workflows
+        Build monitoring & evaluation pipelines for complex agents
     </div>
 </h1>
 <p>
