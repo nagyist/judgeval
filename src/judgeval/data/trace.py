@@ -13,6 +13,8 @@ class TraceSpan(BaseModel):
     output: Optional[Any] = None
     duration: Optional[float] = None
     annotation: Optional[List[Dict[str, Any]]] = None
+    expected_tools: Optional[List[Dict[str, Any]]] = None
+    additional_metadata: Optional[Dict[str, Any]] = None
 
 class Trace(BaseModel):
     trace_id: str

@@ -1054,11 +1054,13 @@ class TraceClient:
             "entries": condensed_entries,
             "evaluation_runs": evaluation_runs,
             "overwrite": overwrite,
+            "offline_mode": self.tracer.offline_mode,
             "parent_trace_id": self.parent_trace_id,
             "parent_name": self.parent_name
         }        
         # --- Log trace data before saving ---
-        self.trace_manager_client.save_trace(trace_data)
+        if not self.tracer.offline_mode:
+            self.trace_manager_client.save_trace(trace_data)
 
         # upload annotations
         # TODO: batch to the log endpoint
@@ -1312,6 +1314,7 @@ class Tracer:
         s3_aws_access_key_id: Optional[str] = None,
         s3_aws_secret_access_key: Optional[str] = None,
         s3_region_name: Optional[str] = None,
+        offline_mode: bool = False,
         deep_tracing: bool = True  # Deep tracing is enabled by default
         ):
         if not hasattr(self, 'initialized'):
@@ -1352,6 +1355,7 @@ class Tracer:
                     aws_secret_access_key=s3_aws_secret_access_key,
                     region_name=s3_region_name
                 )
+            self.offline_mode: bool = offline_mode
             self.deep_tracing: bool = deep_tracing  # NEW: Store deep tracing setting
 
         elif hasattr(self, 'project_name') and self.project_name != project_name:
