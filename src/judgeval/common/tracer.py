@@ -38,6 +38,30 @@ from typing import (
 from rich import print as rprint
 import types # <--- Add this import
 
+# Optional object flow tracing imports
+try:
+    import wrapt
+    from judgeval.common.object_flow_tracer import (
+        ui_tracing, 
+        visualize_object_flow, 
+        reset_object_flow_tracking, 
+        ObjectFlowProxy
+    )
+    OBJECT_FLOW_AVAILABLE = True
+except ImportError:
+    OBJECT_FLOW_AVAILABLE = False
+    def ui_tracing(func=None, **kwargs):
+        # Provide a no-op decorator if object flow tracing is not available
+        if func is None:
+            return lambda f: f
+        return func
+    def visualize_object_flow():
+        return "Object flow tracing requires the 'wrapt' package. Install with 'pip install wrapt'."
+    def reset_object_flow_tracking():
+        pass
+    class ObjectFlowProxy:
+        pass
+
 # Third-party imports
 import requests
 from litellm import cost_per_token
@@ -490,6 +514,33 @@ class TraceClient:
         current_span_id = current_span_var.get()
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
+            
+            # If object flow tracing is enabled, wrap the output in a proxy
+            if hasattr(self.tracer, 'enable_object_flow') and self.tracer.enable_object_flow and OBJECT_FLOW_AVAILABLE:
+                # Only wrap non-coroutine objects
+                if not inspect.iscoroutine(output):
+                    try:
+                        # Import needed only if object flow is enabled
+                        from judgeval.common.object_flow_tracer import ObjectFlowProxy, span_to_objects
+                        
+                        # Create a unique object ID
+                        object_id = f"obj_{len(span_to_objects.get())}"
+                        
+                        # Record this span as the creator of this object
+                        objects_map = span_to_objects.get()
+                        objects_map[current_span_id] = object_id
+                        span_to_objects.set(objects_map)
+                        
+                        # Wrap with proxy and store the original in span.output
+                        proxy_output = ObjectFlowProxy(output, object_id)
+                        span.output = output  # Store the original unwrapped output
+                        
+                        # Return the proxy for use in the calling code
+                        return proxy_output
+                    except (ImportError, Exception) as e:
+                        # If wrapping fails, just continue with normal flow
+                        warnings.warn(f"Failed to wrap output for object flow tracing: {str(e)}")
+            
             span.output = "<pending>" if inspect.iscoroutine(output) else output
             
             if inspect.iscoroutine(output):
@@ -930,7 +981,8 @@ class Tracer:
         s3_aws_access_key_id: Optional[str] = None,
         s3_aws_secret_access_key: Optional[str] = None,
         s3_region_name: Optional[str] = None,
-        deep_tracing: bool = True  # Deep tracing is enabled by default
+        deep_tracing: bool = True,  # Deep tracing is enabled by default
+        enable_object_flow: bool = False,  # New parameter for object flow tracing
         ):
         if not hasattr(self, 'initialized'):
             if not api_key:
@@ -959,6 +1011,7 @@ class Tracer:
             self.initialized: bool = True
             self.enable_monitoring: bool = enable_monitoring
             self.enable_evaluations: bool = enable_evaluations
+            self.enable_object_flow: bool = enable_object_flow and OBJECT_FLOW_AVAILABLE  # Enable object flow tracing if available
 
             # Initialize S3 storage if enabled
             self.use_s3 = use_s3
@@ -1081,7 +1134,7 @@ class Tracer:
 
         rprint(f"[bold]{label}:[/bold] {msg}")
     
-    def observe(self, func=None, *, name=None, span_type: SpanType = "span", project_name: str = None, overwrite: bool = False, deep_tracing: bool = None):
+    def observe(self, func=None, *, name=None, span_type: SpanType = "span", project_name: str = None, overwrite: bool = False, deep_tracing: bool = None, object_flow: bool = None):
         """
         Decorator to trace function execution with detailed entry/exit information.
         
@@ -1093,6 +1146,8 @@ class Tracer:
             overwrite: Whether to overwrite existing traces
             deep_tracing: Whether to enable deep tracing for this function and all nested calls.
                           If None, uses the tracer's default setting.
+            object_flow: Whether to enable object flow tracking for this function.
+                         If None, uses the tracer's default setting.
         """
         # If monitoring is disabled, return the function as is
         if not self.enable_monitoring:
@@ -1100,7 +1155,7 @@ class Tracer:
         
         if func is None:
             return lambda f: self.observe(f, name=name, span_type=span_type, project_name=project_name, 
-                                         overwrite=overwrite, deep_tracing=deep_tracing)
+                                         overwrite=overwrite, deep_tracing=deep_tracing, object_flow=object_flow)
         
         # Use provided name or fall back to function name
         span_name = name or func.__name__
@@ -1111,6 +1166,9 @@ class Tracer:
         
         # Use the provided deep_tracing value or fall back to the tracer's default
         use_deep_tracing = deep_tracing if deep_tracing is not None else self.deep_tracing
+        
+        # Use the provided object_flow value or fall back to the tracer's default
+        use_object_flow = object_flow if object_flow is not None else getattr(self, 'enable_object_flow', False)
         
         if asyncio.iscoroutinefunction(func):
             @functools.wraps(func)
@@ -1140,6 +1198,23 @@ class Tracer:
                     trace_token = current_trace_var.set(current_trace)
                     
                     try:
+                        # Object flow tracking - set up if enabled
+                        flow_span_id = None
+                        if use_object_flow and OBJECT_FLOW_AVAILABLE:
+                            # Import needed only if object flow is enabled
+                            from judgeval.common.object_flow_tracer import (
+                                current_flow_span_var, span_names, span_to_objects, object_usage, get_next_object_id, ObjectFlowProxy
+                            )
+                            # Create a flow span ID
+                            flow_span_id = str(uuid.uuid4())
+                            # Record function name
+                            names = span_names.get()
+                            names[flow_span_id] = span_name
+                            span_names.set(names)
+                            # Set as current flow span
+                            prev_flow_span = current_flow_span_var.get()
+                            current_flow_span_var.set(flow_span_id)
+                        
                         # Use span for the function execution within the root trace
                         # This sets the current_span_var
                         with current_trace.span(span_name, span_type=span_type) as span: # MODIFIED: Use span_name directly
@@ -1147,14 +1222,59 @@ class Tracer:
                             inputs = combine_args_kwargs(func, args, kwargs)
                             span.record_input(inputs)
                             
+                            # Unwrap arguments if object flow is enabled
+                            unwrapped_args = list(args)
+                            unwrapped_kwargs = dict(kwargs)
+                            
+                            if use_object_flow and OBJECT_FLOW_AVAILABLE and flow_span_id:
+                                # Process arguments to unwrap any proxied objects
+                                unwrapped_args = []
+                                for arg in args:
+                                    if isinstance(arg, ObjectFlowProxy):
+                                        # Record usage of the argument
+                                        usage_dict = object_usage.get()
+                                        usage_dict[arg._self_object_id].add(flow_span_id)
+                                        object_usage.set(usage_dict)
+                                        unwrapped_args.append(arg.__wrapped__)
+                                    else:
+                                        unwrapped_args.append(arg)
+                                        
+                                unwrapped_kwargs = {}
+                                for k, v in kwargs.items():
+                                    if isinstance(v, ObjectFlowProxy):
+                                        # Record usage of the kwarg
+                                        usage_dict = object_usage.get()
+                                        usage_dict[v._self_object_id].add(flow_span_id)
+                                        object_usage.set(usage_dict)
+                                        unwrapped_kwargs[k] = v.__wrapped__
+                                    else:
+                                        unwrapped_kwargs[k] = v
+                            
+                            # Execute the function with appropriate tracing
                             if use_deep_tracing:
                                 with _DeepTracer():
-                                    result = await func(*args, **kwargs)
+                                    result = await func(*unwrapped_args, **unwrapped_kwargs)
                             else:
-                                result = await func(*args, **kwargs)
+                                result = await func(*unwrapped_args, **unwrapped_kwargs)
+                            
+                            # Wrap the result with a proxy if object flow is enabled
+                            if use_object_flow and OBJECT_FLOW_AVAILABLE and flow_span_id:
+                                # Create a unique object ID
+                                object_id = f"obj_{get_next_object_id()}"
+                                # Record this span as the creator of this object
+                                objects_map = span_to_objects.get()
+                                objects_map[flow_span_id] = object_id
+                                span_to_objects.set(objects_map)
+                                # Wrap the result with a proxy
+                                result = ObjectFlowProxy(result, object_id)
                                                         
                             # Record output
                             span.record_output(result)
+                            
+                            # Restore previous flow span context if object flow was used
+                            if use_object_flow and OBJECT_FLOW_AVAILABLE and flow_span_id:
+                                current_flow_span_var.set(prev_flow_span)
+                        
                         return result
                     finally:
                         # Save the completed trace
@@ -1164,17 +1284,80 @@ class Tracer:
                         # Reset trace context (span context resets automatically)
                         current_trace_var.reset(trace_token)
                 else:
+                    # Object flow tracking - set up if enabled
+                    flow_span_id = None
+                    prev_flow_span = None
+                    if use_object_flow and OBJECT_FLOW_AVAILABLE:
+                        # Import needed only if object flow is enabled
+                        from judgeval.common.object_flow_tracer import (
+                            current_flow_span_var, span_names, span_to_objects, object_usage, get_next_object_id, ObjectFlowProxy
+                        )
+                        # Create a flow span ID
+                        flow_span_id = str(uuid.uuid4())
+                        # Record function name
+                        names = span_names.get()
+                        names[flow_span_id] = span_name
+                        span_names.set(names)
+                        # Set as current flow span
+                        prev_flow_span = current_flow_span_var.get()
+                        current_flow_span_var.set(flow_span_id)
+                    
                     with current_trace.span(span_name, span_type=span_type) as span:
                         inputs = combine_args_kwargs(func, args, kwargs)
                         span.record_input(inputs)
                         
+                        # Unwrap arguments if object flow is enabled
+                        unwrapped_args = list(args)
+                        unwrapped_kwargs = dict(kwargs)
+                        
+                        if use_object_flow and OBJECT_FLOW_AVAILABLE and flow_span_id:
+                            # Process arguments to unwrap any proxied objects
+                            unwrapped_args = []
+                            for arg in args:
+                                if isinstance(arg, ObjectFlowProxy):
+                                    # Record usage of the argument
+                                    usage_dict = object_usage.get()
+                                    usage_dict[arg._self_object_id].add(flow_span_id)
+                                    object_usage.set(usage_dict)
+                                    unwrapped_args.append(arg.__wrapped__)
+                                else:
+                                    unwrapped_args.append(arg)
+                                    
+                            unwrapped_kwargs = {}
+                            for k, v in kwargs.items():
+                                if isinstance(v, ObjectFlowProxy):
+                                    # Record usage of the kwarg
+                                    usage_dict = object_usage.get()
+                                    usage_dict[v._self_object_id].add(flow_span_id)
+                                    object_usage.set(usage_dict)
+                                    unwrapped_kwargs[k] = v.__wrapped__
+                                else:
+                                    unwrapped_kwargs[k] = v
+                        
+                        # Execute the function with appropriate tracing
                         if use_deep_tracing:
                             with _DeepTracer():
-                                result = await func(*args, **kwargs)
+                                result = await func(*unwrapped_args, **unwrapped_kwargs)
                         else:
-                            result = await func(*args, **kwargs)
+                            result = await func(*unwrapped_args, **unwrapped_kwargs)
+                        
+                        # Wrap the result with a proxy if object flow is enabled
+                        if use_object_flow and OBJECT_FLOW_AVAILABLE and flow_span_id:
+                            # Create a unique object ID
+                            object_id = f"obj_{get_next_object_id()}"
+                            # Record this span as the creator of this object
+                            objects_map = span_to_objects.get()
+                            objects_map[flow_span_id] = object_id
+                            span_to_objects.set(objects_map)
+                            # Wrap the result with a proxy
+                            result = ObjectFlowProxy(result, object_id)
                             
                         span.record_output(result)
+                        
+                        # Restore previous flow span context if object flow was used
+                        if use_object_flow and OBJECT_FLOW_AVAILABLE and prev_flow_span is not None:
+                            current_flow_span_var.set(prev_flow_span)
+                    
                     return result
         
             return async_wrapper
@@ -1207,6 +1390,23 @@ class Tracer:
                     trace_token = current_trace_var.set(current_trace)
                     
                     try:
+                        # Object flow tracking - set up if enabled
+                        flow_span_id = None
+                        if use_object_flow and OBJECT_FLOW_AVAILABLE:
+                            # Import needed only if object flow is enabled
+                            from judgeval.common.object_flow_tracer import (
+                                current_flow_span_var, span_names, span_to_objects, object_usage, get_next_object_id, ObjectFlowProxy
+                            )
+                            # Create a flow span ID
+                            flow_span_id = str(uuid.uuid4())
+                            # Record function name
+                            names = span_names.get()
+                            names[flow_span_id] = span_name
+                            span_names.set(names)
+                            # Set as current flow span
+                            prev_flow_span = current_flow_span_var.get()
+                            current_flow_span_var.set(flow_span_id)
+                        
                         # Use span for the function execution within the root trace
                         # This sets the current_span_var
                         with current_trace.span(span_name, span_type=span_type) as span: # MODIFIED: Use span_name directly
@@ -1214,14 +1414,59 @@ class Tracer:
                             inputs = combine_args_kwargs(func, args, kwargs)
                             span.record_input(inputs)
                             
+                            # Unwrap arguments if object flow is enabled
+                            unwrapped_args = list(args)
+                            unwrapped_kwargs = dict(kwargs)
+                            
+                            if use_object_flow and OBJECT_FLOW_AVAILABLE and flow_span_id:
+                                # Process arguments to unwrap any proxied objects
+                                unwrapped_args = []
+                                for arg in args:
+                                    if isinstance(arg, ObjectFlowProxy):
+                                        # Record usage of the argument
+                                        usage_dict = object_usage.get()
+                                        usage_dict[arg._self_object_id].add(flow_span_id)
+                                        object_usage.set(usage_dict)
+                                        unwrapped_args.append(arg.__wrapped__)
+                                    else:
+                                        unwrapped_args.append(arg)
+                                        
+                                unwrapped_kwargs = {}
+                                for k, v in kwargs.items():
+                                    if isinstance(v, ObjectFlowProxy):
+                                        # Record usage of the kwarg
+                                        usage_dict = object_usage.get()
+                                        usage_dict[v._self_object_id].add(flow_span_id)
+                                        object_usage.set(usage_dict)
+                                        unwrapped_kwargs[k] = v.__wrapped__
+                                    else:
+                                        unwrapped_kwargs[k] = v
+                            
+                            # Execute the function with appropriate tracing
                             if use_deep_tracing:
                                 with _DeepTracer():
-                                    result = func(*args, **kwargs)
+                                    result = func(*unwrapped_args, **unwrapped_kwargs)
                             else:
-                                result = func(*args, **kwargs)
+                                result = func(*unwrapped_args, **unwrapped_kwargs)
+                            
+                            # Wrap the result with a proxy if object flow is enabled
+                            if use_object_flow and OBJECT_FLOW_AVAILABLE and flow_span_id:
+                                # Create a unique object ID
+                                object_id = f"obj_{get_next_object_id()}"
+                                # Record this span as the creator of this object
+                                objects_map = span_to_objects.get()
+                                objects_map[flow_span_id] = object_id
+                                span_to_objects.set(objects_map)
+                                # Wrap the result with a proxy
+                                result = ObjectFlowProxy(result, object_id)
                             
                             # Record output
                             span.record_output(result)
+                            
+                            # Restore previous flow span context if object flow was used
+                            if use_object_flow and OBJECT_FLOW_AVAILABLE and flow_span_id:
+                                current_flow_span_var.set(prev_flow_span)
+                        
                         return result
                     finally:
                         # Save the completed trace
@@ -1231,18 +1476,81 @@ class Tracer:
                         # Reset trace context (span context resets automatically)
                         current_trace_var.reset(trace_token)
                 else:
+                    # Object flow tracking - set up if enabled
+                    flow_span_id = None
+                    prev_flow_span = None
+                    if use_object_flow and OBJECT_FLOW_AVAILABLE:
+                        # Import needed only if object flow is enabled
+                        from judgeval.common.object_flow_tracer import (
+                            current_flow_span_var, span_names, span_to_objects, object_usage, get_next_object_id, ObjectFlowProxy
+                        )
+                        # Create a flow span ID
+                        flow_span_id = str(uuid.uuid4())
+                        # Record function name
+                        names = span_names.get()
+                        names[flow_span_id] = span_name
+                        span_names.set(names)
+                        # Set as current flow span
+                        prev_flow_span = current_flow_span_var.get()
+                        current_flow_span_var.set(flow_span_id)
+                    
                     with current_trace.span(span_name, span_type=span_type) as span:
                         
                         inputs = combine_args_kwargs(func, args, kwargs)
                         span.record_input(inputs)
                         
+                        # Unwrap arguments if object flow is enabled
+                        unwrapped_args = list(args)
+                        unwrapped_kwargs = dict(kwargs)
+                        
+                        if use_object_flow and OBJECT_FLOW_AVAILABLE and flow_span_id:
+                            # Process arguments to unwrap any proxied objects
+                            unwrapped_args = []
+                            for arg in args:
+                                if isinstance(arg, ObjectFlowProxy):
+                                    # Record usage of the argument
+                                    usage_dict = object_usage.get()
+                                    usage_dict[arg._self_object_id].add(flow_span_id)
+                                    object_usage.set(usage_dict)
+                                    unwrapped_args.append(arg.__wrapped__)
+                                else:
+                                    unwrapped_args.append(arg)
+                                    
+                            unwrapped_kwargs = {}
+                            for k, v in kwargs.items():
+                                if isinstance(v, ObjectFlowProxy):
+                                    # Record usage of the kwarg
+                                    usage_dict = object_usage.get()
+                                    usage_dict[v._self_object_id].add(flow_span_id)
+                                    object_usage.set(usage_dict)
+                                    unwrapped_kwargs[k] = v.__wrapped__
+                                else:
+                                    unwrapped_kwargs[k] = v
+                        
+                        # Execute the function with appropriate tracing
                         if use_deep_tracing:
                             with _DeepTracer():
-                                result = func(*args, **kwargs)
+                                result = func(*unwrapped_args, **unwrapped_kwargs)
                         else:
-                            result = func(*args, **kwargs)
+                            result = func(*unwrapped_args, **unwrapped_kwargs)
+                        
+                        # Wrap the result with a proxy if object flow is enabled
+                        if use_object_flow and OBJECT_FLOW_AVAILABLE and flow_span_id:
+                            # Create a unique object ID
+                            object_id = f"obj_{get_next_object_id()}"
+                            # Record this span as the creator of this object
+                            objects_map = span_to_objects.get()
+                            objects_map[flow_span_id] = object_id
+                            span_to_objects.set(objects_map)
+                            # Wrap the result with a proxy
+                            result = ObjectFlowProxy(result, object_id)
                             
                         span.record_output(result)
+                        
+                        # Restore previous flow span context if object flow was used
+                        if use_object_flow and OBJECT_FLOW_AVAILABLE and prev_flow_span is not None:
+                            current_flow_span_var.set(prev_flow_span)
+                    
                     return result
     
             return wrapper
@@ -1904,3 +2212,111 @@ class _TracedSyncStreamManagerWrapper(_BaseStreamManagerWrapper, AbstractContext
             current_span_var.reset(self._span_context_token)
             delattr(self, '_span_context_token')
         return self._original_manager.__exit__(exc_type, exc_val, exc_tb)
+
+    def object_flow(self, func=None, *, name=None):
+        """
+        Decorator that adds object flow tracing to a function.
+        
+        This is a convenience wrapper around the observe() decorator with object_flow=True.
+        It tracks data flow between functions by wrapping return values with proxies.
+        
+        Args:
+            func: The function to decorate
+            name: Optional custom name for the function in the visualization
+            
+        Returns:
+            The decorated function that performs object flow tracking
+            
+        Example:
+            ```python
+            tracer = Tracer(api_key="...", enable_object_flow=True)
+            
+            @tracer.object_flow
+            def add(a, b):
+                return a + b
+                
+            @tracer.object_flow
+            def multiply(x, y):
+                return x * y
+                
+            result = multiply(add(1, 2), 3)
+            print(tracer.visualize_object_flow())
+            ```
+        """
+        if not OBJECT_FLOW_AVAILABLE:
+            warnings.warn(
+                "Object flow tracing requires the 'wrapt' package. "
+                "Install with 'pip install wrapt'. Returning unmodified function.",
+                ImportWarning
+            )
+            return func if func else lambda f: f
+            
+        if not self.enable_object_flow:
+            # If object flow is disabled, return the function as is
+            return func if func else lambda f: f
+            
+        # Use the observe decorator with object_flow=True
+        if func is None:
+            return lambda f: self.observe(f, name=name, object_flow=True)
+        
+        return self.observe(func, name=name, object_flow=True)
+    
+    def visualize_object_flow(self) -> str:
+        """
+        Generate a visualization of object flow between functions.
+        
+        Returns:
+            str: A formatted string showing object creation and usage across functions
+        """
+        if not OBJECT_FLOW_AVAILABLE:
+            return "Object flow tracing requires the 'wrapt' package. Install with 'pip install wrapt'."
+            
+        if not self.enable_object_flow:
+            return "Object flow tracing is disabled. Initialize the Tracer with enable_object_flow=True."
+            
+        # Import the visualization function from the object_flow_tracer module
+        from judgeval.common.object_flow_tracer import visualize_object_flow
+        return visualize_object_flow()
+        
+    def reset_object_flow(self):
+        """Reset all object flow tracking data"""
+        if OBJECT_FLOW_AVAILABLE and self.enable_object_flow:
+            from judgeval.common.object_flow_tracer import reset_object_flow_tracking
+            reset_object_flow_tracking()
+
+    def combined_trace(self, func=None, *, name=None, span_type: SpanType = "span", project_name: str = None, overwrite: bool = False, deep_tracing: bool = None):
+        """
+        DEPRECATED: Use observe() with object_flow=True instead.
+        
+        Combined decorator that enables both regular tracing and object flow tracing.
+        This is now handled directly by the observe() method with the object_flow parameter.
+        
+        Example:
+            ```python
+            # Old method:
+            @tracer.combined_trace
+            def process_data(data):
+                return result
+                
+            # New equivalent:
+            @tracer.observe(object_flow=True)
+            def process_data(data):
+                return result
+            ```
+        """
+        warnings.warn(
+            "The combined_trace() method is deprecated. "
+            "Use observe() with object_flow=True instead.",
+            DeprecationWarning, 
+            stacklevel=2
+        )
+        
+        if func is None:
+            return lambda f: self.observe(f, name=name, span_type=span_type, 
+                                        project_name=project_name, overwrite=overwrite,
+                                        deep_tracing=deep_tracing, object_flow=True)
+        
+        # Call observe with object_flow=True
+        return self.observe(func, name=name, span_type=span_type, 
+                           project_name=project_name, overwrite=overwrite,
+                           deep_tracing=deep_tracing, object_flow=True)
