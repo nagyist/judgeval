@@ -19,6 +19,7 @@ langchain-core = "*"
 langgraph = "*"
 google-genai = "*"
 boto3 = "*"
+wrapt = "*"
 
 [dev-packages]
 pytest = "*"
