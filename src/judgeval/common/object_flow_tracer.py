@@ -15,305 +15,179 @@ import inspect
 current_flow_span_var = contextvars.ContextVar('current_flow_span', default=None)
 object_registry = contextvars.ContextVar('object_registry', default={})
 object_usage = contextvars.ContextVar('object_usage', default=defaultdict(set))
-span_to_objects = contextvars.ContextVar('span_to_objects', default={})
+span_to_objects = contextvars.ContextVar('span_to_objects', default=defaultdict(list))
 span_names = contextvars.ContextVar('span_names', default={})
-next_object_id = contextvars.ContextVar('next_object_id', default=0)
-# New: track parent-child relationship between spans
 span_parent_child = contextvars.ContextVar('span_parent_child', default=defaultdict(list))
-# New: track direct function call relationships
 function_calls = contextvars.ContextVar('function_calls', default=defaultdict(set))
-# New: track function call stack to establish proper parent-child relationships
-call_stack = contextvars.ContextVar('call_stack', default=[])
+
+# Helper to get a unique object ID
+object_counter = contextvars.ContextVar('object_counter', default=0)
+
+def get_next_object_id():
+    """Get the next object ID and increment the counter"""
+    counter = object_counter.get()
+    object_counter.set(counter + 1)
+    return counter
 
 class ObjectFlowProxy(wrapt.ObjectProxy):
     """
-    A proxy that tracks when an object is used in function calls.
-    Uses wrapt for better proxy implementation compared to the manual approach.
+    A proxy object that tracks when an object is accessed.
+    When the object is used in another function, it records this information.
     """
-    def __init__(self, wrapped_object, object_id=None, creator_span=None):
-        super().__init__(wrapped_object)
-        if object_id is None:
-            object_id = f"obj_{get_next_object_id()}"
-        self._self_object_id = object_id
-        self._self_creator_span = creator_span
+    def __init__(self, wrapped, object_id=None, creator_span=None):
+        super().__init__(wrapped)
+        self._self_object_id = object_id or f"obj_{get_next_object_id()}"
+        self._self_creator_span = creator_span or current_flow_span_var.get()
         
-        # Register in object registry for improved tracking
+        # Register this object in the registry
         registry = object_registry.get()
-        registry[object_id] = {
-            "object": wrapped_object,
-            "creator_span": creator_span,
-            "type": type(wrapped_object).__name__
-        }
+        registry[self._self_object_id] = self
         object_registry.set(registry)
-    
-    def __call__(self, *args, **kwargs):
-        # Record usage of this object in the current span
-        current_span = current_flow_span_var.get()
-        if current_span:
-            usage_dict = object_usage.get()
-            usage_dict[self._self_object_id].add(current_span)
-            object_usage.set(usage_dict)
-            
-            # Also record direct function call relationship
-            if self._self_creator_span:
-                calls_dict = function_calls.get()
-                calls_dict[self._self_creator_span].add(current_span)
-                function_calls.set(calls_dict)
         
-        # Process arguments to unwrap any proxied objects
-        unwrapped_args = []
-        for arg in args:
-            if isinstance(arg, ObjectFlowProxy):
-                # Record usage of the argument object
-                if current_span:
-                    usage_dict = object_usage.get()
-                    usage_dict[arg._self_object_id].add(current_span)
-                    object_usage.set(usage_dict)
-                    
-                    # Also record direct function call relationship
-                    if arg._self_creator_span:
-                        calls_dict = function_calls.get()
-                        calls_dict[arg._self_creator_span].add(current_span)
-                        function_calls.set(calls_dict)
-                unwrapped_args.append(arg.__wrapped__)
-            else:
-                unwrapped_args.append(arg)
-                
-        unwrapped_kwargs = {}
-        for k, v in kwargs.items():
-            if isinstance(v, ObjectFlowProxy):
-                # Record usage of the kwarg object
-                if current_span:
-                    usage_dict = object_usage.get()
-                    usage_dict[v._self_object_id].add(current_span)
-                    object_usage.set(usage_dict)
-                    
-                    # Also record direct function call relationship
-                    if v._self_creator_span:
-                        calls_dict = function_calls.get()
-                        calls_dict[v._self_creator_span].add(current_span)
-                        function_calls.set(calls_dict)
-                unwrapped_kwargs[k] = v.__wrapped__
-            else:
-                unwrapped_kwargs[k] = v
-                
-        # Call the original object with unwrapped arguments
-        result = self.__wrapped__(*unwrapped_args, **unwrapped_kwargs)
-        return result
+        # Initialize usage tracking
+        usage_dict = object_usage.get()
+        if self._self_object_id not in usage_dict:
+            usage_dict[self._self_object_id] = set()
+        object_usage.set(usage_dict)
     
     def __getattr__(self, name):
-        # Record usage when attributes are accessed
+        """Track attribute access and record usage"""
+        attr = super().__getattr__(name)
+        self._record_usage()
+        return attr
+    
+    def __call__(self, *args, **kwargs):
+        """Track when the object is called as a function"""
         current_span = current_flow_span_var.get()
-        if current_span:
-            usage_dict = object_usage.get()
-            usage_dict[self._self_object_id].add(current_span)
-            object_usage.set(usage_dict)
-            
-            # Also record direct function call relationship 
-            if self._self_creator_span:
-                calls_dict = function_calls.get()
-                calls_dict[self._self_creator_span].add(current_span)
-                function_calls.set(calls_dict)
         
-        # Get the attribute from the wrapped object
-        return getattr(self.__wrapped__, name)
-    
-    # Add support for item access (dictionary/list operations)
-    def __getitem__(self, key):
-        current_span = current_flow_span_var.get()
-        if current_span:
-            usage_dict = object_usage.get()
-            usage_dict[self._self_object_id].add(current_span)
-            object_usage.set(usage_dict)
-            
-            # Also record direct function call relationship
-            if self._self_creator_span:
-                calls_dict = function_calls.get()
-                calls_dict[self._self_creator_span].add(current_span)
-                function_calls.set(calls_dict)
+        # When a function is called, record the relationship between caller and callee
+        # The current span is the caller, and after the call, the new current span will be the callee
+        caller_span = current_span
         
-        result = self.__wrapped__[key]
-        # If the result is another data structure, also wrap it to track further usage
-        if isinstance(result, (dict, list, tuple)) and not isinstance(result, ObjectFlowProxy):
-            return ObjectFlowProxy(result, creator_span=self._self_creator_span)
-        return result
-
-def get_next_object_id():
-    """Generate a unique object ID"""
-    next_id = next_object_id.get()
-    next_object_id.set(next_id + 1)
-    return next_id
-
-def ui_tracing(func=None, *, name=None):
-    """
-    Decorator that adds object flow tracing to a function.
-    
-    This decorator:
-    1. Tracks the function execution as a span
-    2. Wraps the return value with a proxy to track its usage
-    3. Records which span created which objects
-    
-    Args:
-        func: The function to decorate
-        name: Optional custom name for the span (defaults to function name)
-    """
-    if func is None:
-        return lambda f: ui_tracing(f, name=name)
-    
-    span_name = name or func.__name__
-    
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        # Create a new span ID
-        span_id = str(uuid.uuid4())
+        # Record usage of this object in the current span
+        self._record_usage()
         
-        # Record the span name
-        names = span_names.get()
-        names[span_id] = span_name
-        span_names.set(names)
+        # Call the original function
+        result = self.__wrapped__(*args, **kwargs)
         
-        # Save the previous span and set the current span
-        previous_span = current_flow_span_var.get()
-        current_flow_span_var.set(span_id)
+        # After the call, the current_flow_span_var contains the callee's span ID
+        callee_span = current_flow_span_var.get()
         
-        # Update call stack to establish proper function call hierarchy
-        stack = call_stack.get()
-        if stack:  # If we have a parent function in the stack
-            parent_span = stack[-1]
-            # Record parent-child relationship
-            parent_child = span_parent_child.get()
-            parent_child[parent_span].append(span_id)
-            span_parent_child.set(parent_child)
-            
-            # Also record direct function call
+        # If we have both a caller and a callee, and they're different,
+        # record this as a direct function call
+        if caller_span and callee_span and caller_span != callee_span:
+            # Record this call in the function_calls dictionary
             calls_dict = function_calls.get()
-            calls_dict[parent_span].add(span_id)
+            calls_dict[caller_span].add(callee_span)
             function_calls.set(calls_dict)
             
-        # Add current span to call stack
-        stack.append(span_id)
-        call_stack.set(stack)
+            # Also update parent-child relationship
+            parent_child_dict = span_parent_child.get()
+            if callee_span not in parent_child_dict[caller_span]:
+                parent_child_dict[caller_span].append(callee_span)
+            span_parent_child.set(parent_child_dict)
         
-        try:
-            # Unwrap any proxied arguments
-            unwrapped_args = []
-            for arg in args:
-                if isinstance(arg, ObjectFlowProxy):
-                    # Record usage of the argument
-                    usage_dict = object_usage.get()
-                    usage_dict[arg._self_object_id].add(span_id)
-                    object_usage.set(usage_dict)
-                    
-                    # Also record direct function call relationship from the creator of this object
-                    if arg._self_creator_span:
-                        calls_dict = function_calls.get()
-                        calls_dict[arg._self_creator_span].add(span_id)
-                        function_calls.set(calls_dict)
-                        
-                    unwrapped_args.append(arg.__wrapped__)
-                else:
-                    unwrapped_args.append(arg)
-                    
-            unwrapped_kwargs = {}
-            for k, v in kwargs.items():
-                if isinstance(v, ObjectFlowProxy):
-                    # Record usage of the kwarg
-                    usage_dict = object_usage.get()
-                    usage_dict[v._self_object_id].add(span_id)
-                    object_usage.set(usage_dict)
-                    
-                    # Also record direct function call relationship from the creator of this object
-                    if v._self_creator_span:
-                        calls_dict = function_calls.get()
-                        calls_dict[v._self_creator_span].add(span_id)
-                        function_calls.set(calls_dict)
-                        
-                    unwrapped_kwargs[k] = v.__wrapped__
-                else:
-                    unwrapped_kwargs[k] = v
-            
-            # Execute the function with unwrapped arguments
-            result = func(*unwrapped_args, **unwrapped_kwargs)
-            
-            # Wrap the result with a proxy and record span as creator
-            object_id = f"obj_{get_next_object_id()}"
-            proxy_result = ObjectFlowProxy(result, object_id, creator_span=span_id)
-            
-            # Record which span created this object
-            objects_map = span_to_objects.get()
-            objects_map[span_id] = object_id
-            span_to_objects.set(objects_map)
-            
-            # Create or update function call relationship for where this return value is used
-            # This will be tracked when the proxy is accessed
-            
-            return proxy_result
-        finally:
-            # Remove this span from call stack
-            stack = call_stack.get()
-            if stack and stack[-1] == span_id:
-                stack.pop()
-                call_stack.set(stack)
-                
-            # Restore the previous span
-            current_flow_span_var.set(previous_span)
+        return result
     
-    return wrapper
+    def __getitem__(self, key):
+        """Track when the object is accessed using indexing"""
+        self._record_usage()
+        return self.__wrapped__[key]
+    
+    def _record_usage(self):
+        """Record that this object is being used in the current span"""
+        current_span = current_flow_span_var.get()
+        if current_span and current_span != self._self_creator_span:
+            # Record that this object (created in self._self_creator_span) 
+            # is being used in the current_span
+            usage_dict = object_usage.get()
+            usage_dict[self._self_object_id].add(current_span)
+            object_usage.set(usage_dict)
+            
+            # Also record in the function calls dictionary
+            # Record that the current span was called by the creator span
+            calls_dict = function_calls.get()
+            calls_dict[self._self_creator_span].add(current_span)
+            function_calls.set(calls_dict)
+            
+            # Update parent-child relationship
+            parent_child_dict = span_parent_child.get()
+            if current_span not in parent_child_dict[self._self_creator_span]:
+                parent_child_dict[self._self_creator_span].append(current_span)
+            span_parent_child.set(parent_child_dict)
 
-def visualize_object_flow():
+def reset_object_flow_tracking():
+    """Reset all object flow tracking state"""
+    current_flow_span_var.set(None)
+    object_registry.set({})
+    object_usage.set(defaultdict(set))
+    span_to_objects.set(defaultdict(list))
+    span_names.set({})
+    span_parent_child.set(defaultdict(list))
+    function_calls.set(defaultdict(set))
+    object_counter.set(0)
+
+def visualize_object_flow() -> str:
     """
-    Generate a visualization of object flow between spans.
+    Generate a visualization of the object flow.
     
     Returns:
-        str: A formatted string showing object creation and usage across functions
+        str: A formatted string showing the object flow between functions.
     """
-    output = []
-    output.append("\n===== Object Flow Between Spans =====")
-    output.append("Format: Object ID created in [Function] is used in: [Functions]")
-    output.append("-" * 70)
+    registry = object_registry.get()
+    usage = object_usage.get()
+    span_objects = span_to_objects.get()
+    names = span_names.get()
+    parent_children = span_parent_child.get()
+    calls = function_calls.get()
     
-    span_map = span_names.get()
-    objects_map = span_to_objects.get()
-    usage_map = object_usage.get()
-    function_call_map = function_calls.get()
+    output = ["\n===== Object Flow Graph Visualization ====="]
     
-    # First, include direct function calls
-    output.append("\n----- Direct Function Calls -----")
-    for caller_span, called_spans in function_call_map.items():
-        caller_name = span_map.get(caller_span, "unknown")
-        called_names = [span_map.get(s, "unknown") for s in called_spans]
-        if called_names:
-            output.append(f"Function [{caller_name}] calls: {', '.join(called_names)}")
+    # Visualize function call hierarchy
+    output.append("\n----- Function Call Hierarchy -----")
+    output.append("Format: Function → Directly Called Functions")
+    output.append("----------------------------------------------------------------------")
+    for span_id, name in names.items():
+        called_functions = calls.get(span_id, set())
+        called_names = [names.get(called_id, called_id[:8]+"...") for called_id in called_functions]
+        output.append(f"{name} → returns {span_objects.get(span_id, ['Unknown'])[0] if span_objects.get(span_id) else 'Nothing'}")
     
-    # Then show object usage
-    output.append("\n----- Object Usage -----")
-    for span_id, obj_id in objects_map.items():
-        creator_name = span_map.get(span_id, "unknown")
+    # Visualize data flow edges
+    output.append("\n----- Data Flow Edges -----")
+    output.append("Format: Object (type) created in [Function] → used in [Functions]")
+    output.append("----------------------------------------------------------------------")
+    for obj_id, used_in_spans in usage.items():
+        if not used_in_spans:
+            continue
+            
+        # Get the object itself
+        obj = registry.get(obj_id)
+        if not obj:
+            continue
+            
+        # Get the creator's information
+        creator_span = getattr(obj, '_self_creator_span', None)
+        creator_name = names.get(creator_span, "unknown") if creator_span else "unknown"
         
-        # Get registry info if available
-        registry = object_registry.get()
-        obj_info = registry.get(obj_id, {})
-        obj_type = obj_info.get("type", "unknown")
+        # Get the users' information
+        user_names = [names.get(span_id, "unknown") for span_id in used_in_spans]
         
-        usage_spans = list(usage_map[obj_id])
-        if usage_spans:
-            # Filter out usage in the same span as creation
-            usage_spans = [s for s in usage_spans if s != span_id]
-            if usage_spans:
-                usage_names = [span_map.get(s, "unknown") for s in usage_spans]
-                output.append(
-                    f"Object {obj_id} ({obj_type}) created in [{creator_name}] is used in: {', '.join(usage_names)}"
-                )
+        # Get the object's type
+        obj_type = type(obj.__wrapped__).__name__ if hasattr(obj, '__wrapped__') else type(obj).__name__
+        
+        # Create the output line
+        output.append(f"Object {obj_id} ({obj_type}) created in [{creator_name}] → used in: {', '.join(user_names)}")
     
-    output.append("\n===== All Spans =====")
+    # List all span IDs for reference
+    output.append("\n===== All Function Spans =====")
     output.append("Format: Span ID: Function Name")
-    output.append("-" * 40)
-    for span_id, name in span_map.items():
-        output.append(f"{str(span_id)[:8]}...: {name}")
+    output.append("----------------------------------------")
+    for span_id, name in names.items():
+        output.append(f"{span_id[:8]}...: {name}")
     
     return "\n".join(output)
 
-def generate_trace_json():
+def generate_trace_json() -> dict:
     """
     Generate a JSON structure of the object flow trace.
     
@@ -331,165 +205,172 @@ def generate_trace_json():
     flow_data = {
         "nodes": [],
         "edges": [],
-        "objects": {}
+        "objects": {},
+        "metadata": {
+            "dependency_graph": {},
+            "call_hierarchy": {}
+        }
     }
     
-    # Create node entries for each span/function
+    # Add nodes for each function span
     for span_id, name in span_map.items():
-        # Determine parent ID from parent-child map
-        parent_id = None
-        for potential_parent, children in parent_child.items():
-            if span_id in children:
-                parent_id = potential_parent
-                break
-                
+        # Find the objects created in this span
+        created_objects = [obj_id for obj_id, obj in registry.items() 
+                          if hasattr(obj, '_self_creator_span') and obj._self_creator_span == span_id]
+        
+        # Find objects used by this span
+        used_objects = []
+        for obj_id, used_in_spans in usage_map.items():
+            if span_id in used_in_spans:
+                used_objects.append(obj_id)
+        
+        # Find output object (if any)
+        output_object = objects_map.get(span_id, [None])[0] if objects_map.get(span_id) else None
+        
+        # Add the node
         node = {
             "id": span_id,
             "name": name,
             "type": "function",
-            "input_objects": [],  # Will be filled based on usage
-            "output_object": objects_map.get(span_id),  # Object created by this span
-            "parent_id": parent_id, 
-            "child_ids": parent_child.get(span_id, [])  # Children of this span
+            "input_objects": used_objects,
+            "output_object": output_object,
+            "parent_id": None,  # Will be filled in later based on call hierarchy
+            "child_ids": []     # Will be filled in later based on call hierarchy
         }
         flow_data["nodes"].append(node)
     
-    # Create object entries with improved type information
-    for span_id, obj_id in objects_map.items():
-        creator_name = span_map.get(span_id)
+    # Infer the function call hierarchy based on:
+    # 1. Existing recorded function calls
+    # 2. Object usage patterns (if A creates an object that B uses, A likely called B)
+    call_hierarchy = {}
+    
+    # First, use existing function calls if any
+    for caller_id, callee_ids in function_call_map.items():
+        if caller_id not in call_hierarchy:
+            call_hierarchy[caller_id] = []
+        for callee_id in callee_ids:
+            if callee_id not in call_hierarchy[caller_id]:
+                call_hierarchy[caller_id].append(callee_id)
+    
+    # Second, infer based on the standard function call pattern
+    # When function A calls function B, typically:
+    # 1. A calls B
+    # 2. B creates an object
+    # 3. A uses the object created by B
+    for obj_id, used_in_spans in usage_map.items():
+        # Get the creator span
+        obj = registry.get(obj_id)
+        if not obj:
+            continue
+            
+        creator_span = getattr(obj, '_self_creator_span', None)
+        if not creator_span:
+            continue
         
-        # Get all spans using this object
-        using_spans = usage_map.get(obj_id, set())
+        # For each span that uses this object
+        for user_span in used_in_spans:
+            # Skip self-usage
+            if user_span == creator_span:
+                continue
+                
+            # If A uses an object created by B, typically B was called by A
+            # So add B as a callee of A
+            if user_span not in call_hierarchy:
+                call_hierarchy[user_span] = []
+            if creator_span not in call_hierarchy[user_span]:
+                call_hierarchy[user_span].append(creator_span)
+    
+    # Third, update parent-child relationships based on call hierarchy
+    for node in flow_data["nodes"]:
+        node_id = node["id"]
         
-        # Get type information from registry
-        obj_info = registry.get(obj_id, {})
-        obj_type = obj_info.get("type", "unknown")
+        # Set child_ids based on call hierarchy
+        if node_id in call_hierarchy:
+            node["child_ids"] = call_hierarchy[node_id]
         
-        # Create object entry with better type info
+        # Set parent_id based on call hierarchy
+        for potential_parent, children in call_hierarchy.items():
+            if node_id in children:
+                node["parent_id"] = potential_parent
+                break
+    
+    # Add the call hierarchy to metadata
+    flow_data["metadata"]["call_hierarchy"] = call_hierarchy
+    
+    # Add edges for data flow
+    for obj_id, used_in_spans in usage_map.items():
+        # Get the creator span
+        obj = registry.get(obj_id)
+        if not obj:
+            continue
+            
+        creator_span = getattr(obj, '_self_creator_span', None)
+        if not creator_span:
+            continue
+        
+        # Add an edge from creator to each user
+        for user_span in used_in_spans:
+            # Skip self-usage
+            if user_span == creator_span:
+                continue
+                
+            edge = {
+                "id": str(uuid.uuid4()),
+                "source": creator_span,
+                "target": user_span,
+                "label": f"Data flow: {obj_id}",
+                "edge_type": "data_flow"
+            }
+            flow_data["edges"].append(edge)
+            
+            # Also update the dependency graph
+            if user_span not in flow_data["metadata"]["dependency_graph"]:
+                flow_data["metadata"]["dependency_graph"][user_span] = []
+            flow_data["metadata"]["dependency_graph"][user_span].append(creator_span)
+    
+    # Add function call edges
+    for caller_id, callee_ids in call_hierarchy.items():
+        for callee_id in callee_ids:
+            # Skip self-calls
+            if callee_id == caller_id:
+                continue
+                
+            # Get function names
+            caller_name = span_map.get(caller_id, "unknown")
+            callee_name = span_map.get(callee_id, "unknown")
+            
+            # Create a call hierarchy edge
+            edge = {
+                "id": str(uuid.uuid4()),
+                "source": caller_id,
+                "target": callee_id,
+                "label": f"Function call: {caller_name} -> {callee_name}",
+                "edge_type": "call_hierarchy"
+            }
+            flow_data["edges"].append(edge)
+    
+    # Add objects
+    for obj_id, obj in registry.items():
+        obj_creator_span = getattr(obj, '_self_creator_span', None)
+        obj_wrapped = getattr(obj, '__wrapped__', obj)
+        obj_type = type(obj_wrapped).__name__
+        
+        # Try to get a string representation of the object
+        try:
+            obj_repr = repr(obj_wrapped)
+            if len(obj_repr) > 100:
+                obj_repr = obj_repr[:100] + "..."
+        except:
+            obj_repr = "<<Representation unavailable>>"
+        
+        # Add to objects dictionary
         flow_data["objects"][obj_id] = {
             "object_id": obj_id,
-            "creator_span_id": span_id,
-            "creator_name": creator_name,
-            "value_repr": f"Object created by {creator_name}",
+            "creator_span_id": obj_creator_span,
+            "creator_name": span_map.get(obj_creator_span) if obj_creator_span else None,
+            "value_repr": obj_repr,
             "type_name": obj_type,
-            "usage_spans": list(using_spans)
+            "usage_spans": list(usage_map.get(obj_id, []))
         }
-        
-        # Add object to input_objects of nodes that use it
-        for node in flow_data["nodes"]:
-            if node["id"] in using_spans and obj_id != node.get("output_object"):
-                node["input_objects"].append(obj_id)
     
-    # Create edges for function calls (stronger data dependency marker)
-    for source_span, target_spans in function_call_map.items():
-        source_name = span_map.get(source_span)
-        for target_span in target_spans:
-            # Skip if source or target is None or missing (could happen with stale data)
-            if source_span is None or target_span is None:
-                continue
-                
-            # Find the node that uses this object
-            for source_node in flow_data["nodes"]:
-                if source_node["id"] == source_span:
-                    for target_node in flow_data["nodes"]:
-                        if target_node["id"] == target_span:
-                            edge_id = str(uuid.uuid4())
-                            edge = {
-                                "id": edge_id,
-                                "source": source_node["id"],
-                                "target": target_node["id"],
-                                "label": "Calls function"
-                            }
-                            # Check if we don't already have this edge
-                            existing_edge = False
-                            for existing in flow_data["edges"]:
-                                if (existing["source"] == edge["source"] and 
-                                    existing["target"] == edge["target"] and
-                                    "Calls function" in existing["label"]):
-                                    existing_edge = True
-                                    break
-                            if not existing_edge:  
-                                flow_data["edges"].append(edge)
-                            break
-                    break
-    
-    # Create edges for object usage
-    for span_id, obj_id in objects_map.items():
-        using_spans = usage_map.get(obj_id, set())
-        for using_span in using_spans:
-            # Don't create an edge to itself
-            if using_span == span_id:
-                continue
-            
-            # Skip if source or target is None or missing (could happen with stale data)
-            if span_id is None or using_span is None:
-                continue
-                
-            # Find the nodes to connect
-            for source_node in flow_data["nodes"]:
-                if source_node["id"] == span_id:
-                    for target_node in flow_data["nodes"]:
-                        if target_node["id"] == using_span:
-                            edge_id = str(uuid.uuid4())
-                            edge = {
-                                "id": edge_id,
-                                "source": source_node["id"],
-                                "target": target_node["id"],
-                                "label": f"Data flow: {obj_id}"
-                            }
-                            # Check if we don't already have this edge
-                            existing_edge = False
-                            for existing in flow_data["edges"]:
-                                if (existing["source"] == edge["source"] and 
-                                    existing["target"] == edge["target"] and
-                                    existing["label"] == edge["label"]):
-                                    existing_edge = True
-                                    break
-                            if not existing_edge:  
-                                flow_data["edges"].append(edge)
-                            break
-                    break
-    
-    # Add explicit function call edges based on the code structure in the demo
-    # This helps catch dependencies that might not be tracked through object flows
-    node_map = {node["name"]: node["id"] for node in flow_data["nodes"]}
-    known_call_patterns = [
-        # Format: (caller_name, callee_name)
-        ("generate_simple_itinerary", "gather_information"),
-        ("generate_simple_itinerary", "create_travel_plan"),
-        ("gather_information", "get_weather"),
-        ("gather_information", "get_attractions")
-    ]
-    
-    for caller, callee in known_call_patterns:
-        if caller in node_map and callee in node_map:
-            edge_id = str(uuid.uuid4())
-            edge = {
-                "id": edge_id,
-                "source": node_map[caller],
-                "target": node_map[callee],
-                "label": "Function call"
-            }
-            # Check if we don't already have this edge
-            existing_edge = False
-            for existing in flow_data["edges"]:
-                if (existing["source"] == edge["source"] and 
-                    existing["target"] == edge["target"]):
-                    existing_edge = True
-                    break
-            if not existing_edge:  
-                flow_data["edges"].append(edge)
-    
-    return flow_data
-
-def reset_object_flow_tracking():
-    """Reset all object flow tracking data"""
-    current_flow_span_var.set(None)
-    object_registry.set({})
-    object_usage.set(defaultdict(set))
-    span_to_objects.set({})
-    span_names.set({})
-    span_parent_child.set(defaultdict(list))
-    function_calls.set(defaultdict(set))
-    call_stack.set([])
-    next_object_id.set(0) 
+    return flow_data 
