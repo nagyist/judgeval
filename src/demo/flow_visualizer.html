@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Object Flow Visualization</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        #visualization {
+            width: 100%;
+            height: 800px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .node {
+            cursor: pointer;
+        }
+
+        .node circle {
+            stroke: #fff;
+            stroke-width: 2px;
+        }
+
+        .node text {
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .link {
+            fill: none;
+            stroke-width: 2px;
+        }
+        
+        .link.call_hierarchy {
+            stroke-dasharray: 5, 3;
+        }
+        
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: center;
+        }
+        
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .tooltip {
+            position: absolute;
+            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.9);
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            pointer-events: none;
+            font-size: 12px;
+            max-width: 300px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+        }
+        
+        label {
+            font-weight: bold;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Object Flow Visualization</h1>
+    <div class="controls">
+        <div class="control-group">
+            <label for="file-input">Load Flow Graph JSON:</label>
+            <input type="file" id="file-input" accept=".json">
+        </div>
+        
+        <div class="control-group">
+            <label>Edge Types:</label>
+            <div>
+                <input type="checkbox" id="show-data-flow" checked>
+                <label for="show-data-flow" style="font-weight: normal;">Data Flow</label>
+                
+                <input type="checkbox" id="show-call-hierarchy" checked>
+                <label for="show-call-hierarchy" style="font-weight: normal;">Call Hierarchy</label>
+            </div>
+        </div>
+        
+        <div class="control-group">
+            <label>Layout:</label>
+            <div>
+                <button id="hierarchical-layout">Hierarchical</button>
+                <button id="force-layout">Force-Directed</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="visualization"></div>
+
+    <script>
+        // Global variables to track visualization state
+        let currentData = null;
+        let simulation = null;
+        
+        // Function to create the graph visualization
+        function createVisualization(data) {
+            // Process edge data to add edge_type based on label
+            data.edges.forEach(edge => {
+                // Extract edge type from label (data_flow or call_hierarchy)
+                if (edge.label && edge.label.includes("Data flow")) {
+                    edge.edge_type = "data_flow";
+                } else {
+                    edge.edge_type = "call_hierarchy";
+                }
+                
+                // Ensure source and target are properly formatted
+                // D3 will internally convert these to node objects later
+                if (typeof edge.source === 'object' && edge.source !== null) {
+                    edge.source = edge.source.id;
+                }
+                if (typeof edge.target === 'object' && edge.target !== null) {
+                    edge.target = edge.target.id;
+                }
+            });
+            
+            // Filter out edges with invalid source or target
+            const nodeIds = new Set(data.nodes.map(node => node.id));
+            data.edges = data.edges.filter(edge => 
+                nodeIds.has(edge.source) && nodeIds.has(edge.target)
+            );
+            
+            // Generate call hierarchy edges from the metadata if they don't exist
+            const dependencyGraph = data.metadata?.dependency_graph || {};
+            const callHierarchy = data.metadata?.call_hierarchy || {};
+            const hasCallHierarchyEdges = data.edges.some(edge => edge.edge_type === "call_hierarchy");
+
+            if (!hasCallHierarchyEdges) {
+                // First try to use the explicit call_hierarchy if available
+                if (Object.keys(callHierarchy).length > 0) {
+                    // The call_hierarchy has the correct direction: caller -> callee
+                    Object.entries(callHierarchy).forEach(([callerId, calleeIds]) => {
+                        if (Array.isArray(calleeIds)) {
+                            calleeIds.forEach(calleeId => {
+                                // Make sure both nodes exist
+                                if (nodeIds.has(callerId) && nodeIds.has(calleeId)) {
+                                    // Get node names for meaningful labels
+                                    const callerNode = data.nodes.find(n => n.id === callerId);
+                                    const calleeNode = data.nodes.find(n => n.id === calleeId);
+                                    
+                                    const callerName = callerNode ? callerNode.name : "unknown";
+                                    const calleeName = calleeNode ? calleeNode.name : "unknown";
+                                    
+                                    // Create call hierarchy edge
+                                    data.edges.push({
+                                        id: `call_${callerId}_${calleeId}`,
+                                        source: callerId,  // Caller is the source
+                                        target: calleeId,  // Callee is the target
+                                        label: `Function call: ${callerName} -> ${calleeName}`,
+                                        edge_type: "call_hierarchy"
+                                    });
+                                    
+                                    // Also update node relationships if needed
+                                    if (calleeNode && !calleeNode.parent_id) {
+                                        calleeNode.parent_id = callerId;
+                                    }
+                                    
+                                    if (callerNode) {
+                                        if (!callerNode.child_ids) {
+                                            callerNode.child_ids = [];
+                                        }
+                                        if (!callerNode.child_ids.includes(calleeId)) {
+                                            callerNode.child_ids.push(calleeId);
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    });
+                } 
+                // Fallback to dependency_graph if call_hierarchy is empty
+                else if (Object.keys(dependencyGraph).length > 0) {
+                    // Important: In the dependency_graph, keys are child nodes and values are parent nodes
+                    // i.e., {childId: [parentId1, parentId2]} means childId depends on/is called by parentId1 and parentId2
+                    Object.entries(dependencyGraph).forEach(([childId, parentIds]) => {
+                        if (Array.isArray(parentIds)) {
+                            parentIds.forEach(parentId => {
+                                // Make sure both nodes exist
+                                if (nodeIds.has(childId) && nodeIds.has(parentId)) {
+                                    // Get node names for creating meaningful labels
+                                    const parentNode = data.nodes.find(n => n.id === parentId);
+                                    const childNode = data.nodes.find(n => n.id === childId);
+                                    
+                                    const parentName = parentNode ? parentNode.name : "unknown";
+                                    const childName = childNode ? childNode.name : "unknown";
+                                    
+                                    // Create the call hierarchy edge - parent calls child
+                                    data.edges.push({
+                                        id: `call_${parentId}_${childId}`,
+                                        source: parentId,  // Parent is the source (caller)
+                                        target: childId,   // Child is the target (callee)
+                                        label: `Function call: ${parentName} -> ${childName}`,
+                                        edge_type: "call_hierarchy"
+                                    });
+                                    
+                                    // Also update parent-child relationships in the nodes
+                                    if (childNode && !childNode.parent_id) {
+                                        childNode.parent_id = parentId;
+                                    }
+                                    
+                                    if (parentNode) {
+                                        if (!parentNode.child_ids) {
+                                            parentNode.child_ids = [];
+                                        }
+                                        if (!parentNode.child_ids.includes(childId)) {
+                                            parentNode.child_ids.push(childId);
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+            
+            // Store data globally for filter usage
+            currentData = data;
+            
+            // Set up event handlers for controls
+            document.getElementById('show-data-flow').addEventListener('change', updateVisibility);
+            document.getElementById('show-call-hierarchy').addEventListener('change', updateVisibility);
+            document.getElementById('hierarchical-layout').addEventListener('click', applyHierarchicalLayout);
+            document.getElementById('force-layout').addEventListener('click', applyForceLayout);
+            
+            // Clear previous visualization
+            d3.select("#visualization").html("");
+            
+            const width = document.getElementById('visualization').clientWidth;
+            const height = document.getElementById('visualization').clientHeight;
+            
+            // Create a tooltip div for hovering information
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+            
+            // Create SVG container
+            const svg = d3.select("#visualization")
+                .append("svg")
+                .attr("width", width)
+                .attr("height", height);
+            
+            // Create container for the graph
+            const g = svg.append("g");
+            
+            // Add zoom behavior
+            const zoom = d3.zoom()
+                .scaleExtent([0.1, 4])
+                .on("zoom", (event) => {
+                    g.attr("transform", event.transform);
+                });
+            
+            svg.call(zoom);
+            
+            // Create force simulation
+            simulation = d3.forceSimulation(data.nodes)
+                .force("link", d3.forceLink(data.edges)
+                    .id(d => d.id)
+                    .distance(d => d.edge_type === "call_hierarchy" ? 80 : 150))
+                .force("charge", d3.forceManyBody().strength(-500))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .force("x", d3.forceX(width / 2).strength(0.1))
+                .force("y", d3.forceY(height / 2).strength(0.1));
+            
+            // Create links
+            const link = g.selectAll(".link")
+                .data(data.edges)
+                .enter()
+                .append("path")
+                .attr("class", d => `link ${d.edge_type}`)
+                .attr("stroke", d => d.edge_type === "call_hierarchy" ? "#555" : "#999")
+                .attr("stroke-opacity", 0.6)
+                .attr("stroke-width", d => d.edge_type === "call_hierarchy" ? 1.5 : 2)
+                .attr("marker-end", d => d.edge_type === "data_flow" ? "url(#arrowhead-data)" : "url(#arrowhead-call)")
+                .on("mouseover", function(event, d) {
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", .9);
+                    if (d.edge_type === "data_flow") {
+                        tooltip.html(`<strong>Object:</strong> ${d.label}`)
+                            .style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 28) + "px");
+                    } else {
+                        tooltip.html(`<strong>Call:</strong> ${d.label}`)
+                            .style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 28) + "px");
+                    }
+                })
+                .on("mouseout", function() {
+                    tooltip.transition()
+                        .duration(500)
+                        .style("opacity", 0);
+                });
+            
+            // Create arrowhead markers for both edge types
+            svg.append("defs").selectAll("marker")
+                .data(["data", "call"])
+                .enter()
+                .append("marker")
+                .attr("id", d => `arrowhead-${d}`)
+                .attr("viewBox", "0 -5 10 10")
+                .attr("refX", 20)
+                .attr("refY", 0)
+                .attr("markerWidth", 6)
+                .attr("markerHeight", 6)
+                .attr("orient", "auto")
+                .append("path")
+                .attr("d", "M0,-5L10,0L0,5")
+                .attr("fill", d => d === "data" ? "#999" : "#555");
+            
+            // Create nodes
+            const node = g.selectAll(".node")
+                .data(data.nodes)
+                .enter()
+                .append("g")
+                .attr("class", "node")
+                .call(d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended))
+                .on("mouseover", function(event, d) {
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", .9);
+                    
+                    let inputObjects = d.input_objects.map(id => {
+                        const obj = data.objects[id];
+                        return obj ? `${id} (${obj.type_name})` : id;
+                    }).join("<br>");
+                    
+                    let outputObject = "";
+                    if (d.output_object && data.objects[d.output_object]) {
+                        const obj = data.objects[d.output_object];
+                        outputObject = `${d.output_object} (${obj.type_name}): ${obj.value_repr}`;
+                    }
+                    
+                    let callHierarchy = "";
+                    if (d.parent_id) {
+                        const parentNode = data.nodes.find(n => n.id === d.parent_id);
+                        if (parentNode) {
+                            callHierarchy = `Called by: ${parentNode.name}<br>`;
+                        }
+                    }
+                    
+                    if (d.child_ids && d.child_ids.length > 0) {
+                        const childNames = d.child_ids.map(id => {
+                            const childNode = data.nodes.find(n => n.id === id);
+                            return childNode ? childNode.name : id;
+                        }).join(", ");
+                        callHierarchy += `Calls: ${childNames}`;
+                    }
+                    
+                    tooltip.html(`<strong>Function:</strong> ${d.name}<br>
+                                ${callHierarchy ? `<strong>Call Hierarchy:</strong><br>${callHierarchy}<br>` : ""}
+                                <strong>Inputs:</strong><br>${inputObjects || "None"}<br>
+                                <strong>Output:</strong><br>${outputObject || "None"}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function() {
+                    tooltip.transition()
+                        .duration(500)
+                        .style("opacity", 0);
+                });
+            
+            // Add circles to the nodes
+            node.append("circle")
+                .attr("r", 10)
+                .attr("fill", d => {
+                    // Color nodes based on their type or role in the flow
+                    if (d.name === "main") return "#ff7f0e"; // Orange for main function
+                    if (!d.parent_id) return "#1f77b4"; // Blue for root functions
+                    if (d.child_ids.length === 0) return "#d62728"; // Red for leaf functions
+                    return "#2ca02c"; // Green for middle-level functions
+                });
+            
+            // Add labels to the nodes
+            node.append("text")
+                .attr("dx", 12)
+                .attr("dy", ".35em")
+                .text(d => d.name);
+            
+            // Update positions on each tick of the simulation
+            simulation.on("tick", () => {
+                // Update link paths
+                link.attr("d", function(d) {
+                    // Get source and target coordinates safely
+                    const sourceNode = typeof d.source === 'object' ? d.source : data.nodes.find(n => n.id === d.source);
+                    const targetNode = typeof d.target === 'object' ? d.target : data.nodes.find(n => n.id === d.target);
+                    
+                    if (!sourceNode || !targetNode) return "M0,0L0,0"; // Return empty path if nodes not found
+                    
+                    // Curved paths for data flow, straighter paths for call hierarchy
+                    const dx = targetNode.x - sourceNode.x;
+                    const dy = targetNode.y - sourceNode.y;
+                    
+                    if (d.edge_type === "call_hierarchy") {
+                        // Straighter line for call hierarchy
+                        const dr = Math.sqrt(dx * dx + dy * dy) * 2;
+                        return `M${sourceNode.x},${sourceNode.y}A${dr},${dr} 0 0,1 ${targetNode.x},${targetNode.y}`;
+                    } else {
+                        // More curved line for data flow
+                        const dr = Math.sqrt(dx * dx + dy * dy);
+                        return `M${sourceNode.x},${sourceNode.y}A${dr},${dr} 0 0,1 ${targetNode.x},${targetNode.y}`;
+                    }
+                });
+                
+                // Update node positions
+                node.attr("transform", d => `translate(${d.x},${d.y})`);
+            });
+            
+            // Make links and nodes accessible for update functions
+            window.links = link;
+            window.nodes = node;
+            
+            // Drag functions
+            function dragstarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+            
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+            
+            function dragended(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+        }
+        
+        // Function to update visibility of edge types
+        function updateVisibility() {
+            const showDataFlow = document.getElementById('show-data-flow').checked;
+            const showCallHierarchy = document.getElementById('show-call-hierarchy').checked;
+            
+            window.links
+                .style("visibility", d => {
+                    if (d.edge_type === "data_flow" && !showDataFlow) return "hidden";
+                    if (d.edge_type === "call_hierarchy" && !showCallHierarchy) return "hidden";
+                    return "visible";
+                });
+        }
+        
+        // Function to apply hierarchical layout
+        function applyHierarchicalLayout() {
+            if (!currentData || !simulation) return;
+            
+            // Stop the current simulation
+            simulation.stop();
+            
+            // Calculate levels for each node based on the call hierarchy
+            const nodeLevels = {};
+            const rootNodes = currentData.nodes.filter(n => !n.parent_id);
+            
+            // Assign levels starting from root nodes
+            function assignLevels(node, level) {
+                nodeLevels[node.id] = level;
+                for (const childId of node.child_ids) {
+                    const child = currentData.nodes.find(n => n.id === childId);
+                    if (child) {
+                        assignLevels(child, level + 1);
+                    }
+                }
+            }
+            
+            rootNodes.forEach(node => assignLevels(node, 0));
+            
+            // Calculate the maximum level
+            const maxLevel = Math.max(...Object.values(nodeLevels));
+            
+            // Position nodes based on their level
+            const width = document.getElementById('visualization').clientWidth;
+            const height = document.getElementById('visualization').clientHeight;
+            const levelHeight = height / (maxLevel + 2);
+            
+            // Count nodes at each level for horizontal spacing
+            const levelCounts = {};
+            for (const level of Object.values(nodeLevels)) {
+                levelCounts[level] = (levelCounts[level] || 0) + 1;
+            }
+            
+            // Calculate horizontal positions
+            const levelPositions = {};
+            for (const [id, level] of Object.entries(nodeLevels)) {
+                const count = levelCounts[level];
+                const index = Object.entries(nodeLevels)
+                    .filter(([nodeId, nodeLevel]) => nodeLevel === level)
+                    .findIndex(([nodeId]) => nodeId === id);
+                
+                const levelWidth = width * 0.8;
+                const startX = width * 0.1;
+                const x = startX + (levelWidth / (count + 1)) * (index + 1);
+                const y = (level + 1) * levelHeight;
+                
+                // Store position for this node
+                levelPositions[id] = { x, y };
+            }
+            
+            // Apply positions with transitions
+            window.nodes
+                .each(function(d) {
+                    d.x = levelPositions[d.id]?.x || width / 2;
+                    d.y = levelPositions[d.id]?.y || height / 2;
+                    d.fx = d.x;
+                    d.fy = d.y;
+                })
+                .transition()
+                .duration(800)
+                .attr("transform", d => `translate(${d.x},${d.y})`);
+            
+            // Update links with transitions
+            window.links
+                .transition()
+                .duration(800)
+                .attr("d", function(d) {
+                    // Get source and target positions
+                    const sourceId = typeof d.source === 'object' ? d.source.id : d.source;
+                    const targetId = typeof d.target === 'object' ? d.target.id : d.target;
+                    
+                    const sourcePos = levelPositions[sourceId] || { x: width/2, y: height/2 };
+                    const targetPos = levelPositions[targetId] || { x: width/2, y: height/2 };
+                    
+                    const dx = targetPos.x - sourcePos.x;
+                    const dy = targetPos.y - sourcePos.y;
+                    
+                    if (d.edge_type === "call_hierarchy") {
+                        // Straighter line for call hierarchy
+                        return `M${sourcePos.x},${sourcePos.y}L${targetPos.x},${targetPos.y}`;
+                    } else {
+                        // Curved line for data flow
+                        const dr = Math.sqrt(dx * dx + dy * dy) * 1.2;
+                        return `M${sourcePos.x},${sourcePos.y}A${dr},${dr} 0 0,1 ${targetPos.x},${targetPos.y}`;
+                    }
+                });
+            
+            // Restart simulation with very weak forces just to handle manual dragging
+            simulation
+                .force("charge", d3.forceManyBody().strength(-10))
+                .force("link", d3.forceLink().strength(0.01))
+                .restart()
+                .alpha(0.1);
+        }
+        
+        // Function to apply force-directed layout
+        function applyForceLayout() {
+            if (!currentData || !simulation) return;
+            
+            // Release fixed positions
+            window.nodes.each(function(d) {
+                d.fx = null;
+                d.fy = null;
+            });
+            
+            // Restart with stronger forces
+            simulation
+                .force("link", d3.forceLink(currentData.edges)
+                    .id(d => d.id)
+                    .distance(d => d.edge_type === "call_hierarchy" ? 80 : 150))
+                .force("charge", d3.forceManyBody().strength(-500))
+                .alpha(1)
+                .restart();
+        }
+
+        // File input handler
+        document.getElementById('file-input').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        
+                        // Validate essential data structure
+                        if (!data.nodes || !Array.isArray(data.nodes)) {
+                            throw new Error("JSON missing 'nodes' array");
+                        }
+                        if (!data.edges || !Array.isArray(data.edges)) {
+                            throw new Error("JSON missing 'edges' array");
+                        }
+                        
+                        createVisualization(data);
+                    } catch (error) {
+                        console.error("Error parsing JSON:", error);
+                        alert(`Error processing JSON file: ${error.message}\nCheck console for details.`);
+                    }
+                };
+                reader.readAsText(file);
+            }
+        });
+    </script>
+</body>
+</html> 
