@@ -1,12 +1,12 @@
 {
-  "trace_id": "27321213-012f-430c-8985-f418e61071d1",
+  "trace_id": "00e76f02-095d-471a-b677-8ba2be3146fc",
   "name": "test_metadata",
   "project_name": "metadata-test",
-  "created_at": 1747622653.680715,
-  "customer_id": "customer-3163",
+  "created_at": 1747622984.1897202,
+  "customer_id": "customer-8741",
   "tags": [
     "test",
-    "metadata",
-    "demo"
+    "example",
+    "metadata"
   ]
 }
