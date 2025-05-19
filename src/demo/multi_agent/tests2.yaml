@@ -9,4 +9,4 @@ examples:
             agent: Alice
           - tool_name: "send_message"
             agent: Charles
-        # require_all: true
+        require_all: true
