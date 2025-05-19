@@ -1,0 +1,20 @@
+{
+  "pages": [
+    "getting-started",
+    "evaluation",
+    "monitoring",
+    "insights",
+    "integrations",
+    "cookbooks",
+    "developer-tools",
+    "platform-guides"
+  ],
+  "getting-started": "Getting Started",
+  "evaluation": "Evaluation",
+  "monitoring": "Monitoring",
+  "insights": "Insights",
+  "integrations": "Integrations",
+  "cookbooks": "Cookbooks",
+  "developer-tools": "Developer tools",
+  "platform-guides": "Platform Guides"
+} 

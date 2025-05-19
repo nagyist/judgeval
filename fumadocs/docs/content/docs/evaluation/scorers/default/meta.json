@@ -1,0 +1,16 @@
+{
+  "title": "Default Scorer Definitions",
+  "pages": [
+    "answer_correctness",
+    "answer_relevancy",
+    "comparison",
+    "contextual_precision",
+    "contextual_recall",
+    "contextual_relevancy",
+    "execution_order",
+    "groundedness",
+    "faithfulness",
+    "json_correctness",
+    "summarization"
+  ]
+} 

@@ -1,0 +1,7 @@
+{
+  "title": "Cookbooks",
+  "pages": [
+    "openai_cookbooks",
+    "langgraph_cookbooks"
+  ]
+} 

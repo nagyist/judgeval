@@ -1,0 +1,14 @@
+{
+  "title": "Evaluation",
+  "pages": [
+    "introduction",
+    "data_examples",
+    "data_sequences",
+    "data_datasets",
+    "experiment_comparisons",
+    "unit_testing",
+    "scorers",
+    "judges",
+    "Synthetic Data"
+  ]
+} 

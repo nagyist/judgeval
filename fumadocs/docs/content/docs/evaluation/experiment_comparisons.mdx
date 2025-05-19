@@ -11,94 +11,98 @@ Experiment comparisons allow you to systematically A/B test changes in your LLM 
 
 Let's walk through how to create and run experiment comparisons:
 
-<CodeGroup>
-```py
-from judgeval import JudgmentClient
-from judgeval.data import Example
-from judgeval.scorers import AnswerCorrectnessScorer
+<Tabs items={['Python', 'TypeScript']}>
+  <Tab value="Python">
+    ```py
+    from judgeval import JudgmentClient
+    from judgeval.data import Example
+    from judgeval.scorers import AnswerCorrectnessScorer
 
-client = JudgmentClient()
+    client = JudgmentClient()
 
-# Define your test examples
-examples = [
-    Example(
-        input="What is the capital of France?",
-        actual_output="Paris is the capital of France.",
-        expected_output="Paris"
-    ),
-    Example(
-        input="What is the capital of Japan?",
-        actual_output="Tokyo is the capital of Japan.",
-        expected_output="Tokyo"
+    # Define your test examples
+    examples = [
+        Example(
+            input="What is the capital of France?",
+            actual_output="Paris is the capital of France.",
+            expected_output="Paris"
+        ),
+        Example(
+            input="What is the capital of Japan?",
+            actual_output="Tokyo is the capital of Japan.",
+            expected_output="Tokyo"
+        )
+    ]
+
+    # Define your scorer
+    scorer = AnswerCorrectnessScorer(threshold=0.7)
+
+    # Run first experiment with GPT-4
+    experiment_1 = client.run_evaluation(
+        examples=examples,
+        scorers=[scorer],
+        model="gpt-4",
+        project_name="capital_cities",
+        eval_name="gpt4_experiment"
     )
-]
 
-# Define your scorer
-scorer = AnswerCorrectnessScorer(threshold=0.7)
+    # Run second experiment with a different model
+    experiment_2 = client.run_evaluation(
+        examples=examples,
+        scorers=[scorer],
+        model="gpt-3.5-turbo",
+        project_name="capital_cities",
+        eval_name="gpt35_experiment"
+    )
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```ts
+    import { JudgmentClient, ExampleBuilder, AnswerCorrectnessScorer } from 'judgeval';
 
-# Run first experiment with GPT-4
-experiment_1 = client.run_evaluation(
-    examples=examples,
-    scorers=[scorer],
-    model="gpt-4",
-    project_name="capital_cities",
-    eval_name="gpt4_experiment"
-)
+    async function runComparativeExperiments() {
+        const client = JudgmentClient.getInstance();
 
-# Run second experiment with a different model
-experiment_2 = client.run_evaluation(
-    examples=examples,
-    scorers=[scorer],
-    model="gpt-3.5-turbo",
-    project_name="capital_cities",
-    eval_name="gpt35_experiment"
-)
-```
-```ts
-import { JudgmentClient, ExampleBuilder, AnswerCorrectnessScorer } from 'judgeval';
+        // Define your test examples
+        const examples = [
+            new ExampleBuilder()
+                .input("What is the capital of France?")
+                .actualOutput("Paris is the capital of France.")
+                .expectedOutput("Paris")
+                .build(),
+            new ExampleBuilder()
+                .input("What is the capital of Japan?")
+                .actualOutput("Tokyo is the capital of Japan.")
+                .expectedOutput("Tokyo")
+                .build()
+        ];
 
-async function runComparativeExperiments() {
-    const client = JudgmentClient.getInstance();
+        // Define your scorer
+        const scorer = new AnswerCorrectnessScorer(0.7);
 
-    // Define your test examples
-    const examples = [
-        new ExampleBuilder()
-            .input("What is the capital of France?")
-            .actualOutput("Paris is the capital of France.")
-            .expectedOutput("Paris")
-            .build(),
-        new ExampleBuilder()
-            .input("What is the capital of Japan?")
-            .actualOutput("Tokyo is the capital of Japan.")
-            .expectedOutput("Tokyo")
-            .build()
-    ];
+        // Run first experiment with GPT-4
+        const experiment1 = await client.evaluate({
+            examples: examples,
+            scorers: [scorer],
+            model: "gpt-4",
+            projectName: "capital_cities",
+            evalName: "gpt4_experiment"
+        });
 
-    // Define your scorer
-    const scorer = new AnswerCorrectnessScorer(0.7);
+        // Run second experiment with a different model
+        const experiment2 = await client.evaluate({
+            examples: examples,
+            scorers: [scorer],
+            model: "gpt-3.5-turbo",
+            projectName: "capital_cities",
+            evalName: "gpt35_experiment"
+        });
+    }
 
-    // Run first experiment with GPT-4
-    const experiment1 = await client.evaluate({
-        examples: examples,
-        scorers: [scorer],
-        model: "gpt-4",
-        projectName: "capital_cities",
-        evalName: "gpt4_experiment"
-    });
-
-    // Run second experiment with a different model
-    const experiment2 = await client.evaluate({
-        examples: examples,
-        scorers: [scorer],
-        model: "gpt-3.5-turbo",
-        projectName: "capital_cities",
-        evalName: "gpt35_experiment"
-    });
-}
-
-runComparativeExperiments();
-```
-</CodeGroup>
+    runComparativeExperiments();
+    ```
+  </Tab>
+</Tabs>
 
 After running the following code, click the `View Results` link to take you to your experiment run on the Judgment Platform.
 
@@ -108,30 +112,22 @@ Once your experiments are complete, you can compare them on the Judgment Platfor
 
 1. You'll be automatically directed to your **Experiment page**. Here you'll see your latest experiment results and a "Compare" button.
    <div style={{display: 'flex', justifyContent: 'center'}}>
-     <Frame>
        ![Experiment Page](/images/experiment-comparison-page-2.png "Experiment page with Compare button")
-     </Frame>
    </div>
 
 2. Click the "Compare" button to navigate to the **Experiments page**. Here you can select a previous experiment to compare against your current results.
    <div style={{display: 'flex', justifyContent: 'center'}}>
-     <Frame>
        ![Experiments Selection](/images/experiments-page-comparison-2.png "Selecting an experiment to compare")
-     </Frame>
    </div>
 
 3. After selecting an experiment, you'll return to the **Experiment page** with both experiments' results displayed side by side.
    <div style={{display: 'flex', justifyContent: 'center'}}>
-     <Frame>
        ![Comparison View](/images/experiment-page-comparison.png "Side-by-side experiment comparison")
-     </Frame>
    </div>
 
 4. For detailed insights, click on any row in the comparison table to see specific metrics and analysis.
    <div style={{display: 'flex', justifyContent: 'center'}}>
-     <Frame>
        ![Detailed Comparison](/images/experiment-popout-comparison.png "Detailed comparison metrics")
-     </Frame>
    </div>
 
 <Tip>

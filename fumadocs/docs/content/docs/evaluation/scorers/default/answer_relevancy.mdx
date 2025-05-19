@@ -29,55 +29,59 @@ $$
 
 ## Sample Implementation
 
-<CodeGroup>
-```py
-from judgeval import JudgmentClient
-from judgeval.data import Example
-from judgeval.scorers import AnswerRelevancyScorer
+<Tabs items={['Python', 'TypeScript']}>
+  <Tab value="Python">
+    ```py
+    from judgeval import JudgmentClient
+    from judgeval.data import Example
+    from judgeval.scorers import AnswerRelevancyScorer
 
-client = JudgmentClient()
-example = Example(
-    input="What's your return policy for a pair of socks?",
-    # Replace this with your LLM system's output
-    actual_output="We offer a 30-day return policy for all items, including socks!",
-)
-# supply your own threshold
-scorer = AnswerRelevancyScorer(threshold=0.8)
+    client = JudgmentClient()
+    example = Example(
+        input="What's your return policy for a pair of socks?",
+        # Replace this with your LLM system's output
+        actual_output="We offer a 30-day return policy for all items, including socks!",
+    )
+    # supply your own threshold
+    scorer = AnswerRelevancyScorer(threshold=0.8)
 
-results = client.run_evaluation(
-    examples=[example],
-    scorers=[scorer],
-    model="gpt-4o",
-)
-print(results)
-```
-```ts
-import { JudgmentClient, ExampleBuilder, AnswerRelevancyScorer, logger } from 'judgeval';
+    results = client.run_evaluation(
+        examples=[example],
+        scorers=[scorer],
+        model="gpt-4o",
+    )
+    print(results)
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```ts
+    import { JudgmentClient, ExampleBuilder, AnswerRelevancyScorer, logger } from 'judgeval';
 
-async function runAnswerRelevancy() {
-    const client = JudgmentClient.getInstance();
-    const example = new ExampleBuilder()
-        .input("What's your return policy for a pair of socks?")
-        // Replace this with your LLM system's output
-        .actualOutput("We offer a 30-day return policy for all items, including socks!")
-        .build();
+    async function runAnswerRelevancy() {
+        const client = JudgmentClient.getInstance();
+        const example = new ExampleBuilder()
+            .input("What's your return policy for a pair of socks?")
+            // Replace this with your LLM system's output
+            .actualOutput("We offer a 30-day return policy for all items, including socks!")
+            .build();
 
-    // supply your own threshold
-    const scorer = new AnswerRelevancyScorer(0.8);
+        // supply your own threshold
+        const scorer = new AnswerRelevancyScorer(0.8);
 
-    const results = await client.evaluate({
-        examples: [example],
-        scorers: [scorer],
-        model: "gpt-4o",
-        projectName: "ans-relevancy-ts-proj",
-        evalName: "ans-relevancy-ts-eval"
-    });
-    logger.print(results); // Log results to console
-}
+        const results = await client.evaluate({
+            examples: [example],
+            scorers: [scorer],
+            model: "gpt-4o",
+            projectName: "ans-relevancy-ts-proj",
+            evalName: "ans-relevancy-ts-eval"
+        });
+        logger.print(results); // Log results to console
+    }
 
-runAnswerRelevancy();
-```
-</CodeGroup>
+    runAnswerRelevancy();
+    ```
+  </Tab>
+</Tabs>
 
 <Note>
 The `AnswerRelevancy` scorer uses an LLM judge, so you'll receive a reason for the score in the `reason` field of the results. 

@@ -13,30 +13,34 @@ An `Example` is can be composed of a mixture of the following fields:
 
 **Here's a sample of creating an `Example`:**
 
-<CodeGroup>
-```py
-from judgeval.data import Example
+<Tabs items={['Python', 'TypeScript']}>
+  <Tab value="Python">
+    ```py
+    from judgeval.data import Example
 
-example = Example(
-    input="Who founded Microsoft?",
-    actual_output="Bill Gates and Paul Allen.",
-    expected_output="Bill Gates and Paul Allen founded Microsoft in New Mexico in 1975.",
-    retrieval_context=["Bill Gates co-founded Microsoft with Paul Allen in 1975."],
-    context=["Bill Gates and Paul Allen are the founders of Microsoft."],
-)
-```
-```ts
-import { ExampleBuilder } from 'judgeval';
+    example = Example(
+        input="Who founded Microsoft?",
+        actual_output="Bill Gates and Paul Allen.",
+        expected_output="Bill Gates and Paul Allen founded Microsoft in New Mexico in 1975.",
+        retrieval_context=["Bill Gates co-founded Microsoft with Paul Allen in 1975."],
+        context=["Bill Gates and Paul Allen are the founders of Microsoft."],
+    )
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```ts
+    import { ExampleBuilder } from 'judgeval';
 
-const example = new ExampleBuilder()
-    .input("Who founded Microsoft?")
-    .actualOutput("Bill Gates and Paul Allen.")
-    .expectedOutput("Bill Gates and Paul Allen founded Microsoft in New Mexico in 1975.")
-    .retrievalContext(["Bill Gates co-founded Microsoft with Paul Allen in 1975."]) // Corresponds to python retrieval_context
-    .context(["Bill Gates and Paul Allen are the founders of Microsoft."]) // General context
-    .build();
-```
-</CodeGroup>
+    const example = new ExampleBuilder()
+        .input("Who founded Microsoft?")
+        .actualOutput("Bill Gates and Paul Allen.")
+        .expectedOutput("Bill Gates and Paul Allen founded Microsoft in New Mexico in 1975.")
+        .retrievalContext(["Bill Gates co-founded Microsoft with Paul Allen in 1975."]) // Corresponds to python retrieval_context
+        .context(["Bill Gates and Paul Allen are the founders of Microsoft."]) // General context
+        .build();
+    ```
+  </Tab>
+</Tabs>
 
 <Note>
 The `input` and `actual_output` fields are required for all examples. **However**, you don't need to use them in your evaluations. 
@@ -66,30 +70,34 @@ Evaluation is always tied with optimization, so you should try to **isolate your
 The `actual_output` field represents what your LLM system outputs based on the `input`. 
 This is the actual output of your LLM system created either at evaluation time or with saved answers.
 
-<CodeGroup>
-```py
-# Sample app implementation
-import medical_chatbot
-from judgeval.data import Example # Added import
+<Tabs items={['Python', 'TypeScript']}>
+  <Tab value="Python">
+    ```py
+    # Sample app implementation
+    import medical_chatbot
+    from judgeval.data import Example # Added import
 
-question = "Is sparkling water healthy?"
-example = Example(
-    input=question,
-    actual_output=medical_chatbot.chat(question)
-)
-```
-```ts
-// Sample app implementation (assuming medical_chatbot exists)
-import { medical_chatbot } from './medical_chatbot'; // Example import
-import { ExampleBuilder } from 'judgeval';
+    question = "Is sparkling water healthy?"
+    example = Example(
+        input=question,
+        actual_output=medical_chatbot.chat(question)
+    )
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```ts
+    // Sample app implementation (assuming medical_chatbot exists)
+    import { medical_chatbot } from './medical_chatbot'; // Example import
+    import { ExampleBuilder } from 'judgeval';
 
-const question = "Is sparkling water healthy?";
-const example = new ExampleBuilder()
-    .input(question)
-    .actualOutput(medical_chatbot.chat(question)) // Assuming chat is async or sync
-    .build();
-```
-</CodeGroup>
+    const question = "Is sparkling water healthy?";
+    const example = new ExampleBuilder()
+        .input(question)
+        .actualOutput(medical_chatbot.chat(question)) // Assuming chat is async or sync
+        .build();
+    ```
+  </Tab>
+</Tabs>
 
 ### Expected Output
 
@@ -99,32 +107,36 @@ One great part of `judgeval`'s scorers is that they use LLMs which have flexible
 
 To learn more about how `judgeval`'s scorers work, please see the [scorer docs](evaluation/scorers/introduction).
 
-<CodeGroup>
-```py
-# Sample app implementation
-import medical_chatbot
-from judgeval.data import Example # Added import
+<Tabs items={['Python', 'TypeScript']}>
+  <Tab value="Python">
+    ```py
+    # Sample app implementation
+    import medical_chatbot
+    from judgeval.data import Example # Added import
 
-question = "Is sparkling water healthy?"
-example = Example(
-    input=question,
-    actual_output=medical_chatbot.chat(question),
-    expected_output="Sparkling water is neither healthy nor unhealthy."
-)
-```
-```ts
-// Sample app implementation (assuming medical_chatbot exists)
-import { medical_chatbot } from './medical_chatbot'; // Example import
-import { ExampleBuilder } from 'judgeval';
+    question = "Is sparkling water healthy?"
+    example = Example(
+        input=question,
+        actual_output=medical_chatbot.chat(question),
+        expected_output="Sparkling water is neither healthy nor unhealthy."
+    )
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```ts
+    // Sample app implementation (assuming medical_chatbot exists)
+    import { medical_chatbot } from './medical_chatbot'; // Example import
+    import { ExampleBuilder } from 'judgeval';
 
-const question = "Is sparkling water healthy?";
-const example = new ExampleBuilder()
-    .input(question)
-    .actualOutput(medical_chatbot.chat(question))
-    .expectedOutput("Sparkling water is neither healthy nor unhealthy.")
-    .build();
-```
-</CodeGroup>
+    const question = "Is sparkling water healthy?";
+    const example = new ExampleBuilder()
+        .input(question)
+        .actualOutput(medical_chatbot.chat(question))
+        .expectedOutput("Sparkling water is neither healthy nor unhealthy.")
+        .build();
+    ```
+  </Tab>
+</Tabs>
 
 ### Context 
 
@@ -137,34 +149,38 @@ In RAG systems, contextual information is retrieved from a vector database and i
 not `context`. **If you're building a RAG system, you'll want to use `retrieval_context`.**
 </Tip>
 
-<CodeGroup>
-```py
-# Sample app implementation
-import medical_chatbot
-from judgeval.data import Example # Added import
+<Tabs items={['Python', 'TypeScript']}>
+  <Tab value="Python">
+    ```py
+    # Sample app implementation
+    import medical_chatbot
+    from judgeval.data import Example # Added import
 
-question = "Is sparkling water healthy?"
-example = Example(
-    input=question,
-    actual_output=medical_chatbot.chat(question),
-    expected_output="Sparkling water is neither healthy nor unhealthy.",
-    context=["Sparkling water is a type of water that is carbonated."]
-)
-```
-```ts
-// Sample app implementation (assuming medical_chatbot exists)
-import { medical_chatbot } from './medical_chatbot'; // Example import
-import { ExampleBuilder } from 'judgeval';
+    question = "Is sparkling water healthy?"
+    example = Example(
+        input=question,
+        actual_output=medical_chatbot.chat(question),
+        expected_output="Sparkling water is neither healthy nor unhealthy.",
+        context=["Sparkling water is a type of water that is carbonated."]
+    )
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```ts
+    // Sample app implementation (assuming medical_chatbot exists)
+    import { medical_chatbot } from './medical_chatbot'; // Example import
+    import { ExampleBuilder } from 'judgeval';
 
-const question = "Is sparkling water healthy?";
-const example = new ExampleBuilder()
-    .input(question)
-    .actualOutput(medical_chatbot.chat(question))
-    .expectedOutput("Sparkling water is neither healthy nor unhealthy.")
-    .context(["Sparkling water is a type of water that is carbonated."])
-    .build();
-```
-</CodeGroup>
+    const question = "Is sparkling water healthy?";
+    const example = new ExampleBuilder()
+        .input(question)
+        .actualOutput(medical_chatbot.chat(question))
+        .expectedOutput("Sparkling water is neither healthy nor unhealthy.")
+        .context(["Sparkling water is a type of water that is carbonated."])
+        .build();
+    ```
+  </Tab>
+</Tabs>
 
 ### Retrieval Context 
 
@@ -177,36 +193,40 @@ Some common cases for using `retrieval_context` are:
 - Evaluating the quality of a retriever model by comparing `retrieval_context` to `context`
 </Tip>
 
-<CodeGroup>
-```py
-# Sample app implementation
-import medical_chatbot
-from judgeval.data import Example # Added import
+<Tabs items={['Python', 'TypeScript']}>
+  <Tab value="Python">
+    ```py
+    # Sample app implementation
+    import medical_chatbot
+    from judgeval.data import Example # Added import
 
-question = "Is sparkling water healthy?"
-example = Example(
-    input=question,
-    actual_output=medical_chatbot.chat(question),
-    expected_output="Sparkling water is neither healthy nor unhealthy.",
-    context=["Sparkling water is a type of water that is carbonated."],
-    retrieval_context=["Sparkling water is carbonated and has no calories."]
-)
-```
-```ts
-// Sample app implementation (assuming medical_chatbot exists)
-import { medical_chatbot } from './medical_chatbot'; // Example import
-import { ExampleBuilder } from 'judgeval';
+    question = "Is sparkling water healthy?"
+    example = Example(
+        input=question,
+        actual_output=medical_chatbot.chat(question),
+        expected_output="Sparkling water is neither healthy nor unhealthy.",
+        context=["Sparkling water is a type of water that is carbonated."],
+        retrieval_context=["Sparkling water is carbonated and has no calories."]
+    )
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```ts
+    // Sample app implementation (assuming medical_chatbot exists)
+    import { medical_chatbot } from './medical_chatbot'; // Example import
+    import { ExampleBuilder } from 'judgeval';
 
-const question = "Is sparkling water healthy?";
-const example = new ExampleBuilder()
-    .input(question)
-    .actualOutput(medical_chatbot.chat(question))
-    .expectedOutput("Sparkling water is neither healthy nor unhealthy.")
-    .context(["Sparkling water is a type of water that is carbonated."])
-    .retrievalContext(["Sparkling water is carbonated and has no calories."])
-    .build();
-```
-</CodeGroup>
+    const question = "Is sparkling water healthy?";
+    const example = new ExampleBuilder()
+        .input(question)
+        .actualOutput(medical_chatbot.chat(question))
+        .expectedOutput("Sparkling water is neither healthy nor unhealthy.")
+        .context(["Sparkling water is a type of water that is carbonated."])
+        .retrievalContext(["Sparkling water is carbonated and has no calories."])
+        .build();
+    ```
+  </Tab>
+</Tabs>
 ## Custom Examples 
 
 Custom Examples are a way to evaluate your LLM system with more complex data structures. It is composed of the same fields as an `Example`, but the fields are dictionaries instead of strings.

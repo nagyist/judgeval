@@ -1,0 +1,10 @@
+{
+  "title": "Scorers",
+  "pages": [
+    "introduction",
+    "default",
+    "agent",
+    "custom_scorers",
+    "classifier_scorer"
+  ]
+} 

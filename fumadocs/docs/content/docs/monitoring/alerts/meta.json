@@ -1,0 +1,8 @@
+{
+  "title": "Alerts",
+  "pages": [
+    "rules",
+    "notifications",
+    "platform_notifications"
+  ]
+} 

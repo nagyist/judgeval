@@ -1,0 +1,9 @@
+{
+  "title": "LangGraph Cookbooks",
+  "pages": [
+    "langgraph_human_in_the_loop",
+    "langgraph_basic",
+    "movie_recommendation",
+    "financial_agent"
+  ]
+} 

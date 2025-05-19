@@ -1,0 +1,8 @@
+{
+  "title": "Developer tools",
+  "pages": [
+    "judgment_cli",
+    "api_reference",
+    "self_hosting"
+  ]
+} 

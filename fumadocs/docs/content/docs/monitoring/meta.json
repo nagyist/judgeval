@@ -1,0 +1,9 @@
+{
+  "title": "Monitoring",
+  "pages": [
+    "introduction",
+    "tracing",
+    "annotations",
+    "alerts"
+  ]
+} 
