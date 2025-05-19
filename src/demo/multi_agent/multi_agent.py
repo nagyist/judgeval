@@ -59,7 +59,8 @@ class MultiAgentSystem:
         charles = self.add_agent("Charles")
         
         # Have them exchange messages
-        
+
+        alice.send_message("Hello Bob, how are you?", "Bob")
         bob.send_message("I'm good Alice, thanks for asking!", "Alice")
         alice.send_message("Great to hear! What about you, Charles?", "Charles")
         charles.send_message("I'm good Alice, thanks for asking!", "Alice")
@@ -80,14 +81,15 @@ class MultiAgentSystem:
 if __name__ == "__main__":
     system = MultiAgentSystem()
 
-    # test_file = os.path.join(os.path.dirname(__file__), "tests.yaml")
-    # judgment_client.assert_test(
-    #     scorers=[ToolOrderScorer(threshold=0.5)],
-    #     function=system.run_simple_task,
-    #     tracer=judgment,
-    #     override=True,
-    #     test_file=test_file
-    # )
+    test_file = os.path.join(os.path.dirname(__file__), "tests.yaml")
+    judgment_client.assert_test(
+        scorers=[ToolOrderScorer(threshold=0.5)],
+        function=system.run_simple_task,
+        tracer=judgment,
+        override=True,
+        test_file=test_file,
+        eval_run_name="multi_agent_tool_order"
+    )
 
     test_file2 = os.path.join(os.path.dirname(__file__), "tests2.yaml")
     judgment_client.assert_test(
@@ -95,5 +97,6 @@ if __name__ == "__main__":
         function=system.run_simple_task,
         tracer=judgment,
         override=True,
-        test_file=test_file2
+        test_file=test_file2,
+        eval_run_name="multi_agent_tool_dependency"
     )
