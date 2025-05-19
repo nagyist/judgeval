@@ -23,7 +23,7 @@ from judgeval.scorers import (
     ClassifierScorer,
 )
 
-from judgeval.data import Example, Sequence
+from judgeval.data import Example
 
 
 def test_ac_scorer(client: JudgmentClient):
@@ -502,7 +502,7 @@ LIMIT 10;
             most_popular_tracks_all_users_incorrect
         ],
         scorers=[Text2SQLScorer],
-        model="gpt-4o-mini",
+        model="gpt-4.1-mini",
         project_name="text2sql",
         eval_run_name="text2sql_test",
         override=True
@@ -527,37 +527,12 @@ def test_execution_order_scorer(client: JudgmentClient):
     res = client.run_evaluation(
         examples=[example],
         scorers=[ExecutionOrderScorer(threshold=1, should_consider_ordering=True)],
-        model="gpt-4o-mini",
+        model="gpt-4.1-mini",
         project_name=PROJECT_NAME,
         eval_run_name=EVAL_RUN_NAME,
         override=True
     )
 
-def test_derailment_scorer(client: JudgmentClient):
-    PROJECT_NAME = "test-project"
-    EVAL_RUN_NAME = "test-run-derailment"
-
-    airlines_example = Example(
-    input="Which airlines fly to Paris?",
-    actual_output="Air France, Delta, and American Airlines offer direct flights."
-    )
-    weather_example = Example(
-        input="What is the weather like in Texas?",
-        actual_output="It's sunny with a high of 75°F in Texas."
-    )
-    airline_sequence = Sequence(
-        name="Flight Details",
-        items=[airlines_example, weather_example],
-    )
-    results = client.run_sequence_evaluation(
-        eval_run_name=EVAL_RUN_NAME,
-        project_name=PROJECT_NAME,
-        sequences=[airline_sequence],
-        scorers=[DerailmentScorer(threshold=0.5)],
-        model="gpt-4o",
-        log_results=True,
-        override=True,
-    )
 def test_json_scorer(client: JudgmentClient):
         """Test JSON scorer functionality."""
         example1 = Example(

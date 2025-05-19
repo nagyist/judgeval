@@ -18,10 +18,11 @@ tracer = Tracer(api_key=os.getenv("JUDGMENT_API_KEY"), project_name="travel_agen
 @tracer.observe(span_type="tool")
 def search_tavily(query):
     """Fetch travel data using Tavily API."""
-    API_KEY = os.getenv("TAVILY_API_KEY")
-    client = TavilyClient(api_key=API_KEY)
-    results = client.search(query, num_results=3)
-    return results
+    # API_KEY = os.getenv("TAVILY_API_KEY")
+    # client = TavilyClient(api_key=API_KEY)
+    # results = client.search(query, num_results=3)
+    # return results
+    return "The weather in Tokyo is sunny with a high of 75°F."
 
 # @judgment.observe(span_type="tool")
 def get_attractions(destination):
@@ -49,6 +50,15 @@ def get_weather(destination, start_date, end_date):
     """Search for weather information."""
     prompt = f"Weather forecast for {destination} from {start_date} to {end_date}"
     weather_search = search_tavily(prompt)
+    example = Example(
+        input="What is the weather in Tokyo?",
+        actual_output=weather_search
+    )
+    tracer.async_evaluate(
+        scorers=[AnswerRelevancyScorer(threshold=0.5)],
+        example=example,
+        model="gpt-4o-mini",
+    )
     return weather_search
 
 def research_destination(destination, start_date, end_date):
@@ -84,15 +94,15 @@ def create_travel_plan(destination, start_date, end_date, research_data):
     - Weather: {research_data['weather']}
     """
     
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "You are an expert travel planner. Combine both historical and current information to create the best possible itinerary."},
-            {"role": "user", "content": prompt}
-        ]
-    ).choices[0].message.content
+    # response = client.chat.completions.create(
+    #     model="gpt-4o",
+    #     messages=[
+    #         {"role": "system", "content": "You are an expert travel planner. Combine both historical and current information to create the best possible itinerary."},
+    #         {"role": "user", "content": prompt}
+    #     ]
+    # ).choices[0].message.content
     
-    return response
+    return "Here is travel plan"
 
 @tracer.observe(span_type="function")
 def generate_itinerary(destination, start_date, end_date):
@@ -100,7 +110,6 @@ def generate_itinerary(destination, start_date, end_date):
     research_data = research_destination(destination, start_date, end_date)
     res = create_travel_plan(destination, start_date, end_date, research_data)
 
-from judgeval.data import Sequence
 from judgeval.scorers import ToolOrderScorer    
 from judgeval import JudgmentClient
 
@@ -141,14 +150,15 @@ if __name__ == "__main__":
             {"tool_name": "search_tavily", "parameters": {"query": "Best tourist attractions in Tokyo"}},
             {"tool_name": "search_tavily", "parameters": {"query": "Best hotels in Tokyo"}},
             {"tool_name": "search_tavily", "parameters": {"query": "Flights to Tokyo from major cities"}},
-            {"tool_name": "search_tavily", "parameters": {"query": "Weather forecast for Tokyo from 2025-06-01 to 2025-06-02"}}
+            {"tool_name": "search_tavily", "parameters": {"query": "Weather forecast for Tokyo from 2025-06-01 to 2025-06-03"}}
         ]
     )
 
     judgment.assert_test(
-        examples=[example],
+        project_name="travel_agent_demo",
+        examples=[example, example2],
         scorers=[ToolOrderScorer(threshold=0.5)],
-        model="gpt-4o-mini",
+        model="gpt-4.1-mini",
         function=generate_itinerary,
         tracer=tracer,
         override=True
