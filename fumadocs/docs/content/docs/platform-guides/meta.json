@@ -3,6 +3,7 @@
   "pages": [
     "optimization",
     "compliance",
-    "changelog"
+    "changelog",
+    "synthetic_data"
   ]
 } 
