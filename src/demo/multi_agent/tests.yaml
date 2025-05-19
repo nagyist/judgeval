@@ -16,6 +16,8 @@ examples:
         #     name: "Random Tool Agent"
       - tool_name: "send_message"
         agent: Alice
+      - tool_name: "send_message"
+        agent: Charles
         # parameters:
         #   self:
         #     name: "Random Tool Agent"

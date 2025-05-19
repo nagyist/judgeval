@@ -1,7 +1,12 @@
-expected_tools:
-    - tool_name: "send_message"
-      agent: Alice
-    - tool_name: "send_message"
-      agent: Bob
-    - tool_name: "send_message"
-      agent: Alice
+examples:
+  - input:
+      prompt: "Do something random"
+    expected_tools:
+      - tool_name: "send_message"
+        agent: Bob
+        dependencies:
+          - tool_name: "send_message"
+            agent: Alice
+          - tool_name: "send_message"
+            agent: Charles
+        # require_all: true

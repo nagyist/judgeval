@@ -2,7 +2,7 @@ from typing import List, Dict, Any
 from pydantic import BaseModel
 from judgeval.common.tracer import Tracer, wrap
 from judgeval import JudgmentClient
-from judgeval.scorers import ToolOrderScorer
+from judgeval.scorers import ToolOrderScorer, ToolDependencyScorer
 from judgeval.common.tracer import Tracer
 import os
 
@@ -56,12 +56,13 @@ class MultiAgentSystem:
         # Create two agents
         alice = self.add_agent("Alice")
         bob = self.add_agent("Bob")
+        charles = self.add_agent("Charles")
         
         # Have them exchange messages
-        alice.send_message("Hello Bob, how are you?", "Bob")
-        bob.send_message("I'm good Alice, thanks for asking!", "Alice")
-        alice.send_message("Great to hear! Let's work together on a task.", "Bob")
         
+        bob.send_message("I'm good Alice, thanks for asking!", "Alice")
+        alice.send_message("Great to hear! What about you, Charles?", "Charles")
+        charles.send_message("I'm good Alice, thanks for asking!", "Alice")
         # Print the conversation
         print("\nAlice's messages:")
         for msg in alice.get_all_messages():
@@ -70,17 +71,29 @@ class MultiAgentSystem:
         print("\nBob's messages:")
         for msg in bob.get_all_messages():
             print(f"From {msg.sender}: {msg.content}")
+        
+        print("\nCharles's messages:")
+        for msg in charles.get_all_messages():
+            print(f"From {msg.sender}: {msg.content}")
 
 # Example usage
 if __name__ == "__main__":
     system = MultiAgentSystem()
 
-    test_file = os.path.join(os.path.dirname(__file__), "tests.yaml")
+    # test_file = os.path.join(os.path.dirname(__file__), "tests.yaml")
+    # judgment_client.assert_test(
+    #     scorers=[ToolOrderScorer(threshold=0.5)],
+    #     function=system.run_simple_task,
+    #     tracer=judgment,
+    #     override=True,
+    #     test_file=test_file
+    # )
+
+    test_file2 = os.path.join(os.path.dirname(__file__), "tests2.yaml")
     judgment_client.assert_test(
-        scorers=[ToolOrderScorer(threshold=0.5)],
+        scorers=[ToolDependencyScorer(threshold=0.5)],
         function=system.run_simple_task,
         tracer=judgment,
         override=True,
-        test_file=test_file
+        test_file=test_file2
     )
-
