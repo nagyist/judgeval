@@ -1,0 +1,7 @@
+expected_tools:
+    - tool_name: "send_message"
+      agent: Alice
+    - tool_name: "send_message"
+      agent: Bob
+    - tool_name: "send_message"
+      agent: Alice

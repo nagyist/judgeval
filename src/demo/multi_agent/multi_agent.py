@@ -4,9 +4,11 @@ from judgeval.common.tracer import Tracer, wrap
 from judgeval import JudgmentClient
 from judgeval.scorers import ToolOrderScorer
 from judgeval.common.tracer import Tracer
+import os
 
 
 judgment = Tracer(project_name="multi_agent_system")
+judgment_client = JudgmentClient()
 
 class Message(BaseModel):
     sender: str
@@ -20,7 +22,7 @@ class SimpleAgent:
         self.tracer = tracer
         self.messages: List[Message] = []
         
-    @judgment.observe(span_type="function")
+    @judgment.observe(span_type="tool")
     def send_message(self, content: str, recipient: str) -> None:
         """Send a message to another agent"""
         message = Message(sender=self.name, content=content, recipient=recipient)
@@ -33,7 +35,6 @@ class SimpleAgent:
         received = [msg.content for msg in self.messages if msg.sender == sender]
         return received
     
-    @judgment.observe(span_type="function")
     def get_all_messages(self) -> List[Message]:
         """Get all messages this agent has received"""
         return self.messages
@@ -50,7 +51,7 @@ class MultiAgentSystem:
         return agent
     
     @judgment.observe(span_type="function")
-    def run_simple_task(self):
+    def run_simple_task(self, prompt: str):
         """Run a simple task where agents communicate with each other"""
         # Create two agents
         alice = self.add_agent("Alice")
@@ -73,10 +74,13 @@ class MultiAgentSystem:
 # Example usage
 if __name__ == "__main__":
     system = MultiAgentSystem()
-    system.run_simple_task()
 
-    # judgment.run_sequence_evaluation(
-    #     scorers=[ToolOrderScorer()],
-    #     test_file="tests.yaml"
-    # )
+    test_file = os.path.join(os.path.dirname(__file__), "tests.yaml")
+    judgment_client.assert_test(
+        scorers=[ToolOrderScorer(threshold=0.5)],
+        function=system.run_simple_task,
+        tracer=judgment,
+        override=True,
+        test_file=test_file
+    )
 
