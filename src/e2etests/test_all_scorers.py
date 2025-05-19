@@ -502,7 +502,7 @@ LIMIT 10;
             most_popular_tracks_all_users_incorrect
         ],
         scorers=[Text2SQLScorer],
-        model="gpt-4o-mini",
+        model="gpt-4.1-mini",
         project_name="text2sql",
         eval_run_name="text2sql_test",
         override=True
@@ -527,7 +527,7 @@ def test_execution_order_scorer(client: JudgmentClient):
     res = client.run_evaluation(
         examples=[example],
         scorers=[ExecutionOrderScorer(threshold=1, should_consider_ordering=True)],
-        model="gpt-4o-mini",
+        model="gpt-4.1-mini",
         project_name=PROJECT_NAME,
         eval_run_name=EVAL_RUN_NAME,
         override=True
