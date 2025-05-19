@@ -6,8 +6,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-os.environ["JUDGMENT_API_URL"] = "http://localhost:8000"
-
 judgment = Tracer(
     api_key=os.getenv("JUDGMENT_API_KEY"),
     organization_id=os.getenv("JUDGMENT_ORG_ID"),
@@ -24,7 +22,7 @@ def test_metadata():
     print(f"Generated customer ID: {customer_id}")
     
     # Define tags
-    tags = ["test", "example", "metadata"]
+    tags = ["demo", "development"]
     print(f"Using tags: {tags}")
     
     # Set both customer ID and tags at once
