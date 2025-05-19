@@ -121,7 +121,8 @@ class JudgmentClient(metaclass=SingletonMeta):
         ignore_errors: bool = True,
         rules: Optional[List[Rule]] = None,
         function: Optional[Callable] = None,
-        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None
+        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None
     ) -> List[ScoringResult]:
         try:         
             
@@ -151,6 +152,7 @@ class JudgmentClient(metaclass=SingletonMeta):
                 append=append,
                 judgment_api_key=self.judgment_api_key,
                 organization_id=self.organization_id,
+                tools=tools
             )
             return run_trace_eval(trace_run, override, ignore_errors, function, tracer, examples)
         except ValueError as e:
@@ -494,7 +496,8 @@ class JudgmentClient(metaclass=SingletonMeta):
         override: bool = False,
         rules: Optional[List[Rule]] = None,
         function: Optional[Callable] = None,
-        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None
+        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None
     ) -> None:
         """
         Asserts a test by running the evaluation and checking the results for success
@@ -529,7 +532,8 @@ class JudgmentClient(metaclass=SingletonMeta):
                 rules=rules,
                 function=function,
                 tracer=tracer,
-                test_file=test_file
+                test_file=test_file,
+                tools=tools
             )
         else:
             results = self.run_evaluation(

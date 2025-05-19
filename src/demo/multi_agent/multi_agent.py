@@ -24,7 +24,13 @@ class SimpleAgent:
         
     @judgment.observe(span_type="tool")
     def send_message(self, content: str, recipient: str) -> None:
-        """Send a message to another agent"""
+        """
+        Send a message to another agent
+
+        Args:
+            content: The content of the message to send.
+            recipient: The name of the recipient of the message.
+        """
         message = Message(sender=self.name, content=content, recipient=recipient)
         self.messages.append(message)
         return f"Message sent to {recipient}: {content}"
@@ -88,8 +94,35 @@ if __name__ == "__main__":
         tracer=judgment,
         override=True,
         test_file=test_file,
-        eval_run_name="multi_agent_tool_order"
+        eval_run_name="multi_agent_tool_order",
+        project_name="multi_agent_system"
     )
+
+    tools = [
+        {
+            "type": "function",
+            "name": "send_message",
+            "description": "Send a message to another agent",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "self": {
+                        "type": "SimpleAgent",
+                        "description": "The name of the agent sending the message",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The content of the message to send.",
+                    },
+                    "recipient": {
+                        "type": "string",
+                        "description": "The name of the recipient of the message.",
+                    },
+                },
+                "required": ["self", "content", "recipient"],
+            }
+        }
+    ]
 
     test_file2 = os.path.join(os.path.dirname(__file__), "tests2.yaml")
     judgment_client.assert_test(
@@ -98,5 +131,7 @@ if __name__ == "__main__":
         tracer=judgment,
         override=True,
         test_file=test_file2,
-        eval_run_name="multi_agent_tool_dependency"
+        eval_run_name="multi_agent_tool_dependency",
+        project_name="multi_agent_system",
+        tools=tools
     )
