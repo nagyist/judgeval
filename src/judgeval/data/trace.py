@@ -126,4 +126,5 @@ class Trace(BaseModel):
     overwrite: bool = False
     rules: Optional[Dict[str, Any]] = None
     has_notification: Optional[bool] = False
+    customer_id: Optional[str] = None
     
