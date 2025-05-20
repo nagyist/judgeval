@@ -97,8 +97,7 @@ jobs:
 
       - name: Upload coverage HTML report
         if: always()
-        working-directory: src
         uses: actions/upload-artifact@v4
         with:
           name: coverage-html
-          path: htmlcov
+          path: src/htmlcov
