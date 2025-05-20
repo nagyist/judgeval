@@ -14,7 +14,7 @@ def block_http_requests(monkeypatch):
         return inspect.getframeinfo(caller_frame)
 
     def is_external_url(url):
-        return isinstance(url, str) and url.startswith(('http://', 'https://'))
+        return isinstance(url, str) and url.startswith(('http://', 'https://')) and not url.startswith('http://testserver') # FastAPI TestClient base url starts with http://testserver
 
     # Store original methods
     original_requests = {
@@ -32,7 +32,8 @@ def block_http_requests(monkeypatch):
         'put': httpx.put,
         'delete': httpx.delete,
         'head': httpx.head,
-        'patch': httpx.patch
+        'patch': httpx.patch,
+        'request': httpx.request
     }
 
     original_httpx_client = {
@@ -63,7 +64,6 @@ def block_http_requests(monkeypatch):
     def make_blocked_httpx_module(method_name, original_func):
         def wrapper(*args, **kwargs):
             url = args[0] if args else kwargs.get('url', '')
-            print("url:", url)
             if not is_external_url(url):
                 filtered_kwargs = {k: v for k, v in kwargs.items() if v is not None}
                 return original_func(*args, **filtered_kwargs)
@@ -77,33 +77,61 @@ def block_http_requests(monkeypatch):
 
     def make_blocked_httpx_client(method_name, original_func):
         def wrapper(self, *args, **kwargs):
-            url = args[0] if args else kwargs.get('url', '')
-            print("url:", url)
-            if not is_external_url(url):
+            from httpx import URL
+
+            if method_name == "request" and len(args) >= 2:
+                method, url_arg = args[0], args[1]
+            else:
+                url_arg = args[0] if args else kwargs.get('url', '')
+
+            if isinstance(url_arg, str) and hasattr(self, 'base_url') and self.base_url:
+                full_url = URL(self.base_url).join(URL(url_arg))
+            else:
+                full_url = url_arg
+
+            if not is_external_url(str(full_url)):
                 filtered_kwargs = {k: v for k, v in kwargs.items() if v is not None}
                 return original_func(self, *args, **filtered_kwargs)
+
             caller = get_error_info()
             raise RuntimeError(
-                f"Blocked httpx.Client.{method_name.upper()} to {url}\n"
+                f"Blocked httpx.Client.{method_name.upper()} to {full_url}\n"
                 f"Called from: {caller.filename}:{caller.lineno} in {caller.function}\n"
                 f"Please mock this request in your test."
             )
+
         return wrapper
+
     
     def make_blocked_httpx_async_client(method_name, original_func):
         async def wrapper(self, *args, **kwargs):
-            url = args[0] if args else kwargs.get('url', '')
-            print("url:", url)
-            if not is_external_url(url):
+            from httpx import URL
+
+            # Extract method and url argument based on call signature
+            if method_name == "request" and len(args) >= 2:
+                method, url_arg = args[0], args[1]
+            else:
+                url_arg = args[0] if args else kwargs.get('url', '')
+
+            # Reconstruct full URL
+            if isinstance(url_arg, str) and hasattr(self, 'base_url') and self.base_url:
+                full_url = URL(self.base_url).join(URL(url_arg))
+            else:
+                full_url = url_arg
+
+            if not is_external_url(str(full_url)):
                 filtered_kwargs = {k: v for k, v in kwargs.items() if v is not None}
                 return await original_func(self, *args, **filtered_kwargs)
+
             caller = get_error_info()
             raise RuntimeError(
-                f"Blocked httpx.AsyncClient.{method_name.upper()} to {url}\n"
+                f"Blocked httpx.AsyncClient.{method_name.upper()} to {full_url}\n"
                 f"Called from: {caller.filename}:{caller.lineno} in {caller.function}\n"
                 f"Please mock this request in your test."
             )
+
         return wrapper
+
 
     def blocked_urllib(*args, **kwargs):
         url = args[0] if args else kwargs.get('url', '')
@@ -131,5 +159,6 @@ def block_http_requests(monkeypatch):
     # Patch httpx.AsyncClient instance methods
     for method, original_func in original_httpx_async_client.items():
         monkeypatch.setattr(httpx.AsyncClient, method, make_blocked_httpx_async_client(method, original_func))
+
     # Patch urllib
     monkeypatch.setattr(urllib.request, "urlopen", blocked_urllib)
