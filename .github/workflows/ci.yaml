@@ -96,6 +96,7 @@ jobs:
           pipenv run pytest --durations=0 --cov=. --cov-config=.coveragerc --cov-report=html ./e2etests
 
       - name: Upload coverage HTML report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-html
