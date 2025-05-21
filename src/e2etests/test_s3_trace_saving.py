@@ -6,7 +6,7 @@ import asyncio
 from botocore.exceptions import ClientError
 from judgeval.tracer import Tracer
 from unittest.mock import patch
-
+import time
 # Test constants
 TEST_BUCKET_PREFIX = "judgeval-test-"
 TEST_REGION = "us-west-1"  # Change this to your desired region
@@ -131,13 +131,17 @@ async def test_auto_bucket_creation(judgment_no_bucket_yet, s3_client):
         input="test input"
     )
 
-    await asyncio.sleep(5)
-
-    # Verify bucket was created
-    try:
-        s3_client.head_bucket(Bucket=judgment_no_bucket_yet.s3_storage.bucket_name)
-    except ClientError as e:
-        pytest.fail(f"Bucket {judgment_no_bucket_yet.s3_storage.bucket_name} was not created: {e}")
+    # Poll for bucket creation with timeout
+    timeout = 30  # 30 second timeout
+    start_time = time.time()
+    while True:
+        try:
+            s3_client.head_bucket(Bucket=judgment_no_bucket_yet.s3_storage.bucket_name)
+            break  # Bucket exists, continue with test
+        except ClientError as e:
+            if time.time() - start_time > timeout:
+                pytest.fail(f"Bucket {judgment_no_bucket_yet.s3_storage.bucket_name} was not created after {timeout} seconds: {e}")
+            await asyncio.sleep(1)  # Wait 1 second before retrying
 
     # Verify trace was saved to S3
     try:
