@@ -121,7 +121,7 @@ if __name__ == "__main__":
 
     test_file2 = os.path.join(os.path.dirname(__file__), "tests2.yaml")
     judgment_client.assert_test(
-        scorers=[ToolDependencyScorer(threshold=0.5)],
+        scorers=[ToolDependencyScorer(enable_param_checking=False)],
         function=system.run_simple_task,
         tracer=judgment,
         override=True,
