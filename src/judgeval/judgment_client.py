@@ -13,6 +13,7 @@ from judgeval.data import (
     Example,
     CustomExample,
     Trace,
+    ScorerData
 )
 from judgeval.scorers import (
     APIJudgmentScorer, 
@@ -23,7 +24,8 @@ from judgeval.evaluation_run import EvaluationRun
 from judgeval.run_evaluation import (
     run_eval, 
     assert_test,
-    run_trace_eval
+    run_trace_eval,
+    SpinnerWrappedTask
 )
 from judgeval.data.trace_run import TraceRun
 from judgeval.judges import JudgevalJudge
@@ -88,8 +90,31 @@ class JudgmentClient(metaclass=SingletonMeta):
         override: bool = False,
         append: bool = False,
         ignore_errors: bool = True,
+        async_execution: bool = False,
         rules: Optional[List[Rule]] = None
-    ) -> List[ScoringResult]:
+    ) -> Union[List[ScoringResult], SpinnerWrappedTask]:
+        """
+        Alias for run_evaluation for backward compatibility.
+        
+        Args:
+            examples (List[Example]): The examples to evaluate
+            scorers (List[Union[APIJudgmentScorer, JudgevalScorer]]): A list of scorers to use for evaluation
+            model (Union[str, List[str], JudgevalJudge]): The model used as a judge when using LLM as a Judge
+            aggregator (Optional[str]): The aggregator to use for evaluation if using Mixture of Judges
+            metadata (Optional[Dict[str, Any]]): Additional metadata to include for this evaluation run
+            log_results (bool): Whether to log the results to the Judgment API
+            project_name (str): The name of the project the evaluation results belong to
+            eval_run_name (str): A name for this evaluation run
+            override (bool): Whether to override an existing evaluation run with the same name
+            ignore_errors (bool): Whether to ignore errors during evaluation (safely handled)
+            async_execution (bool): Whether to execute the evaluation asynchronously
+            rules (Optional[List[Rule]]): Rules to evaluate against scoring results
+            
+        Returns:
+            Union[List[ScoringResult], SpinnerWrappedTask]: 
+                - If async_execution is False, returns a list of ScoringResult objects
+                - If async_execution is True, returns a Task that will resolve to a list of ScoringResult objects when awaited
+        """
         return self.run_evaluation(
             examples=examples, 
             scorers=scorers, 
@@ -101,7 +126,8 @@ class JudgmentClient(metaclass=SingletonMeta):
             eval_run_name=eval_run_name, 
             override=override,
             append=append, 
-            ignore_errors=ignore_errors, 
+            ignore_errors=ignore_errors,
+            async_execution=async_execution,
             rules=rules
         )
 
@@ -121,8 +147,9 @@ class JudgmentClient(metaclass=SingletonMeta):
         ignore_errors: bool = True,
         rules: Optional[List[Rule]] = None,
         function: Optional[Callable] = None,
-        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None
-    ) -> List[ScoringResult]:
+        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
+        async_execution: bool = False
+    ) -> Union[List[ScoringResult], SpinnerWrappedTask]:
         try:         
             
             if test_file:
@@ -152,7 +179,7 @@ class JudgmentClient(metaclass=SingletonMeta):
                 judgment_api_key=self.judgment_api_key,
                 organization_id=self.organization_id,
             )
-            return run_trace_eval(trace_run, override, ignore_errors, function, tracer, examples)
+            return run_trace_eval(trace_run, override, ignore_errors, function, tracer, examples, async_execution)
         except ValueError as e:
             raise ValueError(f"Please check your TraceRun object, one or more fields are invalid: \n{str(e)}")
         except Exception as e:
@@ -173,7 +200,7 @@ class JudgmentClient(metaclass=SingletonMeta):
         ignore_errors: bool = True,
         async_execution: bool = False,
         rules: Optional[List[Rule]] = None
-    ) -> List[ScoringResult]:
+    ) -> Union[List[ScoringResult], SpinnerWrappedTask]:
         """
         Executes an evaluation of `Example`s using one or more `Scorer`s
         
@@ -191,7 +218,9 @@ class JudgmentClient(metaclass=SingletonMeta):
             rules (Optional[List[Rule]]): Rules to evaluate against scoring results
             
         Returns:
-            List[ScoringResult]: The results of the evaluation
+            Union[List[ScoringResult], SpinnerWrappedTask]: 
+                - If async_execution is False, returns a list of ScoringResult objects
+                - If async_execution is True, returns a Task that will resolve to a list of ScoringResult objects when awaited
         """
         if override and append:
             raise ValueError("Cannot set both override and append to True. Please choose one.")
@@ -512,28 +541,52 @@ class JudgmentClient(metaclass=SingletonMeta):
             eval_run_name (str): A name for this evaluation run
             override (bool): Whether to override an existing evaluation run with the same name
             rules (Optional[List[Rule]]): Rules to evaluate against scoring results
+            function (Optional[Callable]): The function to trace. Required if using traces.
+            tracer (Optional[Union[Tracer, BaseCallbackHandler]]): The tracer to use. Required if using traces.
+            async_execution (bool): Whether to execute the evaluation asynchronously
         """
         # Validate that exactly one of examples or test_file is provided
         if (examples is None and test_file is None) or (examples is not None and test_file is not None):
             raise ValueError("Exactly one of 'examples' or 'test_file' must be provided, but not both")
 
         if function:
-            results = self.run_trace_evaluation(
-                examples=examples,
+            # Use trace evaluation
+            if test_file:
+                try:
+                    examples = add_from_yaml(test_file)
+                except FileNotFoundError:
+                    raise FileNotFoundError(f"Test file not found: {test_file}")
+            
+            trace_run = TraceRun(
+                project_name=project_name,
+                eval_name=eval_run_name,
+                traces=None,  # Will be generated from function execution
                 scorers=scorers,
                 model=model,
                 aggregator=aggregator,
                 log_results=log_results,
-                project_name=project_name,
-                eval_run_name=eval_run_name,
-                override=override,
-                rules=rules,
+                judgment_api_key=self.judgment_api_key,
+                organization_id=self.organization_id,
+            )
+            
+            results = self.run_trace_eval(
+                trace_run=trace_run,
+                override=override, 
+                ignore_errors=True,
                 function=function,
                 tracer=tracer,
-                test_file=test_file
+                examples=examples,
+                async_execution=async_execution
             )
         else:
-            results = await self.run_evaluation(
+            # Use regular evaluation
+            if test_file:
+                try:
+                    examples = add_from_yaml(test_file)
+                except FileNotFoundError:
+                    raise FileNotFoundError(f"Test file not found: {test_file}")
+                    
+            results = self.run_evaluation(
                 examples=examples,
                 scorers=scorers,
                 model=model,
@@ -547,4 +600,42 @@ class JudgmentClient(metaclass=SingletonMeta):
                 async_execution=async_execution
             )
         
-        assert_test(results)
+        # If async_execution is True, we need to pass async_execution=True to assert_test
+        await assert_test(results, async_execution=async_execution)
+
+    def run_trace_eval(
+        self,
+        trace_run: TraceRun,
+        override: bool = False,
+        ignore_errors: bool = True,
+        function: Optional[Callable] = None,
+        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
+        examples: Optional[List[Example]] = None,
+        async_execution: bool = False
+    ) -> Union[List[ScoringResult], SpinnerWrappedTask]:
+        """
+        Executes an evaluation using traces through the run_trace_evaluation method
+        
+        Args:
+            trace_run (TraceRun): The TraceRun object with evaluation parameters
+            override (bool, optional): Whether to override existing evaluation run with same name. Defaults to False.
+            ignore_errors (bool, optional): Whether to ignore scorer errors during evaluation. Defaults to True.
+            function (Optional[Callable], optional): The function to trace. Defaults to None.
+            tracer (Optional[Union[Tracer, BaseCallbackHandler]], optional): The tracer to use. Defaults to None.
+            examples (Optional[List[Example]], optional): The examples to evaluate. Defaults to None.
+            async_execution (bool, optional): Whether to execute the evaluation asynchronously. Defaults to False.
+        
+        Returns:
+            Union[List[ScoringResult], SpinnerWrappedTask]: 
+                - If async_execution is False, returns a list of ScoringResult objects
+                - If async_execution is True, returns a Task that will resolve to a list of ScoringResult objects when awaited
+        """
+        return run_trace_eval(
+            trace_run=trace_run, 
+            override=override, 
+            ignore_errors=ignore_errors, 
+            function=function, 
+            tracer=tracer, 
+            examples=examples, 
+            async_execution=async_execution
+        )

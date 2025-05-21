@@ -371,7 +371,24 @@ def check_examples(examples: List[Example], scorers: List[Union[APIJudgmentScore
             if missing_params:
                 print(f"WARNING: Example {example.example_id} is missing the following parameters: {missing_params} for scorer {scorer.score_type.value}")
 
-def run_trace_eval(trace_run: TraceRun, override: bool = False, ignore_errors: bool = True, function: Optional[Callable] = None, tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None, examples: Optional[List[Example]] = None) -> List[ScoringResult]:
+class SpinnerWrappedTask:
+    """
+    A wrapper for an asyncio task that displays a spinner when awaited.
+    """
+    def __init__(self, task, message: str):
+        self.task = task
+        self.message = message
+        
+    def __await__(self):
+        async def _spin_and_await():
+            return await await_with_spinner(self.task, self.message)
+        return _spin_and_await().__await__()
+        
+    # Proxy all Task attributes and methods to the underlying task
+    def __getattr__(self, name):
+        return getattr(self.task, name)
+
+def run_trace_eval(trace_run: TraceRun, override: bool = False, ignore_errors: bool = True, function: Optional[Callable] = None, tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None, examples: Optional[List[Example]] = None, async_execution: bool = False) -> Union[List[ScoringResult], SpinnerWrappedTask]:
     # Call endpoint to check to see if eval run name exists (if we DON'T want to override and DO want to log results)
     if not override and trace_run.log_results and not trace_run.append:
         check_eval_run_name_exists(
@@ -713,23 +730,6 @@ async def await_with_spinner(task, message: str = "Awaiting async task: "):
     
     return result
 
-class SpinnerWrappedTask:
-    """
-    A wrapper for an asyncio task that displays a spinner when awaited.
-    """
-    def __init__(self, task, message: str):
-        self.task = task
-        self.message = message
-        
-    def __await__(self):
-        async def _spin_and_await():
-            return await await_with_spinner(self.task, self.message)
-        return _spin_and_await().__await__()
-        
-    # Proxy all Task attributes and methods to the underlying task
-    def __getattr__(self, name):
-        return getattr(self.task, name)
-
 def run_eval(evaluation_run: EvaluationRun, override: bool = False, ignore_errors: bool = True, async_execution: bool = False) -> Union[List[ScoringResult], asyncio.Task]:
     """
     Executes an evaluation of `Example`s using one or more `Scorer`s
@@ -939,16 +939,23 @@ def run_eval(evaluation_run: EvaluationRun, override: bool = False, ignore_error
                 info(f"None of the scorers could be executed on example {i}. This is usually because the Example is missing the fields needed by the scorers. Try checking that the Example has the necessary fields for your scorers.")
         return merged_results
 
-def assert_test(scoring_results: List[ScoringResult]) -> None:
+def assert_test(scoring_results: List[ScoringResult], async_execution: bool = False) -> None:
     """
     Collects all failed scorers from the scoring results.
 
     Args:
-        ScoringResults (List[ScoringResult]): List of scoring results to check
+        scoring_results (List[ScoringResult]): List of scoring results to check
+        async_execution (bool, optional): Whether the test is running in async mode. Defaults to False.
 
     Returns:
         None. Raises exceptions for any failed test cases.
     """
+    # If scoring_results is a SpinnerWrappedTask, we need to await it first
+    if async_execution and isinstance(scoring_results, SpinnerWrappedTask):
+        # This function is called from an async context, so we can't await directly
+        # The caller should await the task before passing it here
+        raise TypeError("For async execution, await the results before passing to assert_test")
+    
     failed_cases: List[ScorerData] = []
 
     for result in scoring_results:
