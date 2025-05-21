@@ -3,10 +3,10 @@ examples:
       prompt: "Do something random"
     expected_tools:
       - tool_name: "send_message"
-        agent: Bob
+        agent_name: Bob
         dependencies:
           - tool_name: "send_message"
-            agent: Alice
+            agent_name: Alice
           - tool_name: "send_message"
-            agent: Charles
-        require_all: false
+            agent_name: Charles
+        require_all: true

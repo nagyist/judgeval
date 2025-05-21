@@ -93,40 +93,40 @@ if __name__ == "__main__":
         project_name="multi_agent_system"
     )
 
-    # tools = [
-    #     {
-    #         "type": "function",
-    #         "name": "send_message",
-    #         "description": "Send a message to another agent",
-    #         "parameters": {
-    #             "type": "object",
-    #             "properties": {
-    #                 "self": {
-    #                     "type": "SimpleAgent",
-    #                     "description": "The name of the agent sending the message",
-    #                 },
-    #                 "content": {
-    #                     "type": "string",
-    #                     "description": "The content of the message to send.",
-    #                 },
-    #                 "recipient": {
-    #                     "type": "string",
-    #                     "description": "The name of the recipient of the message.",
-    #                 },
-    #             },
-    #             "required": ["self", "content", "recipient"],
-    #         }
-    #     }
-    # ]
+    tools = [
+        {
+            "type": "function",
+            "name": "send_message",
+            "description": "Send a message to another agent",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "self": {
+                        "type": "SimpleAgent",
+                        "description": "The name of the agent sending the message",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The content of the message to send.",
+                    },
+                    "recipient": {
+                        "type": "string",
+                        "description": "The name of the recipient of the message.",
+                    },
+                },
+                "required": ["self", "content", "recipient"],
+            }
+        }
+    ]
 
-    # test_file2 = os.path.join(os.path.dirname(__file__), "tests2.yaml")
-    # judgment_client.assert_test(
-    #     scorers=[ToolDependencyScorer(threshold=0.5)],
-    #     function=system.run_simple_task,
-    #     tracer=judgment,
-    #     override=True,
-    #     test_file=test_file2,
-    #     eval_run_name="multi_agent_tool_dependency",
-    #     project_name="multi_agent_system",
-    #     tools=tools
-    # )
+    test_file2 = os.path.join(os.path.dirname(__file__), "tests2.yaml")
+    judgment_client.assert_test(
+        scorers=[ToolDependencyScorer(threshold=0.5)],
+        function=system.run_simple_task,
+        tracer=judgment,
+        override=True,
+        test_file=test_file2,
+        eval_run_name="multi_agent_tool_dependency",
+        project_name="multi_agent_system",
+        tools=tools
+    )
