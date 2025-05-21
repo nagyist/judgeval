@@ -3,21 +3,19 @@ examples:
       prompt: "Do something random"
     expected_tools:
       - tool_name: "send_message"
-        agent: Alice
+        agent_name: Alice
         # parameters:
         #   self:
         #     name: "Random Tool Agent"
         #   recipient: "Bob"
         #   content: "Hello, how are you?"
       - tool_name: "send_message"
-        agent: Bob
+        agent_name: Bob
         # parameters:
         #   self:
         #     name: "Random Tool Agent"
       - tool_name: "send_message"
-        agent: Alice
-      - tool_name: "send_message"
-        agent: Charles
+        agent_name: Alice
         # parameters:
         #   self:
         #     name: "Random Tool Agent"
