@@ -550,43 +550,23 @@ class JudgmentClient(metaclass=SingletonMeta):
             raise ValueError("Exactly one of 'examples' or 'test_file' must be provided, but not both")
 
         if function:
-            # Use trace evaluation
-            if test_file:
-                try:
-                    examples = add_from_yaml(test_file)
-                except FileNotFoundError:
-                    raise FileNotFoundError(f"Test file not found: {test_file}")
-            
-            trace_run = TraceRun(
-                project_name=project_name,
-                eval_name=eval_run_name,
-                traces=None,  # Will be generated from function execution
+            results = self.run_trace_evaluation(
+                examples=examples,
                 scorers=scorers,
                 model=model,
                 aggregator=aggregator,
                 log_results=log_results,
-                judgment_api_key=self.judgment_api_key,
-                organization_id=self.organization_id,
-            )
-            
-            results = self.run_trace_eval(
-                trace_run=trace_run,
-                override=override, 
-                ignore_errors=True,
+                project_name=project_name,
+                eval_run_name=eval_run_name,
+                override=override,
+                rules=rules,
                 function=function,
                 tracer=tracer,
-                examples=examples,
+                test_file=test_file,
                 async_execution=async_execution
             )
         else:
-            # Use regular evaluation
-            if test_file:
-                try:
-                    examples = add_from_yaml(test_file)
-                except FileNotFoundError:
-                    raise FileNotFoundError(f"Test file not found: {test_file}")
-                    
-            results = self.run_evaluation(
+            results = await self.run_evaluation(
                 examples=examples,
                 scorers=scorers,
                 model=model,
@@ -600,8 +580,7 @@ class JudgmentClient(metaclass=SingletonMeta):
                 async_execution=async_execution
             )
         
-        # If async_execution is True, we need to pass async_execution=True to assert_test
-        await assert_test(results, async_execution=async_execution)
+        assert_test(results)
 
     def run_trace_eval(
         self,

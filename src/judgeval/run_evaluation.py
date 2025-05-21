@@ -939,23 +939,16 @@ def run_eval(evaluation_run: EvaluationRun, override: bool = False, ignore_error
                 info(f"None of the scorers could be executed on example {i}. This is usually because the Example is missing the fields needed by the scorers. Try checking that the Example has the necessary fields for your scorers.")
         return merged_results
 
-def assert_test(scoring_results: List[ScoringResult], async_execution: bool = False) -> None:
+def assert_test(scoring_results: List[ScoringResult]) -> None:
     """
     Collects all failed scorers from the scoring results.
 
     Args:
-        scoring_results (List[ScoringResult]): List of scoring results to check
-        async_execution (bool, optional): Whether the test is running in async mode. Defaults to False.
+        ScoringResults (List[ScoringResult]): List of scoring results to check
 
     Returns:
         None. Raises exceptions for any failed test cases.
     """
-    # If scoring_results is a SpinnerWrappedTask, we need to await it first
-    if async_execution and isinstance(scoring_results, SpinnerWrappedTask):
-        # This function is called from an async context, so we can't await directly
-        # The caller should await the task before passing it here
-        raise TypeError("For async execution, await the results before passing to assert_test")
-    
     failed_cases: List[ScorerData] = []
 
     for result in scoring_results:
