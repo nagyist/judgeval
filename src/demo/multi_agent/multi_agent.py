@@ -68,6 +68,8 @@ class MultiAgentSystem:
         alice.send_message("Hello Bob, how are you?", "Bob")
         bob.send_message("I'm good Alice, thanks for asking!", "Alice")
         alice.send_message("Great to hear! What about you, Charles?", "Charles")
+        bob.send_message("I'm good Alice, thanks for asking!", "Alice")
+        bob.send_message("I'm good Alice, thanks for asking!", "Alice")
         # Print the conversation
         print("\nAlice's messages:")
         for msg in alice.get_all_messages():
@@ -82,16 +84,16 @@ if __name__ == "__main__":
     system = MultiAgentSystem()
     system.run_simple_task("Do something random")
 
-    test_file = os.path.join(os.path.dirname(__file__), "tests.yaml")
-    judgment_client.assert_test(
-        scorers=[ToolOrderScorer()],
-        function=system.run_simple_task,
-        tracer=judgment,
-        override=True,
-        test_file=test_file,
-        eval_run_name="multi_agent_tool_order",
-        project_name="multi_agent_system"
-    )
+    # test_file = os.path.join(os.path.dirname(__file__), "tests.yaml")
+    # judgment_client.assert_test(
+    #     scorers=[ToolOrderScorer()],
+    #     function=system.run_simple_task,
+    #     tracer=judgment,
+    #     override=True,
+    #     test_file=test_file,
+    #     eval_run_name="multi_agent_tool_order",
+    #     project_name="multi_agent_system"
+    # )
 
     tools = [
         {

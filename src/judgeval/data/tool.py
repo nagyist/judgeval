@@ -6,7 +6,8 @@ class Tool(BaseModel):
     tool_name: str
     parameters: Optional[Dict[str, Any]] = None
     agent_name: Optional[str] = None
-    dependencies: Optional[List[Dict[str, Any]]] = None
+    result_dependencies: Optional[List[Dict[str, Any]]] = None
+    action_dependencies: Optional[List[Dict[str, Any]]] = None
     require_all: Optional[bool] = None
     
     @field_validator('tool_name')
@@ -27,10 +28,16 @@ class Tool(BaseModel):
             warnings.warn("Agent name should be a string, got {type(v)}", UserWarning)
         return v
     
-    @field_validator('dependencies')
-    def validate_dependencies(cls, v):
+    @field_validator('result_dependencies')
+    def validate_result_dependencies(cls, v):
         if v is not None and not isinstance(v, list):
-            warnings.warn("Dependencies should be a list, got {type(v)}", UserWarning)
+            warnings.warn("Result dependencies should be a list, got {type(v)}", UserWarning)
+        return v
+    
+    @field_validator('action_dependencies')
+    def validate_action_dependencies(cls, v):
+        if v is not None and not isinstance(v, list):
+            warnings.warn("Action dependencies should be a list, got {type(v)}", UserWarning)
         return v
 
     @field_validator('require_all')

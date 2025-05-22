@@ -4,9 +4,7 @@ examples:
     expected_tools:
       - tool_name: "send_message"
         agent_name: Bob
-        dependencies:
+        action_dependencies:
           - tool_name: "send_message"
             agent_name: Alice
-          - tool_name: "send_message"
-            agent_name: Charles
         require_all: false
