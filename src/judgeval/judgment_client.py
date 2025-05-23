@@ -550,6 +550,9 @@ class JudgmentClient(metaclass=SingletonMeta):
             )
         
         if async_execution:
-            await assert_test(await results)
+            # 'results' is an asyncio.Task here, awaiting it gives List[ScoringResult]
+            actual_results = await results
+            assert_test(actual_results)  # Call the synchronous imported function
         else:
-            await assert_test(results)
+            # 'results' is already List[ScoringResult] here
+            assert_test(results)  # Call the synchronous imported function
