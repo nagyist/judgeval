@@ -25,23 +25,23 @@ class Tool(BaseModel):
     @field_validator('agent_name')
     def validate_agent_name(cls, v):
         if v is not None and not isinstance(v, str):
-            warnings.warn("Agent name should be a string, got {type(v)}", UserWarning)
+            warnings.warn(f"Agent name should be a string, got {type(v)}", UserWarning)
         return v
     
     @field_validator('result_dependencies')
     def validate_result_dependencies(cls, v):
         if v is not None and not isinstance(v, list):
-            warnings.warn("Result dependencies should be a list, got {type(v)}", UserWarning)
+            warnings.warn(f"Result dependencies should be a list, got {type(v)}", UserWarning)
         return v
     
     @field_validator('action_dependencies')
     def validate_action_dependencies(cls, v):
         if v is not None and not isinstance(v, list):
-            warnings.warn("Action dependencies should be a list, got {type(v)}", UserWarning)
+            warnings.warn(f"Action dependencies should be a list, got {type(v)}", UserWarning)
         return v
 
     @field_validator('require_all')
     def validate_require_all(cls, v):
         if v is not None and not isinstance(v, bool):
-            warnings.warn("Require all should be a boolean, got {type(v)}", UserWarning)
+            warnings.warn(f"Require all should be a boolean, got {type(v)}", UserWarning)
         return v
