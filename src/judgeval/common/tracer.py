@@ -40,7 +40,7 @@ import types # <--- Add this import
 
 # Third-party imports
 import requests
-from litellm import cost_per_token
+from litellm import cost_per_token as _original_cost_per_token
 from pydantic import BaseModel
 from rich import print as rprint
 from openai import OpenAI, AsyncOpenAI
@@ -59,7 +59,7 @@ from judgeval.constants import (
     JUDGMENT_TRACES_DELETE_API_URL,
     JUDGMENT_PROJECT_DELETE_API_URL,
 )
-from judgeval.data import Example, Trace, TraceSpan
+from judgeval.data import Example, Trace, TraceSpan, TraceUsage
 from judgeval.scorers import APIJudgmentScorer, JudgevalScorer
 from judgeval.rules import Rule
 from judgeval.evaluation_run import EvaluationRun
@@ -476,14 +476,14 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.inputs = inputs
 
-    async def _update_coroutine_output(self, span: TraceSpan, coroutine: Any):
+    async def _update_coroutine(self, span: TraceSpan, coroutine: Any, field: str):
         """Helper method to update the output of a trace entry once the coroutine completes"""
         try:
             result = await coroutine
-            span.output = result
+            setattr(span, field, result)
             return result
         except Exception as e:
-            span.output = f"Error: {str(e)}"
+            setattr(span, field, f"Error: {str(e)}")
             raise
 
     def record_output(self, output: Any):
@@ -493,7 +493,17 @@ class TraceClient:
             span.output = "<pending>" if inspect.iscoroutine(output) else output
             
             if inspect.iscoroutine(output):
-                asyncio.create_task(self._update_coroutine_output(span, output))
+                asyncio.create_task(self._update_coroutine(span, output, "output"))
+
+            return span # Return the created entry
+        # Removed else block - original didn't have one
+        return None # Return None if no span_id found
+    
+    def record_usage(self, usage: TraceUsage):
+        current_span_id = current_span_var.get()
+        if current_span_id:
+            span = self.span_id_to_span[current_span_id]
+            span.usage = usage
             
             return span # Return the created entry
         # Removed else block - original didn't have one
@@ -523,133 +533,6 @@ class TraceClient:
         """
         # Calculate total elapsed time
         total_duration = self.get_duration()
-
-        # Only count tokens for actual LLM API call spans
-        llm_span_names = {"OPENAI_API_CALL", "TOGETHER_API_CALL", "ANTHROPIC_API_CALL", "GOOGLE_API_CALL"}
-        for span in self.trace_spans:
-            span_function_name = span.function # Get function name safely
-            # Check if it's an LLM span AND function name CONTAINS an API call suffix AND output is dict
-            is_llm_span = span.span_type == "llm"
-            has_api_suffix = any(suffix in span_function_name for suffix in llm_span_names)
-            output_is_dict = isinstance(span.output, dict)
-
-            # --- DEBUG PRINT 1: Check if condition passes --- 
-            # if is_llm_entry and has_api_suffix and output_is_dict:
-            # elif is_llm_entry:
-            #      # Print why it failed if it was an LLM entry
-            # # --- END DEBUG --- 
-
-            if is_llm_span and has_api_suffix and output_is_dict:
-                output = span.output
-                usage = output.get("usage", {}) # Gets the 'usage' dict from the 'output' field
-
-                # --- DEBUG PRINT 2: Check extracted usage --- 
-                # --- END DEBUG --- 
-
-                # --- NEW: Extract model_name correctly from nested inputs ---
-                model_name = None
-                span_inputs = span.inputs
-                if span_inputs:
-                    # Try common locations for model name within the inputs structure
-                    invocation_params = span_inputs.get("invocation_params", {})
-                    serialized_data = span_inputs.get("serialized", {})
-
-                    # Look in invocation_params (often directly contains model)
-                    if isinstance(invocation_params, dict):
-                        model_name = invocation_params.get("model")
-
-                    # Fallback: Check serialized 'repr' if it contains model info
-                    if not model_name and isinstance(serialized_data, dict):
-                         serialized_repr = serialized_data.get("repr", "")
-                         if "model_name=" in serialized_repr:
-                              try: # Simple parsing attempt
-                                   model_name = serialized_repr.split("model_name='")[1].split("'")[0]
-                              except IndexError: pass # Ignore parsing errors
-
-                    # Fallback: Check top-level of invocation_params (sometimes passed flat)
-                    if not model_name and isinstance(invocation_params, dict):
-                        model_name = invocation_params.get("model") # Redundant check, but safe
-
-                    # Fallback: Check top-level of inputs itself (less likely for callbacks)
-                    if not model_name:
-                        model_name = span_inputs.get("model")
-
-
-                # --- END NEW ---
-
-                prompt_tokens = 0
-                completion_tokens = 0
-
-                # Handle OpenAI/Together format (checks within the 'usage' dict)
-                if "prompt_tokens" in usage:
-                    prompt_tokens = usage.get("prompt_tokens", 0)
-                    completion_tokens = usage.get("completion_tokens", 0)
-
-                # Handle Anthropic format - MAP values to standard keys
-                elif "input_tokens" in usage:
-                    prompt_tokens = usage.get("input_tokens", 0)       # Get value from input_tokens
-                    completion_tokens = usage.get("output_tokens", 0)    # Get value from output_tokens
-
-                    # *** Overwrite the usage dict in the entry to use standard keys ***
-                    original_total = usage.get("total_tokens", 0)
-                    original_total_cost = usage.get("total_cost_usd", 0.0) # Preserve if already calculated
-                    # Recalculate cost just in case it wasn't done correctly before
-                    temp_prompt_cost, temp_completion_cost = 0.0, 0.0
-                    if model_name:
-                        try:
-                           temp_prompt_cost, temp_completion_cost = cost_per_token(
-                                model=model_name,
-                                prompt_tokens=prompt_tokens,
-                                completion_tokens=completion_tokens
-                           )
-                        except Exception:
-                           pass # Ignore cost calculation errors here, focus on keys
-                    # Replace the usage dict with one using standard keys but Anthropic values
-                    output["usage"] = {
-                        "prompt_tokens": prompt_tokens,
-                        "completion_tokens": completion_tokens,
-                        "total_tokens": original_total,
-                        "prompt_tokens_cost_usd": temp_prompt_cost, # Use standard cost key
-                        "completion_tokens_cost_usd": temp_completion_cost, # Use standard cost key
-                        "total_cost_usd": original_total_cost if original_total_cost > 0 else (temp_prompt_cost + temp_completion_cost)
-                    }
-                    usage = output["usage"]
-
-                # Calculate costs if model name is available and ensure they are stored with standard keys
-                prompt_tokens = usage.get("prompt_tokens", 0)
-                completion_tokens = usage.get("completion_tokens", 0)
-                
-                # Calculate costs if model name is available
-                if model_name:
-                    try:
-                        # Recalculate costs based on potentially mapped tokens
-                        prompt_cost, completion_cost = cost_per_token(
-                            model=model_name, 
-                            prompt_tokens=prompt_tokens, 
-                            completion_tokens=completion_tokens
-                        )
-                        
-                        # Add cost information directly to the usage dictionary in the condensed entry
-                        # Ensure 'usage' exists in the output dict before modifying it
-                        # Add/Update cost information using standard keys
-
-                        if "usage" not in output:
-                            output["usage"] = {} # Initialize if missing
-                        elif not isinstance(output["usage"], dict): # Handle cases where 'usage' might not be a dict (e.g., placeholder string)
-                            print(f"[WARN TraceClient.save] Output 'usage' for span {span.span_id} was not a dict ({type(output['usage'])}). Resetting before adding costs.")
-                            output["usage"] = {} # Reset to dict
-
-                        output["usage"]["prompt_tokens_cost_usd"] = prompt_cost
-                        output["usage"]["completion_tokens_cost_usd"] = completion_cost
-                        output["usage"]["total_cost_usd"] = prompt_cost + completion_cost
-                    except Exception as e:
-                        # If cost calculation fails, continue without adding costs
-                        print(f"Error calculating cost for model '{model_name}' (span: {span.span_id}): {str(e)}")
-                        pass
-                else:
-                     print(f"[WARN TraceClient.save] Could not determine model name for cost calculation (span: {span.span_id}). Inputs: {span_inputs}")
-
-
         # Create trace document - Always use standard keys for top-level counts
         trace_data = {
             "trace_id": self.trace_id,
@@ -755,6 +638,12 @@ class _DeepTracer:
             return original_trace
 
         qual_name = self._get_qual_name(frame)
+        instance_name = None
+        if 'self' in frame.f_locals:
+            instance = frame.f_locals['self']
+            class_name = instance.__class__.__name__
+            class_identifiers = getattr(Tracer._instance, 'class_identifiers', {})
+            qual_name = get_instance_prefixed_name(instance, class_name, class_identifiers, qual_name)
         skip_stack = self._skip_stack.get()
         
         if event == "call":
@@ -965,6 +854,7 @@ class Tracer:
             self.initialized: bool = True
             self.enable_monitoring: bool = enable_monitoring
             self.enable_evaluations: bool = enable_evaluations
+            self.class_identifiers: Dict[str, str] = {}  # Dictionary to store class identifiers
 
             # Initialize S3 storage if enabled
             self.use_s3 = use_s3
@@ -1088,6 +978,33 @@ class Tracer:
 
         rprint(f"[bold]{label}:[/bold] {msg}")
     
+    def identify(self, identifier: str):
+        """
+        Class decorator that associates a class with a custom identifier.
+        
+        This decorator creates a mapping between the class name and the provided
+        identifier, which can be useful for tagging, grouping, or referencing
+        classes in a standardized way.
+        
+        Args:
+            identifier: The identifier to associate with the decorated class
+            
+        Returns:
+            A decorator function that registers the class with the given identifier
+            
+        Example:
+            @tracer.identify(identifier="user_model")
+            class User:
+                # Class implementation
+        """
+        def decorator(cls):
+            class_name = cls.__name__
+            self.class_identifiers[class_name] = identifier
+            return cls
+
+        return decorator
+
+    
     def observe(self, func=None, *, name=None, span_type: SpanType = "span", project_name: str = None, overwrite: bool = False, deep_tracing: bool = None):
         """
         Decorator to trace function execution with detailed entry/exit information.
@@ -1110,10 +1027,10 @@ class Tracer:
                                          overwrite=overwrite, deep_tracing=deep_tracing)
         
         # Use provided name or fall back to function name
-        span_name = name or func.__name__
+        original_span_name = name or func.__name__
         
         # Store custom attributes on the function object
-        func._judgment_span_name = span_name
+        func._judgment_span_name = original_span_name
         func._judgment_span_type = span_type
         
         # Use the provided deep_tracing value or fall back to the tracer's default
@@ -1122,6 +1039,15 @@ class Tracer:
         if asyncio.iscoroutinefunction(func):
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
+                nonlocal original_span_name
+                class_name = None
+                instance_name = None
+                span_name = original_span_name
+
+                if args and hasattr(args[0], '__class__'):
+                    class_name = args[0].__class__.__name__
+                    span_name = get_instance_prefixed_name(args[0], class_name, self.class_identifiers, span_name)
+
                 # Get current trace from context
                 current_trace = current_trace_var.get()
                 
@@ -1188,7 +1114,14 @@ class Tracer:
         else:
             # Non-async function implementation with deep tracing
             @functools.wraps(func)
-            def wrapper(*args, **kwargs):                
+            def wrapper(*args, **kwargs):
+                nonlocal original_span_name
+                class_name = None
+                instance_name = None
+                span_name = original_span_name
+                if args and hasattr(args[0], '__class__'):
+                    class_name = args[0].__class__.__name__
+                    span_name = get_instance_prefixed_name(args[0], class_name, self.class_identifiers, span_name)               
                 # Get current trace from context
                 current_trace = current_trace_var.get()
 
@@ -1317,8 +1250,9 @@ def wrap(client: Any) -> Any:
             return wrapper_func(response, client, output_entry)
         else:
             format_func = _format_response_output_data if is_responses else _format_output_data
-            output_data = format_func(client, response)
-            span.record_output(output_data)
+            output, usage = format_func(client, response)
+            span.record_output(output)
+            span.record_usage(usage)
             return response
     
     def _handle_error(span, e, is_async):
@@ -1500,18 +1434,35 @@ def _format_response_output_data(client: ApiClient, response: Any) -> dict:
     Normalizes different response formats into a consistent structure
     for tracing purposes.
     """
+    message_content = None
+    prompt_tokens = 0   
+    completion_tokens = 0
+    model_name = None
     if isinstance(client, (OpenAI, Together, AsyncOpenAI, AsyncTogether)):
-        return {
-            "content": response.output,
-            "usage": {
-                "prompt_tokens": response.usage.input_tokens,
-                "completion_tokens": response.usage.output_tokens,
-                "total_tokens": response.usage.total_tokens
-            }
-        }
+        model_name = response.model
+        prompt_tokens = response.usage.input_tokens
+        completion_tokens = response.usage.output_tokens
+        message_content = response.output
     else:
         warnings.warn(f"Unsupported client type: {type(client)}")
         return {}
+    
+    prompt_cost, completion_cost = cost_per_token(  
+        model=model_name,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
+    total_cost_usd = (prompt_cost + completion_cost) if prompt_cost and completion_cost else None
+    usage = TraceUsage(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=prompt_tokens + completion_tokens,
+        prompt_tokens_cost_usd=prompt_cost,
+        completion_tokens_cost_usd=completion_cost,
+        total_cost_usd=total_cost_usd,
+        model_name=model_name
+    )
+    return message_content, usage
 
 
 def _format_output_data(client: ApiClient, response: Any) -> dict:
@@ -1525,33 +1476,46 @@ def _format_output_data(client: ApiClient, response: Any) -> dict:
             - content: The generated text
             - usage: Token usage statistics
     """
+    prompt_tokens = 0
+    completion_tokens = 0
+    model_name = None
+    message_content = None
+
     if isinstance(client, (OpenAI, Together, AsyncOpenAI, AsyncTogether)):
-        return {
-            "content": response.choices[0].message.content,
-            "usage": {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens
-            }
-        }
+        model_name = response.model
+        prompt_tokens = response.usage.prompt_tokens
+        completion_tokens = response.usage.completion_tokens
+        message_content = response.choices[0].message.content
     elif isinstance(client, (genai.Client, genai.client.AsyncClient)):
-        return {
-            "content": response.candidates[0].content.parts[0].text,
-            "usage": {
-                "prompt_tokens": response.usage_metadata.prompt_token_count,
-                "completion_tokens": response.usage_metadata.candidates_token_count,
-                "total_tokens": response.usage_metadata.total_token_count
-            }
-        }
-    # Anthropic has a different response structure
-    return {
-        "content": response.content[0].text,
-        "usage": {
-            "prompt_tokens": response.usage.input_tokens,
-            "completion_tokens": response.usage.output_tokens,
-            "total_tokens": response.usage.input_tokens + response.usage.output_tokens
-        }
-    }
+        model_name = response.model_version
+        prompt_tokens = response.usage_metadata.prompt_token_count
+        completion_tokens = response.usage_metadata.candidates_token_count
+        message_content = response.candidates[0].content.parts[0].text
+    elif isinstance(client, (Anthropic, AsyncAnthropic)):
+        model_name = response.model
+        prompt_tokens = response.usage.input_tokens
+        completion_tokens = response.usage.output_tokens
+        message_content = response.content[0].text
+    else:
+        warnings.warn(f"Unsupported client type: {type(client)}")
+        return None, None
+    
+    prompt_cost, completion_cost = cost_per_token(
+        model=model_name,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
+    total_cost_usd = (prompt_cost + completion_cost) if prompt_cost and completion_cost else None
+    usage = TraceUsage(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=prompt_tokens + completion_tokens,
+        prompt_tokens_cost_usd=prompt_cost,
+        completion_tokens_cost_usd=completion_cost,
+        total_cost_usd=total_cost_usd,
+        model_name=model_name
+    )
+    return message_content, usage
 
 def combine_args_kwargs(func, args, kwargs):
     """
@@ -1657,21 +1621,30 @@ def _extract_usage_from_final_chunk(client: ApiClient, chunk: Any) -> Optional[D
         # OpenAI/Together include usage in the *last* chunk's `usage` attribute if available
         # This typically requires specific API versions or settings. Often usage is *not* streamed.
         if isinstance(client, (OpenAI, Together, AsyncOpenAI, AsyncTogether)):
-             # Check if usage is directly on the chunk (some models might do this)
-             if hasattr(chunk, 'usage') and chunk.usage:
-                 return {
-                     "prompt_tokens": chunk.usage.prompt_tokens,
-                     "completion_tokens": chunk.usage.completion_tokens,
-                     "total_tokens": chunk.usage.total_tokens
-                 }
-             # Check if usage is nested within choices (less common for final chunk, but check)
-             elif chunk.choices and hasattr(chunk.choices[0], 'usage') and chunk.choices[0].usage:
-                 usage = chunk.choices[0].usage
-                 return {
-                      "prompt_tokens": usage.prompt_tokens,
-                      "completion_tokens": usage.completion_tokens,
-                      "total_tokens": usage.total_tokens
-                  }
+            # Check if usage is directly on the chunk (some models might do this)
+            if hasattr(chunk, 'usage') and chunk.usage:
+                prompt_tokens = chunk.usage.prompt_tokens
+                completion_tokens = chunk.usage.completion_tokens
+            # Check if usage is nested within choices (less common for final chunk, but check)
+            elif chunk.choices and hasattr(chunk.choices[0], 'usage') and chunk.choices[0].usage:
+                prompt_tokens = chunk.choices[0].usage.prompt_tokens
+                completion_tokens = chunk.choices[0].usage.completion_tokens
+                
+            prompt_cost, completion_cost = cost_per_token(
+                    model=chunk.model,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                )
+            total_cost_usd = (prompt_cost + completion_cost) if prompt_cost and completion_cost else None
+            return TraceUsage(
+                prompt_tokens=chunk.usage.prompt_tokens,
+                completion_tokens=chunk.usage.completion_tokens,
+                total_tokens=chunk.usage.total_tokens,
+                prompt_tokens_cost_usd=prompt_cost,
+                completion_tokens_cost_usd=completion_cost,
+                total_cost_usd=total_cost_usd,
+                model_name=chunk.model
+            )
              # Anthropic includes usage in the 'message_stop' event type
         elif isinstance(client, (Anthropic, AsyncAnthropic)):
             if chunk.type == "message_stop":
@@ -1719,11 +1692,8 @@ def _sync_stream_wrapper(
             final_usage = _extract_usage_from_final_chunk(client, last_chunk)
 
         # Update the trace entry with the accumulated content and usage
-        span.output = {
-            "content": "".join(content_parts),  # Join list at the end
-            "usage": final_usage if final_usage else {"info": "Usage data not available in stream."}, # Provide placeholder if None
-            "streamed": True
-        }
+        span.output = "".join(content_parts)
+        span.usage = final_usage
         # Note: We might need to adjust _serialize_output if this dict causes issues,
         # but Pydantic's model_dump should handle dicts.
 
@@ -1743,6 +1713,7 @@ async def _async_stream_wrapper(
     target_span_id = span.span_id
 
     try:
+        model_name = ""
         async for chunk in original_stream:
             # Check for OpenAI's final usage chunk
             if isinstance(client, (AsyncOpenAI, OpenAI)) and hasattr(chunk, 'usage') and chunk.usage is not None:
@@ -1751,16 +1722,18 @@ async def _async_stream_wrapper(
                     "completion_tokens": chunk.usage.completion_tokens,
                     "total_tokens": chunk.usage.total_tokens
                 }
+                model_name = chunk.model
                 yield chunk
                 continue
 
             if isinstance(client, (AsyncAnthropic, Anthropic)) and hasattr(chunk, 'type'):
-                 if chunk.type == "message_start":
-                     if hasattr(chunk, 'message') and hasattr(chunk.message, 'usage') and hasattr(chunk.message.usage, 'input_tokens'):
+                if chunk.type == "message_start":
+                    if hasattr(chunk, 'message') and hasattr(chunk.message, 'usage') and hasattr(chunk.message.usage, 'input_tokens'):
                          anthropic_input_tokens = chunk.message.usage.input_tokens
-                 elif chunk.type == "message_delta":
-                     if hasattr(chunk, 'usage') and hasattr(chunk.usage, 'output_tokens'):
-                         anthropic_output_tokens += chunk.usage.output_tokens
+                         model_name = chunk.message.model
+                elif chunk.type == "message_delta":
+                    if hasattr(chunk, 'usage') and hasattr(chunk.usage, 'output_tokens'):
+                        anthropic_output_tokens = chunk.usage.output_tokens
 
             content_part = _extract_content_from_chunk(client, chunk)
             if content_part:
@@ -1783,17 +1756,36 @@ async def _async_stream_wrapper(
         elif anthropic_final_usage:
              usage_info = anthropic_final_usage
         elif last_content_chunk:
-             usage_info = _extract_usage_from_final_chunk(client, last_content_chunk)
+            usage_info = _extract_usage_from_final_chunk(client, last_content_chunk)
 
+        if usage_info and not isinstance(usage_info, TraceUsage):
+            prompt_cost, completion_cost = cost_per_token(  
+                model=model_name,
+                prompt_tokens=usage_info["prompt_tokens"],
+                completion_tokens=usage_info["completion_tokens"],
+            )
+            usage_info = TraceUsage(
+                prompt_tokens=usage_info["prompt_tokens"],
+                completion_tokens=usage_info["completion_tokens"],
+                total_tokens=usage_info["total_tokens"],
+                prompt_tokens_cost_usd=prompt_cost,
+                completion_tokens_cost_usd=completion_cost,
+                total_cost_usd=prompt_cost + completion_cost,
+                model_name=model_name
+            )
         if span and hasattr(span, 'output'):
-            span.output = {
-                "content": "".join(content_parts),  # Join list at the end
-                "usage": usage_info if usage_info else {"info": "Usage data not available in stream."},
-                "streamed": True
-            }
+            span.output = ''.join(content_parts)
+            span.usage = usage_info
             start_ts = getattr(span, 'created_at', time.time())
             span.duration = time.time() - start_ts
         # else: # Handle error case if necessary, but remove debug print
+
+def cost_per_token(*args, **kwargs):
+    try:
+        return _original_cost_per_token(*args, **kwargs)
+    except Exception as e:
+        warnings.warn(f"Error calculating cost per token: {e}")
+        return None, None
 
 class _BaseStreamManagerWrapper:
     def __init__(self, original_manager, client, span_name, trace_client, stream_wrapper_func, input_kwargs):
@@ -1876,3 +1868,18 @@ class _TracedSyncStreamManagerWrapper(_BaseStreamManagerWrapper, AbstractContext
             current_span_var.reset(self._span_context_token)
             delattr(self, '_span_context_token')
         return self._original_manager.__exit__(exc_type, exc_val, exc_tb)
+
+# --- Helper function for instance-prefixed qual_name ---
+def get_instance_prefixed_name(instance, class_name, class_identifiers, name):
+    """
+    Returns the name prefixed with the instance name if the class and attribute are found in class_identifiers.
+    Otherwise, returns the original name.
+    """
+    if class_name in class_identifiers:
+        attr = class_identifiers[class_name]
+        if hasattr(instance, attr):
+            instance_name = getattr(instance, attr)
+            return f"{instance_name}.{name}"
+        else:
+            raise Exception(f"Attribute {class_identifiers[class_name]} does not exist for {class_name}. Check your identify() decorator.")
+    return name

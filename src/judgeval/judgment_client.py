@@ -5,6 +5,7 @@ import os
 from uuid import uuid4
 from typing import Optional, List, Dict, Any, Union, Callable
 import requests
+import asyncio
 
 from judgeval.constants import ROOT_API
 from judgeval.data.datasets import EvalDataset, EvalDatasetClient
@@ -173,7 +174,7 @@ class JudgmentClient(metaclass=SingletonMeta):
         ignore_errors: bool = True,
         async_execution: bool = False,
         rules: Optional[List[Rule]] = None
-    ) -> List[ScoringResult]:
+    ) -> Union[List[ScoringResult], asyncio.Task]:
         """
         Executes an evaluation of `Example`s using one or more `Scorer`s
         
@@ -480,7 +481,7 @@ class JudgmentClient(metaclass=SingletonMeta):
             
         return response.json()["slug"]
     
-    def assert_test(
+    async def assert_test(
         self, 
         scorers: List[Union[APIJudgmentScorer, JudgevalScorer]],
         examples: Optional[List[Example]] = None,
@@ -494,7 +495,8 @@ class JudgmentClient(metaclass=SingletonMeta):
         override: bool = False,
         rules: Optional[List[Rule]] = None,
         function: Optional[Callable] = None,
-        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None
+        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
+        async_execution: bool = False
     ) -> None:
         """
         Asserts a test by running the evaluation and checking the results for success
@@ -512,6 +514,7 @@ class JudgmentClient(metaclass=SingletonMeta):
             override (bool): Whether to override an existing evaluation run with the same name
             rules (Optional[List[Rule]]): Rules to evaluate against scoring results
         """
+
         # Validate that exactly one of examples or test_file is provided
         if (examples is None and test_file is None) or (examples is not None and test_file is not None):
             raise ValueError("Exactly one of 'examples' or 'test_file' must be provided, but not both")
@@ -542,7 +545,14 @@ class JudgmentClient(metaclass=SingletonMeta):
                 project_name=project_name,
                 eval_run_name=eval_run_name,
                 override=override,
-                rules=rules
+                rules=rules,
+                async_execution=async_execution
             )
         
-        assert_test(results)
+        if async_execution:
+            # 'results' is an asyncio.Task here, awaiting it gives List[ScoringResult]
+            actual_results = await results
+            assert_test(actual_results)  # Call the synchronous imported function
+        else:
+            # 'results' is already List[ScoringResult] here
+            assert_test(results)  # Call the synchronous imported function
