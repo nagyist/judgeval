@@ -518,6 +518,13 @@ class JudgmentClient(metaclass=SingletonMeta):
             rules (Optional[List[Rule]]): Rules to evaluate against scoring results
         """
 
+        # Check for enable_param_checking and tools
+        for scorer in scorers:
+            if hasattr(scorer, "kwargs") and scorer.kwargs is not None:
+                if scorer.kwargs.get("enable_param_checking") is True:
+                    if not tools:
+                        raise ValueError(f"You must provide the 'tools' argument to assert_test when using a scorer with enable_param_checking=True. If you do not want to do param checking, explicitly set enable_param_checking=False for the {scorer.__name__} scorer.")
+
         # Validate that exactly one of examples or test_file is provided
         if (examples is None and test_file is None) or (examples is not None and test_file is not None):
             raise ValueError("Exactly one of 'examples' or 'test_file' must be provided, but not both")

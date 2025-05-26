@@ -106,7 +106,7 @@ if __name__ == "__main__":
                     },
                     "content": {
                         "type": "string",
-                        "description": "The weather today.",
+                        "description": "The content of the message to send.",
                     },
                     "recipient": {
                         "type": "string",
@@ -126,6 +126,5 @@ if __name__ == "__main__":
         override=True,
         test_file=test_file2,
         eval_run_name="multi_agent_tool_dependency",
-        project_name="multi_agent_system",
-        tools=tools
+        project_name="multi_agent_system"
     )
