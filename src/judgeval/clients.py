@@ -29,8 +29,6 @@ if together_api_key:
     try:
         together_client = Together(api_key=together_api_key)
         async_together_client = AsyncTogether(api_key=together_api_key)
-        print('initialized together client: ', together_client)
     except Exception as e:
-        print('failed to initialize together client: ', str(e))
         pass
 
