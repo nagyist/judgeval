@@ -28,6 +28,7 @@ class APIScorer(str, Enum):
     GROUNDEDNESS = "groundedness"
     DERAILMENT = "derailment"
     TOOL_ORDER = "tool_order"
+    CLASSIFIER = "classifier"
     @classmethod
     def _missing_(cls, value):
         # Handle case-insensitive lookup

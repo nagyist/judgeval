@@ -24,7 +24,6 @@ from judgeval.scorers import (
 )
 from judgeval.data.datasets.dataset import EvalDataset
 from pydantic import BaseModel
-from judgeval.scorers.prompt_scorer import ClassifierScorer
 from judgeval.tracer import Tracer
 
 # Initialize a tracer instance for this test file
@@ -326,4 +325,25 @@ examples:
                 eval_run_name=EVAL_RUN_NAME,
                 log_results=True,
                 override=False,
+            )
+
+    def test_eval_invalid_fields(self, client: JudgmentClient):
+        """Test evaluation with an invalid model."""
+        example1 = Example(
+            input="What if these shoes don't fit?",
+            actual_output="We offer a 30-day full refund at no extra cost.",
+            retrieval_context=["All customers are eligible for a 30 day full refund at no extra cost."],
+        )
+
+        scorer = FaithfulnessScorer(threshold=0.5)
+
+        with pytest.raises(ValueError, match="Please select a valid model name"):
+            client.run_evaluation(
+                examples=[example1],
+                scorers=[scorer],
+                model="invalid_model",
+                metadata={"batch": "test"},
+                project_name="test_project",
+                eval_run_name="test_eval_run",
+                override=True,
             )
