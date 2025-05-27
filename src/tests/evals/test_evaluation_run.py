@@ -131,7 +131,7 @@ def test_validate_examples():
         )
 
     # Test mixed example types
-    with pytest.raises(ValueError, match="All examples must be of the same type"):
+    with pytest.raises(ValidationError):
         EvaluationRun(
             examples=[
                 Example(input="test1", actual_output="test1"),
