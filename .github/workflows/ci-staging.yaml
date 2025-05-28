@@ -36,7 +36,7 @@ jobs:
 
       - name: Initialize git submodules
         run: |
-          git submodule update --init --remote --recursive
+          git submodule update --init --recursive
 
       - name: Install dependencies
         run: |
