@@ -565,5 +565,5 @@ class JudgmentClient(metaclass=SingletonMeta):
             actual_results = asyncio.run(results)
             assert_test(actual_results)  # Call the synchronous imported function
         else:
-            # 'results' is already List[ScoringResult] here
+            # 'results' is already List[ScoringResult] here (synchronous path)
             assert_test(results)  # Call the synchronous imported function
