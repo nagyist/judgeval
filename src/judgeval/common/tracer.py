@@ -66,6 +66,7 @@ from judgeval.evaluation_run import EvaluationRun
 from judgeval.data.result import ScoringResult
 from judgeval.common.utils import validate_api_key
 from judgeval.common.exceptions import JudgmentAPIError
+from judgeval.run_evaluation import check_examples
 
 # Standard library imports needed for the new class
 import concurrent.futures
@@ -418,12 +419,13 @@ class TraceClient:
                     expected_tools=expected_tools,
                     additional_metadata=additional_metadata,
                 )
+                
             else:
                 raise ValueError("Either 'example' or at least one of the individual parameters (input, actual_output, etc.) must be provided")
         
         # Check examples before creating evaluation run
         
-        # check_examples([example], scorers)
+        check_examples([example], scorers)
         
         # --- Modification: Capture span_id immediately ---
         # span_id_at_eval_call = current_span_var.get()
