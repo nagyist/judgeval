@@ -135,7 +135,7 @@ class TraceManagerClient:
                 "trace_id": trace_id,
             },
             headers={
-                "Content-Type": "application/json",
+                "Content-Type": "application/json", 
                 "Authorization": f"Bearer {self.judgment_api_key}",
                 "X-Organization-Id": self.organization_id
             },
