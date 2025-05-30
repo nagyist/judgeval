@@ -34,6 +34,7 @@ from typing import (
     Union,
     AsyncGenerator,
     TypeAlias,
+    Set
 )
 from rich import print as rprint
 import types # <--- Add this import
@@ -155,9 +156,29 @@ class TraceManagerClient:
             NOTE we save empty traces in order to properly handle async operations; we need something in the DB to associate the async results with
         """
         # Save to Judgment API
+        
+        def fallback_encoder(obj):
+            """
+            Custom JSON encoder fallback.
+            Tries to use obj.__repr__(), then str(obj) if that fails or for a simpler string.
+            You can choose which one you prefer or try them in sequence.
+            """
+            try:
+                # Option 1: Prefer __repr__ for a more detailed representation
+                return repr(obj)
+            except Exception:
+                # Option 2: Fallback to str() if __repr__ fails or if you prefer str()
+                try:
+                    return str(obj)
+                except Exception as e:
+                    # If both fail, you might return a placeholder or re-raise
+                    return f"<Unserializable object of type {type(obj).__name__}: {e}>"
+        
+        serialized_trace_data = json.dumps(trace_data, default=fallback_encoder)
+
         response = requests.post(
             JUDGMENT_TRACES_SAVE_API_URL,
-            json=trace_data,
+            data=serialized_trace_data,
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.judgment_api_key}",
@@ -475,7 +496,16 @@ class TraceClient:
         current_span_id = current_span_var.get()
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
+            # Ignore self parameter
+            if "self" in inputs:
+                del inputs["self"]
             span.inputs = inputs
+    
+    def record_agent_name(self, agent_name: str):
+        current_span_id = current_span_var.get()
+        if current_span_id:
+            span = self.span_id_to_span[current_span_id]
+            span.agent_name = agent_name
 
     async def _update_coroutine(self, span: TraceSpan, coroutine: Any, field: str):
         """Helper method to update the output of a trace entry once the coroutine completes"""
@@ -568,6 +598,8 @@ class _DeepTracer:
     _refcount: int = 0
     _span_stack: contextvars.ContextVar[List[Dict[str, Any]]] = contextvars.ContextVar("_deep_profiler_span_stack", default=[])
     _skip_stack: contextvars.ContextVar[List[str]] = contextvars.ContextVar("_deep_profiler_skip_stack", default=[])
+    _original_sys_trace: Optional[Callable] = None
+    _original_threading_trace: Optional[Callable] = None
 
     def _get_qual_name(self, frame) -> str:
         func_name = frame.f_code.co_name
@@ -615,28 +647,66 @@ class _DeepTracer:
     @functools.cache
     def _is_user_code(self, filename: str):
         return bool(filename) and not filename.startswith("<") and not os.path.realpath(filename).startswith(_TRACE_FILEPATH_BLOCKLIST)
-    
-    def _trace(self, frame: types.FrameType, event: str, arg: Any):
-        # Store the original trace function
-        original_trace = frame.f_trace
+
+    def _cooperative_sys_trace(self, frame: types.FrameType, event: str, arg: Any):
+        """Cooperative trace function for sys.settrace that chains with existing tracers."""
+        # First, call the original sys trace function if it exists
+        original_result = None
+        if self._original_sys_trace:
+            try:
+                original_result = self._original_sys_trace(frame, event, arg)
+            except Exception:
+                # If the original tracer fails, continue with our tracing
+                pass
         
-        # Disable line and opcode tracing for our tracer
+        # Then do our own tracing
+        our_result = self._trace(frame, event, arg, self._cooperative_sys_trace)
+        
+        # Return our tracer to continue tracing, but respect the original's decision
+        # If the original tracer returned None (stop tracing), we should respect that
+        if original_result is None and self._original_sys_trace:
+            return None
+        
+        return our_result or original_result
+    
+    def _cooperative_threading_trace(self, frame: types.FrameType, event: str, arg: Any):
+        """Cooperative trace function for threading.settrace that chains with existing tracers."""
+        # First, call the original threading trace function if it exists
+        original_result = None
+        if self._original_threading_trace:
+            try:
+                original_result = self._original_threading_trace(frame, event, arg)
+            except Exception:
+                # If the original tracer fails, continue with our tracing
+                pass
+        
+        # Then do our own tracing
+        our_result = self._trace(frame, event, arg, self._cooperative_threading_trace)
+        
+        # Return our tracer to continue tracing, but respect the original's decision
+        # If the original tracer returned None (stop tracing), we should respect that
+        if original_result is None and self._original_threading_trace:
+            return None
+        
+        return our_result or original_result
+    
+    def _trace(self, frame: types.FrameType, event: str, arg: Any, continuation_func: Callable):
         frame.f_trace_lines = False
         frame.f_trace_opcodes = False
 
         if not self._should_trace(frame):
-            return original_trace
+            return
         
         if event not in ("call", "return", "exception"):
-            return original_trace
+            return
         
         current_trace = current_trace_var.get()
         if not current_trace:
-            return original_trace
+            return
         
         parent_span_id = current_span_var.get()
         if not parent_span_id:
-            return original_trace
+            return
 
         qual_name = self._get_qual_name(frame)
         instance_name = None
@@ -644,7 +714,7 @@ class _DeepTracer:
             instance = frame.f_locals['self']
             class_name = instance.__class__.__name__
             class_identifiers = getattr(Tracer._instance, 'class_identifiers', {})
-            qual_name = get_instance_prefixed_name(instance, class_name, class_identifiers, qual_name)
+            instance_name = get_instance_prefixed_name(instance, class_name, class_identifiers)
         skip_stack = self._skip_stack.get()
         
         if event == "call":
@@ -655,29 +725,29 @@ class _DeepTracer:
                 if qual_name == skip_stack[-1]:
                     skip_stack.append(qual_name)
                     self._skip_stack.set(skip_stack)
-                return original_trace
+                return
             
             should_trace = self._should_trace(frame)
             
             if not should_trace:
                 if not skip_stack:
                     self._skip_stack.set([qual_name])
-                return original_trace
+                return
         elif event == "return":
             # If we have entries in skip stack and current qual_name matches the top entry,
             # pop it to track exiting from the skipped section
             if skip_stack and qual_name == skip_stack[-1]:
                 skip_stack.pop()
                 self._skip_stack.set(skip_stack)
-                return original_trace
+                return
             
             if skip_stack:
-                return original_trace
+                return
             
         span_stack = self._span_stack.get()
         if event == "call":
             if not self._should_trace(frame):
-                return original_trace
+                return
                 
             span_id = str(uuid.uuid4())
             
@@ -707,7 +777,8 @@ class _DeepTracer:
                 created_at=start_time,
                 span_type="span",
                 parent_span_id=parent_span_id,
-                function=qual_name
+                function=qual_name,
+                agent_name=instance_name
             )
             current_trace.add_span(span)
             
@@ -727,7 +798,7 @@ class _DeepTracer:
                 
         elif event == "return":
             if not span_stack:
-                return original_trace
+                return
                 
             current_id = current_span_var.get()
             
@@ -739,7 +810,7 @@ class _DeepTracer:
                     break
             
             if not span_data:
-                return original_trace
+                return
                 
             start_time = span_data["start_time"]
             duration = time.time() - start_time
@@ -773,29 +844,34 @@ class _DeepTracer:
                 "error": formatted_exception
             })
         
-        return original_trace
+        return continuation_func
     
     def __enter__(self):
         with self._lock:
             self._refcount += 1
             if self._refcount == 1:
-                self._skip_stack.set([])
-                self._span_stack.set([])
-                # Store the original trace functions
+                # Store the existing trace functions before setting ours
                 self._original_sys_trace = sys.gettrace()
                 self._original_threading_trace = threading.gettrace()
-                # Set our trace function, chaining with the original
-                sys.settrace(self._trace)
-                threading.settrace(self._trace)
+                
+                self._skip_stack.set([])
+                self._span_stack.set([])
+                
+                sys.settrace(self._cooperative_sys_trace)
+                threading.settrace(self._cooperative_threading_trace)
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         with self._lock:
             self._refcount -= 1
             if self._refcount == 0:
-                # Restore the original trace functions
+                # Restore the original trace functions instead of setting to None
                 sys.settrace(self._original_sys_trace)
                 threading.settrace(self._original_threading_trace)
+                
+                # Clean up the references
+                self._original_sys_trace = None
+                self._original_threading_trace = None
 
 
 def log(self, message: str, level: str = "info"):
@@ -1002,9 +1078,8 @@ class Tracer:
             class_name = cls.__name__
             self.class_identifiers[class_name] = identifier
             return cls
-
+        
         return decorator
-
     
     def observe(self, func=None, *, name=None, span_type: SpanType = "span", project_name: str = None, overwrite: bool = False, deep_tracing: bool = None):
         """
@@ -1044,10 +1119,11 @@ class Tracer:
                 class_name = None
                 instance_name = None
                 span_name = original_span_name
+                agent_name = None
 
                 if args and hasattr(args[0], '__class__'):
                     class_name = args[0].__class__.__name__
-                    span_name = get_instance_prefixed_name(args[0], class_name, self.class_identifiers, span_name)
+                    agent_name = get_instance_prefixed_name(args[0], class_name, self.class_identifiers)
 
                 # Get current trace from context
                 current_trace = current_trace_var.get()
@@ -1072,7 +1148,7 @@ class Tracer:
                     # Save empty trace and set trace context
                     # current_trace.save(empty_save=True, overwrite=overwrite)
                     trace_token = current_trace_var.set(current_trace)
-                    
+
                     try:
                         # Use span for the function execution within the root trace
                         # This sets the current_span_var
@@ -1080,6 +1156,8 @@ class Tracer:
                             # Record inputs
                             inputs = combine_args_kwargs(func, args, kwargs)
                             span.record_input(inputs)
+                            if agent_name:
+                                span.record_agent_name(agent_name)
                             
                             if use_deep_tracing:
                                 with _DeepTracer():
@@ -1101,7 +1179,9 @@ class Tracer:
                     with current_trace.span(span_name, span_type=span_type) as span:
                         inputs = combine_args_kwargs(func, args, kwargs)
                         span.record_input(inputs)
-                        
+                        if agent_name:
+                            span.record_agent_name(agent_name)
+
                         if use_deep_tracing:
                             with _DeepTracer():
                                 result = await func(*args, **kwargs)
@@ -1120,9 +1200,10 @@ class Tracer:
                 class_name = None
                 instance_name = None
                 span_name = original_span_name
+                agent_name = None
                 if args and hasattr(args[0], '__class__'):
                     class_name = args[0].__class__.__name__
-                    span_name = get_instance_prefixed_name(args[0], class_name, self.class_identifiers, span_name)               
+                    agent_name = get_instance_prefixed_name(args[0], class_name, self.class_identifiers)               
                 # Get current trace from context
                 current_trace = current_trace_var.get()
 
@@ -1154,7 +1235,8 @@ class Tracer:
                             # Record inputs
                             inputs = combine_args_kwargs(func, args, kwargs)
                             span.record_input(inputs)
-                            
+                            if agent_name:
+                                span.record_agent_name(agent_name)
                             if use_deep_tracing:
                                 with _DeepTracer():
                                     result = func(*args, **kwargs)
@@ -1176,7 +1258,9 @@ class Tracer:
                         
                         inputs = combine_args_kwargs(func, args, kwargs)
                         span.record_input(inputs)
-                        
+                        if agent_name:
+                            span.record_agent_name(agent_name)
+
                         if use_deep_tracing:
                             with _DeepTracer():
                                 result = func(*args, **kwargs)
@@ -1871,16 +1955,16 @@ class _TracedSyncStreamManagerWrapper(_BaseStreamManagerWrapper, AbstractContext
         return self._original_manager.__exit__(exc_type, exc_val, exc_tb)
 
 # --- Helper function for instance-prefixed qual_name ---
-def get_instance_prefixed_name(instance, class_name, class_identifiers, name):
+def get_instance_prefixed_name(instance, class_name, class_identifiers):
     """
-    Returns the name prefixed with the instance name if the class and attribute are found in class_identifiers.
-    Otherwise, returns the original name.
+    Returns the agent name (prefix) if the class and attribute are found in class_identifiers.
+    Otherwise, returns None.
     """
     if class_name in class_identifiers:
         attr = class_identifiers[class_name]
         if hasattr(instance, attr):
             instance_name = getattr(instance, attr)
-            return f"{instance_name}.{name}"
+            return instance_name
         else:
             raise Exception(f"Attribute {class_identifiers[class_name]} does not exist for {class_name}. Check your identify() decorator.")
-    return name
+    return None
