@@ -169,7 +169,6 @@ class PromptScorer(JudgevalScorer, BaseModel):
             self._response = response
 
             result, reason = self._process_response(response)
-            print("result: ", result)
             self.score = result
             self.reason = reason
             self._response = response
