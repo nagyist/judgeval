@@ -1,12 +1,22 @@
 import litellm
 from litellm.integrations.custom_logger import CustomLogger
-from judgeval.common.tracer import TraceClient, TraceSpan, current_span_var
+from judgeval.common.tracer import TraceClient, TraceSpan,  current_span_var
 from typing import Optional
 import time
 import uuid
 
 
-class JudgevalLitellmCallbackHandler(CustomLogger):
+class SingletonMeta(type):
+    _instances = {}
+
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            instance = super().__call__(*args, **kwargs)
+            cls._instances[cls] = instance
+        return cls._instances[cls]
+
+
+class JudgevalLitellmCallbackHandler(CustomLogger, metaclass=SingletonMeta):
 
     def __init__(self, tracer):
         self.tracer = tracer
