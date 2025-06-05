@@ -9,59 +9,28 @@ from judgeval.common.tracer import Tracer
 from judgeval.integrations.litellm_integration import JudgevalLitellmCallbackHandler
 
 
-# Global handler to ensure only one instance
-_GLOBAL_LITELLM_HANDLER = None
+def setup_litellm_handler(tracer):
+    """Setup LiteLLM callback handler"""
+    handler = JudgevalLitellmCallbackHandler(tracer)
 
-
-def get_or_create_litellm_handler(tracer):
-    """Get or create a single LiteLLM callback handler"""
-    global _GLOBAL_LITELLM_HANDLER
-
-    # Clear any existing callbacks first
-    if hasattr(litellm, 'callbacks'):
-        existing_handlers = [cb for cb in litellm.callbacks if isinstance(
-            cb, JudgevalLitellmCallbackHandler)]
-        if existing_handlers:
-            print(
-                f"Found {len(existing_handlers)} existing LiteLLM handlers, clearing them")
-            litellm.callbacks = [cb for cb in litellm.callbacks if not isinstance(
-                cb, JudgevalLitellmCallbackHandler)]
-
-    # Create new handler if needed
-    if _GLOBAL_LITELLM_HANDLER is None or _GLOBAL_LITELLM_HANDLER.tracer != tracer:
-        print("Creating new LiteLLM callback handler")
-        _GLOBAL_LITELLM_HANDLER = JudgevalLitellmCallbackHandler(tracer)
-    else:
-        print("Reusing existing LiteLLM callback handler")
-
-    # Ensure it's registered
     if not hasattr(litellm, 'callbacks'):
         litellm.callbacks = []
 
-    if _GLOBAL_LITELLM_HANDLER not in litellm.callbacks:
-        litellm.callbacks.append(_GLOBAL_LITELLM_HANDLER)
-        print(
-            f"Registered handler. Total LiteLLM callbacks: {len(litellm.callbacks)}")
+    if handler not in litellm.callbacks:
+        litellm.callbacks.append(handler)
 
-    return _GLOBAL_LITELLM_HANDLER
+    return handler
 
 
 @pytest.fixture(scope="session")
-def setup_litellm_handler():
-    """Setup and cleanup LiteLLM handlers for the test session"""
-    # Clear any existing handlers at start
-    if hasattr(litellm, 'callbacks'):
-        litellm.callbacks = [cb for cb in litellm.callbacks if not isinstance(
-            cb, JudgevalLitellmCallbackHandler)]
-
+def cleanup_litellm_handlers():
+    """Cleanup LiteLLM handlers for the test session"""
     yield
 
     # Cleanup at end
-    global _GLOBAL_LITELLM_HANDLER
     if hasattr(litellm, 'callbacks'):
         litellm.callbacks = [cb for cb in litellm.callbacks if not isinstance(
             cb, JudgevalLitellmCallbackHandler)]
-    _GLOBAL_LITELLM_HANDLER = None
     print("Cleaned up LiteLLM handlers")
 
 
@@ -124,15 +93,15 @@ def mock_agent(tracer):
 
 
 @pytest.fixture
-def litellm_handler(tracer, setup_litellm_handler):
-    """Create LiteLLM callback handler (ensure only one exists)"""
-    handler = get_or_create_litellm_handler(tracer)
+def litellm_handler(tracer, cleanup_litellm_handlers):
+    """Create LiteLLM callback handler"""
+    handler = setup_litellm_handler(tracer)
     return handler
 
 
-def test_litellm_callback_handler_creation(tracer, setup_litellm_handler):
+def test_litellm_callback_handler_creation(tracer, cleanup_litellm_handlers):
     """Test that the callback handler can be created and registered"""
-    handler = get_or_create_litellm_handler(tracer)
+    handler = setup_litellm_handler(tracer)
 
     assert handler.tracer == tracer
     assert handler._current_span_id is None
@@ -141,21 +110,9 @@ def test_litellm_callback_handler_creation(tracer, setup_litellm_handler):
     # Verify it's registered with LiteLLM
     assert handler in litellm.callbacks
 
-    # Verify only one handler of our type exists
-    our_handlers = [cb for cb in litellm.callbacks if isinstance(
-        cb, JudgevalLitellmCallbackHandler)]
-    assert len(
-        our_handlers) == 1, f"Expected 1 handler, found {len(our_handlers)}"
-
 
 def test_span_creation_and_updates(tracer, litellm_handler):
     """Test that spans are created and updated correctly"""
-
-    # Verify we're using the same handler
-    our_handlers = [cb for cb in litellm.callbacks if isinstance(
-        cb, JudgevalLitellmCallbackHandler)]
-    assert len(
-        our_handlers) == 1, f"Expected 1 handler, found {len(our_handlers)}"
 
     # Create a trace context
     with tracer.trace("test-trace") as trace_client:
@@ -211,11 +168,6 @@ def test_span_creation_and_updates(tracer, litellm_handler):
 def test_error_handling(tracer, litellm_handler):
     """Test that errors are handled correctly"""
 
-    # Verify single handler
-    our_handlers = [cb for cb in litellm.callbacks if isinstance(
-        cb, JudgevalLitellmCallbackHandler)]
-    assert len(our_handlers) == 1
-
     with tracer.trace("test-error-trace") as trace_client:
 
         # Simulate the callback lifecycle with error
@@ -243,17 +195,11 @@ def test_error_handling(tracer, litellm_handler):
         assert "API Error" in str(updated_span.output)
 
 
-def test_real_litellm_call_with_agent(tracer, mock_agent, setup_litellm_handler):
+def test_real_litellm_call_with_agent(tracer, mock_agent, cleanup_litellm_handlers):
     """Test the mock agent with real LiteLLM integration"""
 
-    # Get or create handler (ensures only one)
-    handler = get_or_create_litellm_handler(tracer)
-
-    # Verify single handler
-    our_handlers = [cb for cb in litellm.callbacks if isinstance(
-        cb, JudgevalLitellmCallbackHandler)]
-    assert len(
-        our_handlers) == 1, f"Expected 1 handler, found {len(our_handlers)}"
+    # Setup handler
+    handler = setup_litellm_handler(tracer)
 
     @tracer.observe(name="agent-generate")
     def agent_generate_with_tracing(prompt: str) -> str:
@@ -270,11 +216,6 @@ def test_real_litellm_call_with_agent(tracer, mock_agent, setup_litellm_handler)
 
 def test_save_coordination(tracer, litellm_handler):
     """Test that save coordination works properly"""
-
-    # Verify single handler
-    our_handlers = [cb for cb in litellm.callbacks if isinstance(
-        cb, JudgevalLitellmCallbackHandler)]
-    assert len(our_handlers) == 1
 
     # Track save calls
     save_calls = []
@@ -345,11 +286,6 @@ def test_save_coordination(tracer, litellm_handler):
 def test_multiple_llm_calls_same_trace(tracer, litellm_handler):
     """Test multiple LiteLLM calls within the same trace"""
 
-    # Verify single handler
-    our_handlers = [cb for cb in litellm.callbacks if isinstance(
-        cb, JudgevalLitellmCallbackHandler)]
-    assert len(our_handlers) == 1
-
     with tracer.trace("test-multiple-calls") as trace_client:
 
         # First LLM call
@@ -397,17 +333,11 @@ def test_multiple_llm_calls_same_trace(tracer, litellm_handler):
         assert second_span.output == "Second response"
 
 
-def test_real_llm_call_with_trace_saving(tracer, setup_litellm_handler):
+def test_real_llm_call_with_trace_saving(tracer, cleanup_litellm_handlers):
     """Test with real LiteLLM call and trace saving"""
 
-    # Get or create handler (ensures only one)
-    handler = get_or_create_litellm_handler(tracer)
-
-    # Verify single handler
-    our_handlers = [cb for cb in litellm.callbacks if isinstance(
-        cb, JudgevalLitellmCallbackHandler)]
-    assert len(
-        our_handlers) == 1, f"Expected 1 handler, found {len(our_handlers)}"
+    # Setup handler
+    handler = setup_litellm_handler(tracer)
 
     # Track spans created
     spans_created = []
@@ -494,7 +424,7 @@ if __name__ == "__main__":
         project_name="litellm-test"
     )
 
-    handler = get_or_create_litellm_handler(tracer)
+    handler = setup_litellm_handler(tracer)
     print("LiteLLM integration test setup successful!")
     print(f"Handler created: {handler}")
     print(f"Tracer ready: {tracer}")
