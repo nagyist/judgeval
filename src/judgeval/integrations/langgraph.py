@@ -152,7 +152,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
 
         # Get span ID and check if it exists
         span_id = self._run_id_to_span_id.get(run_id)
-        token = self.span_id_to_token.get(span_id)
+        token = self.span_id_to_token.pop(span_id, None)
         self.tracer.reset_current_span(token, span_id)
 
         start_time = self._span_id_to_start_time.get(span_id) if span_id else None
@@ -179,7 +179,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                 if self._trace_client and not self._trace_saved: # Check if not already saved
                     # TODO: Check if trace_client.save needs await if TraceClient becomes async
                     trace_id, trace_data = self._trace_client.save(overwrite=self._trace_client.overwrite) # Use client's overwrite setting
-                    token = self.trace_id_to_token.get(trace_id)
+                    token = self.trace_id_to_token.pop(trace_id, None)
                     self.tracer.reset_current_trace(token, trace_id)
                     # current_trace_var.set(None)
                     self.traces.append(trace_data) # Leaving this in for now but can probably be removed
