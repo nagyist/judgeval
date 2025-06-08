@@ -1,13 +1,10 @@
 import pytest
 import asyncio
-from unittest.mock import Mock, patch, AsyncMock
-from typing import List, Dict, Any
-from datetime import datetime
+from unittest.mock import Mock, patch
 
 from judgeval.run_evaluation import (
     send_to_rabbitmq,
     execute_api_eval,
-    execute_api_trace_eval,
     merge_results,
     check_missing_scorer_data,
     check_experiment_type,
@@ -32,8 +29,6 @@ from judgeval.data import (
 from judgeval.evaluation_run import EvaluationRun
 from judgeval.data.trace_run import TraceRun
 from judgeval.scorers import (
-    APIJudgmentScorer,
-    JudgevalScorer,
     FaithfulnessScorer
 )
 from judgeval.common.exceptions import JudgmentAPIError
@@ -424,6 +419,7 @@ class TestRunEvaluation:
         )]
         
         with patch('judgeval.run_evaluation.SpinnerWrappedTask', return_value=asyncio.Future()) as mock_spinner, \
+             patch('asyncio.create_task', return_value=asyncio.Future()) as mock_create_task, \
              patch('builtins.input', return_value='y'):
             # Set the result of the future
             mock_spinner.return_value.set_result(mock_results)
