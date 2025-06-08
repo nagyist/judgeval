@@ -102,7 +102,7 @@ def execute_api_eval(evaluation_run: EvaluationRun) -> List[Dict]:
 
 def execute_api_trace_eval(trace_run: TraceRun) -> Dict:
     """
-    Executes an evaluation of a list of `Example`s using one or more `JudgmentScorer`s via the Judgment API.
+    Executes an evaluation of a list of `Trace`s using one or more `JudgmentScorer`s via the Judgment API.
     """
         
     try:
