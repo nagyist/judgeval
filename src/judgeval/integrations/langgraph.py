@@ -4,7 +4,7 @@ import time
 import uuid
 import contextvars # <--- Import contextvars
 
-from judgeval.common.tracer import TraceClient, TraceSpan, Tracer, SpanType, EvaluationConfig, current_trace_var, current_span_var
+from judgeval.common.tracer import TraceClient, TraceSpan, Tracer, SpanType, EvaluationConfig
 from judgeval.data import Example # Import Example
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -75,8 +75,9 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                 enable_evaluations=self.tracer.enable_evaluations
             )
             self._trace_client = client_instance
-            token = current_trace_var.set(self._trace_client)
-            self.trace_id_to_token[trace_id] = token
+            token = self.tracer.set_current_trace(self._trace_client)
+            if token:
+                self.trace_id_to_token[trace_id] = token
             if self._trace_client:
                 self._root_run_id = run_id # Assign the first run_id encountered as the tentative root
                 self._trace_saved = False # Ensure flag is reset
@@ -119,7 +120,9 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
 
         # --- Set SPAN context variable ONLY for chain (node) spans (Sync version) ---
         if span_type == "chain":
-            self.tracer.set_current_span(span_id)
+            token = self.tracer.set_current_span(span_id)
+            if token:
+                self.span_id_to_token[span_id] = token
 
         new_trace = TraceSpan(
             span_id=span_id,
@@ -134,8 +137,9 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
         new_trace.inputs = inputs
 
         trace_client.add_span(new_trace)
-        token = current_span_var.set(span_id)
-        self.span_id_to_token[span_id] = token
+        # token = self.tracer.set_current_span(span_id)
+        # if token:
+        #     self.span_id_to_token[span_id] = token
 
     def _end_span_tracking(
         self,
@@ -149,8 +153,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
         # Get span ID and check if it exists
         span_id = self._run_id_to_span_id.get(run_id)
         token = self.span_id_to_token.get(span_id)
-        if token:
-            current_span_var.reset(token)
+        self.tracer.reset_current_span(token, span_id)
 
         start_time = self._span_id_to_start_time.get(span_id) if span_id else None
         duration = time.time() - start_time if start_time is not None else None
@@ -177,8 +180,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                     # TODO: Check if trace_client.save needs await if TraceClient becomes async
                     trace_id, trace_data = self._trace_client.save(overwrite=self._trace_client.overwrite) # Use client's overwrite setting
                     token = self.trace_id_to_token.get(trace_id)
-                    if token:
-                        current_trace_var.reset(token)
+                    self.tracer.reset_current_trace(token, trace_id)
                     # current_trace_var.set(None)
                     self.traces.append(trace_data) # Leaving this in for now but can probably be removed
                     self._trace_saved = True # Set flag only after successful save
