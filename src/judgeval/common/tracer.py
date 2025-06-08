@@ -673,7 +673,7 @@ class _DeepTracer:
         except Exception:
             return f"{module_name}.{func_name}"
     
-    def __new__(cls):
+    def __new__(cls, tracer: 'Tracer' = None):
         with cls._lock:
             if cls._instance is None:
                 cls._instance = super().__new__(cls)
