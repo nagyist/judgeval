@@ -138,15 +138,9 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
 
         trace_client.add_span(new_trace)
         
-        # Save trace on first span to get UI link for live tracing
-        is_first_span = len(trace_client.trace_spans) == 1
-        if is_first_span:
-            try:
-                trace_id, server_response = trace_client.save_with_rate_limiting(overwrite=trace_client.overwrite, final_save=False)
-                # Link will be shown by upsert_trace method
-            except Exception as e:
-                import warnings
-                warnings.warn(f"Failed to save initial LangGraph trace for live tracking: {e}")
+        # Queue span with initial state (input phase) through background service
+        if trace_client.background_span_service:
+            trace_client.background_span_service.queue_span(new_trace, span_state="input")
         
         # token = self.tracer.set_current_span(span_id)
         # if token:
@@ -175,6 +169,11 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
             if trace_span:
                 trace_span.duration = duration
                 trace_span.output = error if error else outputs
+                
+                # Queue span with completed state through background service
+                if trace_client.background_span_service:
+                    span_state = "error" if error else "completed"
+                    trace_client.background_span_service.queue_span(trace_span, span_state=span_state)
 
             # Clean up dictionaries for this specific span
             if span_id in self._span_id_to_start_time: del self._span_id_to_start_time[span_id]
@@ -188,8 +187,12 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                 # Reset input storage for this handler instance
 
                 if self._trace_client and not self._trace_saved: # Check if not already saved
+                    # Flush background spans before saving the final trace
+                    if self._trace_client.background_span_service:
+                        self._trace_client.background_span_service.flush()
+                    
                     # TODO: Check if trace_client.save needs await if TraceClient becomes async
-                    trace_id, trace_data = self._trace_client.save_with_rate_limiting(overwrite=self._trace_client.overwrite, final_save=True) # Use client's overwrite setting
+                    trace_id, trace_data = self._trace_client.save(overwrite=self._trace_client.overwrite) # Use client's overwrite setting
                     token = self.trace_id_to_token.pop(trace_id, None)
                     self.tracer.reset_current_trace(token, trace_id)
                     # current_trace_var.set(None)
@@ -282,7 +285,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
             if trace_client and not self._trace_saved:
                 # Save might need to be async if TraceClient methods become async
                 # Pass overwrite=True based on client's setting
-                trace_id_saved, trace_data = trace_client.save_with_rate_limiting(overwrite=trace_client.overwrite, final_save=True)
+                trace_id_saved, trace_data = trace_client.save(overwrite=trace_client.overwrite)
                 self.traces.append(trace_data) # Leaving this in for now but can probably be removed
                 self._trace_saved = True
                 # Reset tracer's active client *after* successful save

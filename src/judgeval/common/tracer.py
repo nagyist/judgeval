@@ -1661,24 +1661,24 @@ class Tracer:
         If not found (e.g., context lost across threads/tasks),
         it falls back to the active trace client managed by the callback handler.
         """
-        # trace_from_context = current_trace_var.get()
-        # if trace_from_context:
-        #     return trace_from_context
-        
-        # # Fallback: Check the active client potentially set by a callback handler
-        # if hasattr(self, '_active_trace_client') and self._active_trace_client:
-        #     # warnings.warn("Falling back to _active_trace_client in get_current_trace. ContextVar might be lost.", RuntimeWarning)
-        #     return self._active_trace_client
-            
-        # # If neither is available
-        # # warnings.warn("No current trace found in context variable or active client fallback.", RuntimeWarning)
-        # return None
-
         try:
             current_trace_var_val = current_trace_var.get()
         except:
             current_trace_var_val = None
-        return (self.current_trace or current_trace_var_val) if self.trace_across_async_contexts else current_trace_var_val
+            
+        # Use context variable or class variable based on trace_across_async_contexts setting
+        context_trace = (self.current_trace or current_trace_var_val) if self.trace_across_async_contexts else current_trace_var_val
+        
+        # If we found a trace from context, return it
+        if context_trace:
+            return context_trace
+        
+        # Fallback: Check the active client potentially set by a callback handler (e.g., LangGraph)
+        if hasattr(self, '_active_trace_client') and self._active_trace_client:
+            return self._active_trace_client
+            
+        # If neither is available, return None
+        return None
     
     def reset_current_trace(self, token: Optional[str] = None, trace_id: Optional[str] = None):
         try:
@@ -1945,7 +1945,20 @@ class Tracer:
                         
                         # Save the completed trace
                         trace_id, server_response = current_trace.save_with_rate_limiting(overwrite=overwrite, final_save=True)
-                        self.traces.append(server_response)  # Store server response instead of trace_data
+                        
+                        # Store the complete trace data instead of just server response
+                        complete_trace_data = {
+                            "trace_id": current_trace.trace_id,
+                            "name": current_trace.name,
+                            "created_at": datetime.utcfromtimestamp(current_trace.start_time).isoformat(),
+                            "duration": current_trace.get_duration(),
+                            "trace_spans": [span.model_dump() for span in current_trace.trace_spans],
+                            "overwrite": overwrite,
+                            "offline_mode": self.offline_mode,
+                            "parent_trace_id": current_trace.parent_trace_id,
+                            "parent_name": current_trace.parent_name
+                        }
+                        self.traces.append(complete_trace_data)
 
                         # Reset trace context (span context resets automatically)
                         self.reset_current_trace(trace_token)
@@ -2048,7 +2061,20 @@ class Tracer:
                         
                         # Save the completed trace
                         trace_id, server_response = current_trace.save_with_rate_limiting(overwrite=overwrite, final_save=True)
-                        self.traces.append(server_response)  # Store server response instead of trace_data
+                        
+                        # Store the complete trace data instead of just server response
+                        complete_trace_data = {
+                            "trace_id": current_trace.trace_id,
+                            "name": current_trace.name,
+                            "created_at": datetime.utcfromtimestamp(current_trace.start_time).isoformat(),
+                            "duration": current_trace.get_duration(),
+                            "trace_spans": [span.model_dump() for span in current_trace.trace_spans],
+                            "overwrite": overwrite,
+                            "offline_mode": self.offline_mode,
+                            "parent_trace_id": current_trace.parent_trace_id,
+                            "parent_name": current_trace.parent_name
+                        }
+                        self.traces.append(complete_trace_data)
 
                         # Reset trace context (span context resets automatically)
                         self.reset_current_trace(trace_token)
