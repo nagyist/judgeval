@@ -58,6 +58,8 @@ from judgeval.constants import (
     RABBITMQ_QUEUE,
     JUDGMENT_TRACES_DELETE_API_URL,
     JUDGMENT_PROJECT_DELETE_API_URL,
+    JUDGMENT_TRACES_SPANS_BATCH_API_URL,
+    JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL,
 )
 from judgeval.data import Example, Trace, TraceSpan, TraceUsage
 from judgeval.scorers import APIJudgmentScorer, JudgevalScorer
@@ -1050,9 +1052,6 @@ class BackgroundSpanService:
     
     def _send_spans_batch(self, spans: List[Dict[str, Any]]):
         """Send a batch of spans to the spans endpoint."""
-        # TODO: Replace with actual endpoint URL when available
-        SPANS_BATCH_ENDPOINT = "/api/v1/traces/spans/batch"
-        
         payload = {
             "spans": spans,
             "organization_id": self.organization_id
@@ -1071,37 +1070,35 @@ class BackgroundSpanService:
         try:
             serialized_data = json.dumps(payload, default=fallback_encoder)
             
-            # TODO: Replace with actual API call when endpoint is ready
-            # For now, we'll just log what would be sent
-            rprint(f"[BackgroundSpanService] Would send {len(spans)} spans to {SPANS_BATCH_ENDPOINT}")
+            # Send the actual HTTP request to the batch endpoint
+            response = requests.post(
+                JUDGMENT_TRACES_SPANS_BATCH_API_URL,
+                data=serialized_data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.judgment_api_key}",
+                    "X-Organization-Id": self.organization_id
+                },
+                verify=True,
+                timeout=30  # Add timeout to prevent hanging
+            )
             
-            # When the endpoint is ready, uncomment and modify:
-            # response = requests.post(
-            #     SPANS_BATCH_ENDPOINT,
-            #     data=serialized_data,
-            #     headers={
-            #         "Content-Type": "application/json",
-            #         "Authorization": f"Bearer {self.judgment_api_key}",
-            #         "X-Organization-Id": self.organization_id
-            #     },
-            #     verify=True
-            # )
-            # 
-            # if response.status_code != HTTPStatus.OK:
-            #     raise ValueError(f"Failed to send spans batch: {response.text}")
+            if response.status_code != HTTPStatus.OK:
+                warnings.warn(f"Failed to send spans batch: HTTP {response.status_code} - {response.text}")
+            else:
+                rprint(f"[BackgroundSpanService] Successfully sent {len(spans)} spans to batch endpoint")
             
+        except requests.RequestException as e:
+            warnings.warn(f"Network error sending spans batch: {e}")
         except Exception as e:
             warnings.warn(f"Failed to serialize or send spans batch: {e}")
     
     def _send_evaluation_runs_batch(self, evaluation_runs: List[Dict[str, Any]]):
         """Send a batch of evaluation runs with their associated span data to the endpoint."""
-        # TODO: Replace with actual endpoint URL when available
-        EVALUATION_RUNS_BATCH_ENDPOINT = "/api/v1/evaluation_runs/batch"
-        
         # Structure payload to include both evaluation run data and span data
         evaluation_entries = []
-        for eval_item in evaluation_runs:
-            eval_data = eval_item['data']
+        for eval_data in evaluation_runs:
+            # eval_data already contains the evaluation run data (no need to access ['data'])
             entry = {
                 "evaluation_run": {
                     # Extract evaluation run fields (excluding span-specific fields)
@@ -1134,28 +1131,26 @@ class BackgroundSpanService:
         try:
             serialized_data = json.dumps(payload, default=fallback_encoder)
             
-            # TODO: Replace with actual API call when endpoint is ready
-            rprint(f"[BackgroundSpanService] Would send {len(evaluation_entries)} evaluation entries (eval + span data) to {EVALUATION_RUNS_BATCH_ENDPOINT}")
-            # Debug: Show the comprehensive structure
-            if evaluation_entries:
-                example_entry = evaluation_entries[0]
-                rprint(f"  - Example entry: eval_run + span_data for span_id: {example_entry['associated_span']['span_id']}")
+            # Send the actual HTTP request to the batch endpoint
+            response = requests.post(
+                JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL,
+                data=serialized_data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.judgment_api_key}",
+                    "X-Organization-Id": self.organization_id
+                },
+                verify=True,
+                timeout=30  # Add timeout to prevent hanging
+            )
             
-            # When the endpoint is ready, uncomment and modify:
-            # response = requests.post(
-            #     EVALUATION_RUNS_BATCH_ENDPOINT,
-            #     data=serialized_data,
-            #     headers={
-            #         "Content-Type": "application/json",
-            #         "Authorization": f"Bearer {self.judgment_api_key}",
-            #         "X-Organization-Id": self.organization_id
-            #     },
-            #     verify=True
-            # )
-            # 
-            # if response.status_code != HTTPStatus.OK:
-            #     raise ValueError(f"Failed to send evaluation runs batch: {response.text}")
+            if response.status_code != HTTPStatus.OK:
+                warnings.warn(f"Failed to send evaluation runs batch: HTTP {response.status_code} - {response.text}")
+            else:
+                rprint(f"[BackgroundSpanService] Successfully sent {len(evaluation_entries)} evaluation entries to batch endpoint")
             
+        except requests.RequestException as e:
+            warnings.warn(f"Network error sending evaluation runs batch: {e}")
         except Exception as e:
             warnings.warn(f"Failed to send evaluation runs batch: {e}")
     
