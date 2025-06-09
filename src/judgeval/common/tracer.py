@@ -530,6 +530,10 @@ class TraceClient:
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
             span.agent_name = agent_name
+            
+            # Queue span with agent_name data
+            if self.background_span_service:
+                self.background_span_service.queue_span(span, span_state="agent_name")
 
     def record_state_before(self, state: dict):
         """Records the agent's state before a tool execution on the current span.
@@ -542,6 +546,10 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.state_before = state
             
+            # Queue span with state_before data
+            if self.background_span_service:
+                self.background_span_service.queue_span(span, span_state="state_before")
+            
     def record_state_after(self, state: dict):
         """Records the agent's state after a tool execution on the current span.
 
@@ -552,6 +560,10 @@ class TraceClient:
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
             span.state_after = state
+            
+            # Queue span with state_after data
+            if self.background_span_service:
+                self.background_span_service.queue_span(span, span_state="state_after")
 
     async def _update_coroutine(self, span: TraceSpan, coroutine: Any, field: str):
         """Helper method to update the output of a trace entry once the coroutine completes"""
@@ -596,6 +608,10 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.usage = usage
             
+            # Queue span with usage data
+            if self.background_span_service:
+                self.background_span_service.queue_span(span, span_state="usage")
+            
             return span # Return the created entry
         # Removed else block - original didn't have one
         return None # Return None if no span_id found
@@ -605,6 +621,11 @@ class TraceClient:
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
             span.error = error
+            
+            # Queue span with error data
+            if self.background_span_service:
+                self.background_span_service.queue_span(span, span_state="error")
+            
             return span
         return None
     
@@ -691,6 +712,13 @@ def _capture_exception_for_trace(current_trace: Optional['TraceClient'], exc_inf
         pass
 
     current_trace.record_error(formatted_exception)
+    
+    # Queue the span with error state through background service
+    if current_trace.background_span_service:
+        current_span_id = current_trace.get_current_span()
+        if current_span_id and current_span_id in current_trace.span_id_to_span:
+            error_span = current_trace.span_id_to_span[current_span_id]
+            current_trace.background_span_service.queue_span(error_span, span_state="error")
 
 class BackgroundSpanService:
     """
@@ -861,21 +889,67 @@ class BackgroundSpanService:
             warnings.warn(f"Failed to serialize or send spans batch: {e}")
     
     def _send_evaluation_runs_batch(self, evaluation_runs: List[Dict[str, Any]]):
-        """Send a batch of evaluation runs to the evaluation runs endpoint."""
+        """Send a batch of evaluation runs with their associated span data to the endpoint."""
         # TODO: Replace with actual endpoint URL when available
         EVALUATION_RUNS_BATCH_ENDPOINT = "/api/v1/evaluation_runs/batch"
         
+        # Structure payload to include both evaluation run data and span data
+        evaluation_entries = []
+        for eval_item in evaluation_runs:
+            eval_data = eval_item['data']
+            entry = {
+                "evaluation_run": {
+                    # Extract evaluation run fields (excluding span-specific fields)
+                    key: value for key, value in eval_data.items() 
+                    if key not in ['associated_span_id', 'span_data', 'queued_at']
+                },
+                "associated_span": {
+                    "span_id": eval_data.get('associated_span_id'),
+                    "span_data": eval_data.get('span_data')
+                },
+                "queued_at": eval_data.get('queued_at')
+            }
+            evaluation_entries.append(entry)
+        
         payload = {
-            "evaluation_runs": evaluation_runs,
-            "organization_id": self.organization_id
+            "organization_id": self.organization_id,
+            "evaluation_entries": evaluation_entries  # Each entry contains both eval run + span data
         }
         
+        # Serialize with fallback encoder
+        def fallback_encoder(obj):
+            try:
+                return repr(obj)
+            except Exception:
+                try:
+                    return str(obj)
+                except Exception as e:
+                    return f"<Unserializable object of type {type(obj).__name__}: {e}>"
+        
         try:
+            serialized_data = json.dumps(payload, default=fallback_encoder)
+            
             # TODO: Replace with actual API call when endpoint is ready
-            rprint(f"[BackgroundSpanService] Would send {len(evaluation_runs)} evaluation runs to {EVALUATION_RUNS_BATCH_ENDPOINT}")
-            # Debug: Show structure with span data included
-            for eval_run in evaluation_runs[:1]:  # Show first one as example
-                rprint(f"  - Eval run with span_id: {eval_run.get('associated_span_id')} and span data included")
+            rprint(f"[BackgroundSpanService] Would send {len(evaluation_entries)} evaluation entries (eval + span data) to {EVALUATION_RUNS_BATCH_ENDPOINT}")
+            # Debug: Show the comprehensive structure
+            if evaluation_entries:
+                example_entry = evaluation_entries[0]
+                rprint(f"  - Example entry: eval_run + span_data for span_id: {example_entry['associated_span']['span_id']}")
+            
+            # When the endpoint is ready, uncomment and modify:
+            # response = requests.post(
+            #     EVALUATION_RUNS_BATCH_ENDPOINT,
+            #     data=serialized_data,
+            #     headers={
+            #         "Content-Type": "application/json",
+            #         "Authorization": f"Bearer {self.judgment_api_key}",
+            #         "X-Organization-Id": self.organization_id
+            #     },
+            #     verify=True
+            # )
+            # 
+            # if response.status_code != HTTPStatus.OK:
+            #     raise ValueError(f"Failed to send evaluation runs batch: {response.text}")
             
         except Exception as e:
             warnings.warn(f"Failed to send evaluation runs batch: {e}")
@@ -1888,6 +1962,16 @@ def wrap(client: Any, trace_across_async_contexts: bool = Tracer.trace_across_as
             output, usage = format_func(client, response)
             span.record_output(output)
             span.record_usage(usage)
+            
+            # Queue the completed LLM span now that it has all data (input, output, usage)
+            current_trace = _get_current_trace()
+            if current_trace and current_trace.background_span_service:
+                # Get the current span from the trace client
+                current_span_id = current_trace.get_current_span()
+                if current_span_id and current_span_id in current_trace.span_id_to_span:
+                    completed_span = current_trace.span_id_to_span[current_span_id]
+                    current_trace.background_span_service.queue_span(completed_span, span_state="completed")
+            
             return response
     
     # --- Traced Async Functions ---
@@ -2326,6 +2410,15 @@ def _sync_stream_wrapper(
         # Update the trace entry with the accumulated content and usage
         span.output = "".join(content_parts)
         span.usage = final_usage
+        
+        # Queue the completed LLM span now that streaming is done and all data is available
+        # Note: We need to get the TraceClient that owns this span to access the background service
+        # We can find this through the tracer singleton since spans are associated with traces
+        from judgeval.common.tracer import Tracer
+        tracer_instance = Tracer._instance
+        if tracer_instance and tracer_instance.background_span_service:
+            tracer_instance.background_span_service.queue_span(span, span_state="completed")
+        
         # Note: We might need to adjust _serialize_output if this dict causes issues,
         # but Pydantic's model_dump should handle dicts.
 
@@ -2410,6 +2503,12 @@ async def _async_stream_wrapper(
             span.usage = usage_info
             start_ts = getattr(span, 'created_at', time.time())
             span.duration = time.time() - start_ts
+            
+            # Queue the completed LLM span now that async streaming is done and all data is available
+            from judgeval.common.tracer import Tracer
+            tracer_instance = Tracer._instance
+            if tracer_instance and tracer_instance.background_span_service:
+                tracer_instance.background_span_service.queue_span(span, span_state="completed")
         # else: # Handle error case if necessary, but remove debug print
 
 def cost_per_token(*args, **kwargs):
