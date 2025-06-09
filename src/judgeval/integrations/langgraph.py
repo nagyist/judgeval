@@ -3,6 +3,7 @@ from uuid import UUID
 import time
 import uuid
 import contextvars # <--- Import contextvars
+from datetime import datetime
 
 from judgeval.common.tracer import TraceClient, TraceSpan, Tracer, SpanType, EvaluationConfig
 from judgeval.data import Example # Import Example
@@ -83,6 +84,17 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                 self._trace_saved = False # Ensure flag is reset
                 # Set active client on Tracer (important for potential fallbacks)
                 self.tracer._active_trace_client = self._trace_client
+                
+                # NEW: Initial save for live tracking (follows the new practice)
+                try:
+                    trace_id_saved, server_response = self._trace_client.save_with_rate_limiting(
+                        overwrite=self._trace_client.overwrite, 
+                        final_save=False  # Initial save for live tracking
+                    )
+                except Exception as e:
+                    import warnings
+                    warnings.warn(f"Failed to save initial trace for live tracking: {e}")
+                
                 return self._trace_client
             else:
                 return None
@@ -191,12 +203,28 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                     if self._trace_client.background_span_service:
                         self._trace_client.background_span_service.flush()
                     
-                    # TODO: Check if trace_client.save needs await if TraceClient becomes async
-                    trace_id, trace_data = self._trace_client.save(overwrite=self._trace_client.overwrite) # Use client's overwrite setting
+                    # NEW: Use save_with_rate_limiting with final_save=True for final save
+                    trace_id, trace_data = self._trace_client.save_with_rate_limiting(
+                        overwrite=self._trace_client.overwrite, 
+                        final_save=True  # Final save with usage counter updates
+                    )
                     token = self.trace_id_to_token.pop(trace_id, None)
                     self.tracer.reset_current_trace(token, trace_id)
                     # current_trace_var.set(None)
-                    self.traces.append(trace_data) # Leaving this in for now but can probably be removed
+                    
+                    # Store complete trace data instead of server response
+                    complete_trace_data = {
+                        "trace_id": self._trace_client.trace_id,
+                        "name": self._trace_client.name,
+                        "created_at": datetime.utcfromtimestamp(self._trace_client.start_time).isoformat(),
+                        "duration": self._trace_client.get_duration(),
+                        "trace_spans": [span.model_dump() for span in self._trace_client.trace_spans],
+                        "overwrite": self._trace_client.overwrite,
+                        "offline_mode": self.tracer.offline_mode,
+                        "parent_trace_id": self._trace_client.parent_trace_id,
+                        "parent_name": self._trace_client.parent_name
+                    }
+                    self.tracer.traces.append(complete_trace_data)
                     self._trace_saved = True # Set flag only after successful save
             finally:
                 # --- NEW: Consolidated Cleanup Logic --- 
@@ -283,10 +311,25 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
         # --- Root node cleanup (Existing logic - slightly modified save call) ---
         if run_id == self._root_run_id:
             if trace_client and not self._trace_saved:
-                # Save might need to be async if TraceClient methods become async
-                # Pass overwrite=True based on client's setting
-                trace_id_saved, trace_data = trace_client.save(overwrite=trace_client.overwrite)
-                self.traces.append(trace_data) # Leaving this in for now but can probably be removed
+                # NEW: Use save_with_rate_limiting with final_save=True for final save
+                trace_id_saved, trace_data = trace_client.save_with_rate_limiting(
+                    overwrite=trace_client.overwrite,
+                    final_save=True  # Final save with usage counter updates
+                )
+                
+                # Store complete trace data instead of server response
+                complete_trace_data = {
+                    "trace_id": trace_client.trace_id,
+                    "name": trace_client.name,
+                    "created_at": datetime.utcfromtimestamp(trace_client.start_time).isoformat(),
+                    "duration": trace_client.get_duration(),
+                    "trace_spans": [span.model_dump() for span in trace_client.trace_spans],
+                    "overwrite": trace_client.overwrite,
+                    "offline_mode": self.tracer.offline_mode,
+                    "parent_trace_id": trace_client.parent_trace_id,
+                    "parent_name": trace_client.parent_name
+                }
+                self.tracer.traces.append(complete_trace_data)
                 self._trace_saved = True
                 # Reset tracer's active client *after* successful save
                 if self.tracer._active_trace_client == trace_client:
