@@ -1085,8 +1085,7 @@ class BackgroundSpanService:
             
             if response.status_code != HTTPStatus.OK:
                 warnings.warn(f"Failed to send spans batch: HTTP {response.status_code} - {response.text}")
-            else:
-                rprint(f"[BackgroundSpanService] Successfully sent {len(spans)} spans to batch endpoint")
+           
             
         except requests.RequestException as e:
             warnings.warn(f"Network error sending spans batch: {e}")
@@ -1146,8 +1145,7 @@ class BackgroundSpanService:
             
             if response.status_code != HTTPStatus.OK:
                 warnings.warn(f"Failed to send evaluation runs batch: HTTP {response.status_code} - {response.text}")
-            else:
-                rprint(f"[BackgroundSpanService] Successfully sent {len(evaluation_entries)} evaluation entries to batch endpoint")
+           
             
         except requests.RequestException as e:
             warnings.warn(f"Network error sending evaluation runs batch: {e}")
@@ -1204,7 +1202,6 @@ class BackgroundSpanService:
         if self._shutdown_event.is_set():
             return
             
-        rprint("[BackgroundSpanService] Shutting down...")
         
         # Signal shutdown
         self._shutdown_event.set()
@@ -1217,7 +1214,6 @@ class BackgroundSpanService:
             if thread.is_alive():
                 thread.join(timeout=10.0)
         
-        rprint("[BackgroundSpanService] Shutdown complete")
     
     def get_queue_size(self) -> int:
         """Get the current size of the span queue."""
