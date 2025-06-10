@@ -200,8 +200,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
 
                 if self._trace_client and not self._trace_saved: # Check if not already saved
                     # Flush background spans before saving the final trace
-                    if self._trace_client.background_span_service:
-                        self._trace_client.background_span_service.flush()
+
                     
                     # NEW: Use save_with_rate_limiting with final_save=True for final save
                     trace_id, trace_data = self._trace_client.save_with_rate_limiting(
@@ -224,6 +223,8 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                         "parent_trace_id": self._trace_client.parent_trace_id,
                         "parent_name": self._trace_client.parent_name
                     }
+                    if self._trace_client.background_span_service:
+                        self._trace_client.background_span_service.flush()
                     self.tracer.traces.append(complete_trace_data)
                     self._trace_saved = True # Set flag only after successful save
             finally:
