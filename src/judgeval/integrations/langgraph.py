@@ -137,7 +137,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
         #     if token:
         #         self.span_id_to_token[span_id] = token
 
-        new_trace = TraceSpan(
+        new_span = TraceSpan(
             span_id=span_id,
             trace_id=trace_client.trace_id,
             parent_span_id=parent_span_id,
@@ -147,13 +147,13 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
             span_type=span_type
         )
 
-        new_trace.inputs = inputs
+        new_span.inputs = inputs
 
-        trace_client.add_span(new_trace)
+        trace_client.add_span(new_span)
         
         # Queue span with initial state (input phase) through background service
         if trace_client.background_span_service:
-            trace_client.background_span_service.queue_span(new_trace, span_state="input")
+            trace_client.background_span_service.queue_span(new_span, span_state="input")
         
         token = self.tracer.set_current_span(span_id)
         if token:
@@ -202,17 +202,6 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                 if self._trace_client and not self._trace_saved: # Check if not already saved
                     # Flush background spans before saving the final trace
 
-                    
-                    # NEW: Use save_with_rate_limiting with final_save=True for final save
-                    trace_id, trace_data = self._trace_client.save_with_rate_limiting(
-                        overwrite=self._trace_client.overwrite, 
-                        final_save=True  # Final save with usage counter updates
-                    )
-                    token = self.trace_id_to_token.pop(trace_id, None)
-                    self.tracer.reset_current_trace(token, trace_id)
-                    # current_trace_var.set(None)
-                    
-                    # Store complete trace data instead of server response
                     complete_trace_data = {
                         "trace_id": self._trace_client.trace_id,
                         "name": self._trace_client.name,
@@ -224,6 +213,18 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                         "parent_trace_id": self._trace_client.parent_trace_id,
                         "parent_name": self._trace_client.parent_name
                     }
+                    
+                    # NEW: Use save_with_rate_limiting with final_save=True for final save
+                    trace_id, trace_data = self._trace_client.save_with_rate_limiting(
+                        overwrite=self._trace_client.overwrite, 
+                        final_save=True  # Final save with usage counter updates
+                    )
+                    token = self.trace_id_to_token.pop(trace_id, None)
+                    self.tracer.reset_current_trace(token, trace_id)
+                    # current_trace_var.set(None)
+                    
+                    # Store complete trace data instead of server response
+                    
                     if self._trace_client.background_span_service:
                         self._trace_client.background_span_service.flush()
                     self.tracer.traces.append(complete_trace_data)

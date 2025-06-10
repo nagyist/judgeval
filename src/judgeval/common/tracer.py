@@ -524,7 +524,6 @@ class TraceClient:
         )
         self.add_span(span)
         
-        # Save trace on first span to get UI link for live tracing
         
         
         # Queue span with initial state (input phase)
@@ -740,8 +739,8 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.output = "<pending>" if inspect.iscoroutine(output) else output
             
-            # if inspect.iscoroutine(output):
-            #     asyncio.create_task(self._update_coroutine(span, output, "output"))
+            if inspect.iscoroutine(output):
+                asyncio.create_task(self._update_coroutine(span, output, "output"))
             
             # # Queue span with output data (unless it's pending)
             # if self.background_span_service and not inspect.iscoroutine(output):
@@ -1763,10 +1762,6 @@ class Tracer:
                 # Save the trace to the database to handle Evaluations' trace_id referential integrity
                 yield trace
             finally:
-                # Flush background spans for this trace before completing
-                # if self.background_span_service:
-                #     self.background_span_service.flush()
-                
                 # Reset the context variable
                 self.reset_current_trace(token)
 
@@ -1973,11 +1968,6 @@ class Tracer:
                     finally:
                         # Flush background spans before saving the trace
  
-                        
-                        # Save the completed trace
-                        trace_id, server_response = current_trace.save_with_rate_limiting(overwrite=overwrite, final_save=True)
-                        
-                        # Store the complete trace data instead of just server response
                         complete_trace_data = {
                             "trace_id": current_trace.trace_id,
                             "name": current_trace.name,
@@ -1989,6 +1979,11 @@ class Tracer:
                             "parent_trace_id": current_trace.parent_trace_id,
                             "parent_name": current_trace.parent_name
                         }
+                        # Save the completed trace
+                        trace_id, server_response = current_trace.save_with_rate_limiting(overwrite=overwrite, final_save=True)
+                        
+                        # Store the complete trace data instead of just server response
+                        
                         self.traces.append(complete_trace_data)
           
                         # if self.background_span_service:
