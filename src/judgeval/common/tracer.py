@@ -609,8 +609,7 @@ class TraceClient:
         # span_id_at_eval_call = current_span_var.get()
         # print(f"[TraceClient.async_evaluate] Captured span ID at eval call: {span_id_at_eval_call}")
         # Prioritize explicitly passed span_id, fallback to context var
-        current_span_ctx_var = current_span_var.get()
-        span_id_to_use = span_id if span_id is not None else current_span_ctx_var if current_span_ctx_var is not None else self.tracer.get_current_span()
+        span_id_to_use = span_id if span_id is not None else self.get_current_span()
         # print(f"[TraceClient.async_evaluate] Using span_id: {span_id_to_use}")
         # --- End Modification ---
 
@@ -663,7 +662,7 @@ class TraceClient:
        return self
     
     def record_input(self, inputs: dict):
-        current_span_id = current_span_var.get()
+        current_span_id = self.get_current_span()
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
             # Ignore self parameter
@@ -676,7 +675,7 @@ class TraceClient:
                 self.background_span_service.queue_span(span, span_state="input")
     
     def record_agent_name(self, agent_name: str):
-        current_span_id = current_span_var.get()
+        current_span_id = self.get_current_span()
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
             span.agent_name = agent_name
@@ -691,7 +690,7 @@ class TraceClient:
         Args:
             state: A dictionary representing the agent's state.
         """
-        current_span_id = current_span_var.get()
+        current_span_id = self.get_current_span()
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
             span.state_before = state
@@ -706,7 +705,7 @@ class TraceClient:
         Args:
             state: A dictionary representing the agent's state.
         """
-        current_span_id = current_span_var.get()
+        current_span_id = self.get_current_span()
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
             span.state_after = state
@@ -736,7 +735,7 @@ class TraceClient:
             raise
 
     def record_output(self, output: Any):
-        current_span_id = current_span_var.get()
+        current_span_id = self.get_current_span()
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
             span.output = "<pending>" if inspect.iscoroutine(output) else output
@@ -753,7 +752,7 @@ class TraceClient:
         return None # Return None if no span_id found
     
     def record_usage(self, usage: TraceUsage):
-        current_span_id = current_span_var.get()
+        current_span_id = self.get_current_span()
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
             span.usage = usage
@@ -767,7 +766,7 @@ class TraceClient:
         return None # Return None if no span_id found
     
     def record_error(self, error: Dict[str, Any]):
-        current_span_id = current_span_var.get()
+        current_span_id = self.get_current_span()
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
             span.error = error
@@ -1363,11 +1362,11 @@ class _DeepTracer:
         if event not in ("call", "return", "exception"):
             return
         
-        current_trace = current_trace_var.get()
+        current_trace = self._tracer.get_current_trace()
         if not current_trace:
             return
         
-        parent_span_id = current_span_var.get()
+        parent_span_id = self._tracer.get_current_span()
         if not parent_span_id:
             return
 
@@ -1662,6 +1661,8 @@ class Tracer:
         return (self.current_span_id or current_span_var_val) if self.trace_across_async_contexts else current_span_var_val
     
     def reset_current_span(self, token: Optional[str] = None, span_id: Optional[str] = None):
+        if not span_id:
+            span_id = self.current_span_id
         try:
             current_span_var.reset(token)
         except:
@@ -1710,6 +1711,8 @@ class Tracer:
         return None
     
     def reset_current_trace(self, token: Optional[str] = None, trace_id: Optional[str] = None):
+        if not trace_id and self.current_trace:
+            trace_id = self.current_trace.trace_id
         try:
             current_trace_var.reset(token)
         except:
@@ -2310,7 +2313,7 @@ def wrap(client: Any, trace_across_async_contexts: bool = Tracer.trace_across_as
     
     # Function replacing sync .stream()
     def traced_stream_sync(*args, **kwargs):
-        current_trace = current_trace_var.get()
+        current_trace = _get_current_trace()
         if not current_trace or not original_stream:
             return original_stream(*args, **kwargs)
         
@@ -2827,7 +2830,7 @@ class _TracedAsyncStreamManagerWrapper(_BaseStreamManagerWrapper, AbstractAsyncC
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if hasattr(self, '_span_context_token'):
-            span_id = current_span_var.get()
+            span_id = self._trace_client.get_current_span()
             self._finalize_span(span_id)
             self._trace_client.reset_current_span(self._span_context_token)
             delattr(self, '_span_context_token')
@@ -2835,7 +2838,7 @@ class _TracedAsyncStreamManagerWrapper(_BaseStreamManagerWrapper, AbstractAsyncC
 
 class _TracedSyncStreamManagerWrapper(_BaseStreamManagerWrapper, AbstractContextManager):
     def __enter__(self):
-        self._parent_span_id_at_entry = current_span_var.get()
+        self._parent_span_id_at_entry = self._trace_client.get_current_span()
         if not self._trace_client:
             return self._original_manager.__enter__()
 
@@ -2849,7 +2852,7 @@ class _TracedSyncStreamManagerWrapper(_BaseStreamManagerWrapper, AbstractContext
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if hasattr(self, '_span_context_token'):
-            span_id = current_span_var.get()
+            span_id = self._trace_client.get_current_span()
             self._finalize_span(span_id)
             self._trace_client.reset_current_span(self._span_context_token)
             delattr(self, '_span_context_token')

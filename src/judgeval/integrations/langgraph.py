@@ -131,10 +131,10 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
 
 
         # --- Set SPAN context variable ONLY for chain (node) spans (Sync version) ---
-        if span_type == "chain":
-            token = self.tracer.set_current_span(span_id)
-            if token:
-                self.span_id_to_token[span_id] = token
+        # if span_type == "chain":
+        #     token = self.tracer.set_current_span(span_id)
+        #     if token:
+        #         self.span_id_to_token[span_id] = token
 
         new_trace = TraceSpan(
             span_id=span_id,
@@ -154,9 +154,9 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
         if trace_client.background_span_service:
             trace_client.background_span_service.queue_span(new_trace, span_state="input")
         
-        # token = self.tracer.set_current_span(span_id)
-        # if token:
-        #     self.span_id_to_token[span_id] = token
+        token = self.tracer.set_current_span(span_id)
+        if token:
+            self.span_id_to_token[span_id] = token
 
     def _end_span_tracking(
         self,
