@@ -149,12 +149,14 @@ class TraceManagerClient:
         
         return response.json()
 
-    def save_trace(self, trace_data: dict, offline_mode: bool = False):
+    def save_trace(self, trace_data: dict, offline_mode: bool = False, final_save: bool = True):
         """
         Saves a trace to the Judgment Supabase and optionally to S3 if configured.
 
         Args:
             trace_data: The trace data to save
+            offline_mode: Whether running in offline mode
+            final_save: Whether this is the final save (controls S3 saving)
             NOTE we save empty traces in order to properly handle async operations; we need something in the DB to associate the async results with
             
         Returns:
@@ -180,7 +182,6 @@ class TraceManagerClient:
                     return f"<Unserializable object of type {type(obj).__name__}: {e}>"
         
         serialized_trace_data = json.dumps(trace_data, default=fallback_encoder)
-
         response = requests.post(
             JUDGMENT_TRACES_SAVE_API_URL,
             data=serialized_trace_data,
@@ -200,8 +201,8 @@ class TraceManagerClient:
         # Parse server response
         server_response = response.json()
         
-        # If S3 storage is enabled, save to S3 as well
-        if self.tracer and self.tracer.use_s3:
+        # If S3 storage is enabled, save to S3 only on final save
+        if self.tracer and self.tracer.use_s3 and final_save:
             try:
                 s3_key = self.tracer.s3_storage.save_trace(
                     trace_data=trace_data,
@@ -251,7 +252,7 @@ class TraceManagerClient:
         
         return response.json()
 
-    def upsert_trace(self, trace_data: dict, offline_mode: bool = False, show_link: bool = True):
+    def upsert_trace(self, trace_data: dict, offline_mode: bool = False, show_link: bool = True, final_save: bool = True):
         """
         Upserts a trace to the Judgment API (always overwrites if exists).
 
@@ -259,6 +260,7 @@ class TraceManagerClient:
             trace_data: The trace data to upsert
             offline_mode: Whether running in offline mode
             show_link: Whether to show the UI link (for live tracing)
+            final_save: Whether this is the final save (controls S3 saving)
             
         Returns:
             dict: Server response containing UI URL and other metadata
@@ -295,8 +297,8 @@ class TraceManagerClient:
         # Parse server response
         server_response = response.json()
         
-        # If S3 storage is enabled, save to S3 as well
-        if self.tracer and self.tracer.use_s3:
+        # If S3 storage is enabled, save to S3 only on final save
+        if self.tracer and self.tracer.use_s3 and final_save:
             try:
                 s3_key = self.tracer.s3_storage.save_trace(
                     trace_data=trace_data,
@@ -822,7 +824,7 @@ class TraceClient:
             "parent_name": self.parent_name
         }        
         # --- Log trace data before saving ---
-        server_response = self.trace_manager_client.save_trace(trace_data, offline_mode=self.tracer.offline_mode)
+        server_response = self.trace_manager_client.save_trace(trace_data, offline_mode=self.tracer.offline_mode, final_save=True)
 
         # upload annotations
         # TODO: batch to the log endpoint
@@ -875,7 +877,8 @@ class TraceClient:
         server_response = self.trace_manager_client.upsert_trace(
             trace_data, 
             offline_mode=self.tracer.offline_mode,
-            show_link=not final_save  # Show link only on initial save, not final save
+            show_link=not final_save,  # Show link only on initial save, not final save
+            final_save=final_save  # Pass final_save to control S3 saving
         )
 
         # Update usage counters only on final save
