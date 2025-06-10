@@ -213,7 +213,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                         "parent_trace_id": self._trace_client.parent_trace_id,
                         "parent_name": self._trace_client.parent_name
                     }
-                    
+
                     # NEW: Use save_with_rate_limiting with final_save=True for final save
                     trace_id, trace_data = self._trace_client.save_with_rate_limiting(
                         overwrite=self._trace_client.overwrite, 
@@ -314,12 +314,6 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
         # --- Root node cleanup (Existing logic - slightly modified save call) ---
         if run_id == self._root_run_id:
             if trace_client and not self._trace_saved:
-                # NEW: Use save_with_rate_limiting with final_save=True for final save
-                trace_id_saved, trace_data = trace_client.save_with_rate_limiting(
-                    overwrite=trace_client.overwrite,
-                    final_save=True  # Final save with usage counter updates
-                )
-                
                 # Store complete trace data instead of server response
                 complete_trace_data = {
                     "trace_id": trace_client.trace_id,
@@ -332,6 +326,13 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                     "parent_trace_id": trace_client.parent_trace_id,
                     "parent_name": trace_client.parent_name
                 }
+                # NEW: Use save_with_rate_limiting with final_save=True for final save
+                trace_id_saved, trace_data = trace_client.save_with_rate_limiting(
+                    overwrite=trace_client.overwrite,
+                    final_save=True  # Final save with usage counter updates
+                )
+                
+                
                 self.tracer.traces.append(complete_trace_data)
                 self._trace_saved = True
                 # Reset tracer's active client *after* successful save
