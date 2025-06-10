@@ -1090,7 +1090,7 @@ class Tracer:
         return (self.current_trace or current_trace_var_val) if self.trace_across_async_contexts else current_trace_var_val
     
     def reset_current_trace(self, token: Optional[str] = None, trace_id: Optional[str] = None):
-        if not trace_id:
+        if not trace_id and self.current_trace:
             trace_id = self.current_trace.trace_id
         try:
             current_trace_var.reset(token)
