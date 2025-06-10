@@ -5,6 +5,7 @@ Tracing system for judgeval that allows for function tracing using decorators.
 import asyncio
 import functools
 import inspect
+import logging
 import os
 import site
 import sysconfig
@@ -35,6 +36,9 @@ from typing import (
 )
 from rich import print as rprint
 import types
+
+# Create logger for this module
+logger = logging.getLogger(__name__)
 
 # Third-party imports
 import requests
@@ -1071,9 +1075,9 @@ class BackgroundSpanService:
         
         try:
             serialized_data = json.dumps(payload, default=fallback_encoder)
-            
+            start_time = time.time()
             # Send the actual HTTP request to the batch endpoint
-            response = requests.post(
+            requests.post(
                 JUDGMENT_TRACES_SPANS_BATCH_API_URL,
                 data=serialized_data,
                 headers={
@@ -1084,10 +1088,9 @@ class BackgroundSpanService:
                 verify=True,
                 timeout=30  # Add timeout to prevent hanging
             )
+            end_time = time.time()
+            print(f"Spans batch queued for fire-and-forget processing: {len(spans)} spans in {end_time - start_time:.3f}s")
             
-            if response.status_code != HTTPStatus.OK:
-                warnings.warn(f"Failed to send spans batch: HTTP {response.status_code} - {response.text}")
-           
             
         except requests.RequestException as e:
             warnings.warn(f"Network error sending spans batch: {e}")
@@ -1133,7 +1136,7 @@ class BackgroundSpanService:
             serialized_data = json.dumps(payload, default=fallback_encoder)
             
             # Send the actual HTTP request to the batch endpoint
-            response = requests.post(
+            requests.post(
                 JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL,
                 data=serialized_data,
                 headers={
@@ -1145,9 +1148,6 @@ class BackgroundSpanService:
                 timeout=30  # Add timeout to prevent hanging
             )
             
-            if response.status_code != HTTPStatus.OK:
-                warnings.warn(f"Failed to send evaluation runs batch: HTTP {response.status_code} - {response.text}")
-           
             
         except requests.RequestException as e:
             warnings.warn(f"Network error sending evaluation runs batch: {e}")
@@ -1552,7 +1552,7 @@ class Tracer:
         trace_across_async_contexts: bool = False, # BY default, we don't trace across async contexts
         # Background span service configuration
         enable_background_spans: bool = True,  # Enable background span service by default
-        span_batch_size: int = 50,  # Number of spans to batch before sending
+        span_batch_size: int = 500,  # Number of spans to batch before sending
         span_flush_interval: float = 1.0,  # Time in seconds between automatic flushes
         span_num_workers: int = 10  # Number of worker threads for span processing
         ):
@@ -1943,9 +1943,9 @@ class Tracer:
                         return result
                     finally:
                         # Flush background spans before saving the trace
-                        if self.background_span_service:
-                            self.background_span_service.flush()
                         
+                        print("Flushing background spans before saving the trace")
+                        print(current_trace.get_duration())
                         # Save the completed trace
                         trace_id, server_response = current_trace.save_with_rate_limiting(overwrite=overwrite, final_save=True)
                         
@@ -1961,6 +1961,8 @@ class Tracer:
                             "parent_trace_id": current_trace.parent_trace_id,
                             "parent_name": current_trace.parent_name
                         }
+                        if self.background_span_service:
+                            self.background_span_service.flush()
                         self.traces.append(complete_trace_data)
 
                         # Reset trace context (span context resets automatically)
@@ -2059,9 +2061,9 @@ class Tracer:
                         return result
                     finally:
                         # Flush background spans before saving the trace
-                        if self.background_span_service:
-                            self.background_span_service.flush()
                         
+                        print("Flushing background spans before saving the trace")
+                        print(current_trace.get_duration())
                         # Save the completed trace
                         trace_id, server_response = current_trace.save_with_rate_limiting(overwrite=overwrite, final_save=True)
                         
@@ -2078,6 +2080,11 @@ class Tracer:
                             "parent_name": current_trace.parent_name
                         }
                         self.traces.append(complete_trace_data)
+                        
+                        # Flush background spans before resetting trace context
+                        if self.background_span_service:
+                            self.background_span_service.flush()
+
 
                         # Reset trace context (span context resets automatically)
                         self.reset_current_trace(trace_token)
