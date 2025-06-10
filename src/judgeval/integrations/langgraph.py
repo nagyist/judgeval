@@ -5,8 +5,9 @@ import uuid
 import contextvars # <--- Import contextvars
 from datetime import datetime
 
-from judgeval.common.tracer import TraceClient, TraceSpan, Tracer, SpanType, EvaluationConfig
+from judgeval.common.tracer import TraceClient, TraceSpan, Tracer, SpanType, EvaluationConfig, cost_per_token
 from judgeval.data import Example # Import Example
+from judgeval.data.trace import TraceUsage
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.agents import AgentAction, AgentFinish
@@ -406,11 +407,23 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
         if not trace_client:
             return
         outputs = {"response": response, "kwargs": kwargs}
-        # --- Token Usage Extraction and Accumulation ---
-        token_usage = None
-        prompt_tokens = None  # Use standard name
-        completion_tokens = None # Use standard name
+        
+        # --- Token Usage Extraction and Cost Calculation ---
+        prompt_tokens = None
+        completion_tokens = None
         total_tokens = None
+        model_name = None
+        
+        # Extract model name from response if available
+        if hasattr(response, 'llm_output') and response.llm_output and isinstance(response.llm_output, dict):
+            model_name = response.llm_output.get('model_name') or response.llm_output.get('model')
+        
+        # Try to get model from the first generation if available
+        if not model_name and response.generations and len(response.generations) > 0:
+            if hasattr(response.generations[0][0], 'generation_info') and response.generations[0][0].generation_info:
+                gen_info = response.generations[0][0].generation_info
+                model_name = gen_info.get('model') or gen_info.get('model_name')
+
         if response.llm_output and isinstance(response.llm_output, dict):
             # Check for OpenAI/standard 'token_usage' first
             if 'token_usage' in response.llm_output:
@@ -429,14 +442,43 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                     if prompt_tokens is not None and completion_tokens is not None:
                         total_tokens = prompt_tokens + completion_tokens
 
-            # --- Store individual usage in span output and Accumulate --- 
+            # --- Create TraceUsage object and set on span ---
             if prompt_tokens is not None or completion_tokens is not None:
-                # Store individual usage for this span
-                outputs['usage'] = { 
-                    'prompt_tokens': prompt_tokens,
-                    'completion_tokens': completion_tokens,
-                    'total_tokens': total_tokens
-                }
+                # Calculate costs if model name is available
+                prompt_cost = None
+                completion_cost = None
+                total_cost_usd = None
+                
+                if model_name and prompt_tokens is not None and completion_tokens is not None:
+                    try:
+                        prompt_cost, completion_cost = cost_per_token(
+                            model=model_name,
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens
+                        )
+                        total_cost_usd = (prompt_cost + completion_cost) if prompt_cost and completion_cost else None
+                    except Exception as e:
+                        # If cost calculation fails, continue without costs
+                        import warnings
+                        warnings.warn(f"Failed to calculate token costs for model {model_name}: {e}")
+                
+                # Create TraceUsage object
+                usage = TraceUsage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens or (prompt_tokens + completion_tokens if prompt_tokens and completion_tokens else None),
+                    prompt_tokens_cost_usd=prompt_cost,
+                    completion_tokens_cost_usd=completion_cost,
+                    total_cost_usd=total_cost_usd,
+                    model_name=model_name
+                )
+                
+                # Set usage on the actual span (not in outputs)
+                span_id = self._run_id_to_span_id.get(run_id)
+                if span_id and span_id in trace_client.span_id_to_span:
+                    trace_span = trace_client.span_id_to_span[span_id]
+                    trace_span.usage = usage
+                    
             
         self._end_span_tracking(trace_client, run_id, outputs=outputs)
         # --- End Token Usage ---

@@ -740,12 +740,12 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.output = "<pending>" if inspect.iscoroutine(output) else output
             
-            if inspect.iscoroutine(output):
-                asyncio.create_task(self._update_coroutine(span, output, "output"))
+            # if inspect.iscoroutine(output):
+            #     asyncio.create_task(self._update_coroutine(span, output, "output"))
             
-            # Queue span with output data (unless it's pending)
-            if self.background_span_service and not inspect.iscoroutine(output):
-                self.background_span_service.queue_span(span, span_state="output")
+            # # Queue span with output data (unless it's pending)
+            # if self.background_span_service and not inspect.iscoroutine(output):
+            #     self.background_span_service.queue_span(span, span_state="output")
 
             return span # Return the created entry
         # Removed else block - original didn't have one
