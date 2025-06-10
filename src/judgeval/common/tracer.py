@@ -488,6 +488,16 @@ class TraceClient:
     @contextmanager
     def span(self, name: str, span_type: SpanType = "span"):
         """Context manager for creating a trace span, managing the current span via contextvars"""
+        is_first_span = len(self.trace_spans) == 0
+        if is_first_span:
+            try:
+                trace_id, server_response = self.save_with_rate_limiting(overwrite=self.overwrite, final_save=False)
+                # Set start_time after first successful save
+                if self.start_time is None:
+                    self.start_time = time.time()
+                # Link will be shown by upsert_trace method
+            except Exception as e:
+                warnings.warn(f"Failed to save initial trace for live tracking: {e}")
         start_time = time.time()
         
         # Generate a unique ID for *this specific span invocation*
@@ -515,16 +525,7 @@ class TraceClient:
         self.add_span(span)
         
         # Save trace on first span to get UI link for live tracing
-        is_first_span = len(self.trace_spans) == 1
-        if is_first_span:
-            try:
-                trace_id, server_response = self.save_with_rate_limiting(overwrite=self.overwrite, final_save=False)
-                # Set start_time after first successful save
-                if self.start_time is None:
-                    self.start_time = time.time()
-                # Link will be shown by upsert_trace method
-            except Exception as e:
-                warnings.warn(f"Failed to save initial trace for live tracking: {e}")
+        
         
         # Queue span with initial state (input phase)
         if self.background_span_service:
@@ -1000,6 +1001,7 @@ class BackgroundSpanService:
         """Main worker loop that processes spans in batches."""
         batch = []
         last_flush_time = time.time()
+        pending_task_count = 0  # Track how many tasks we've taken from queue but not marked done
         
         while not self._shutdown_event.is_set():
             try:
@@ -1007,9 +1009,7 @@ class BackgroundSpanService:
                 try:
                     span_data = self._span_queue.get(timeout=1.0)
                     batch.append(span_data)
-                    # Mark task as done immediately after getting it from queue
-                    # This ensures flush() doesn't hang waiting for task_done()
-                    self._span_queue.task_done()
+                    pending_task_count += 1  # Increment instead of calling task_done() immediately
                 except queue.Empty:
                     # No new spans, continue to check for flush conditions
                     pass
@@ -1022,15 +1022,29 @@ class BackgroundSpanService:
                 
                 if should_flush and batch:
                     self._send_batch(batch)
+                    
+                    # Only mark tasks as done after successful sending
+                    for _ in range(pending_task_count):
+                        self._span_queue.task_done()
+                    pending_task_count = 0  # Reset counter
+                    
                     batch.clear()
                     last_flush_time = current_time
                     
             except Exception as e:
                 warnings.warn(f"Error in span service worker loop: {e}")
+                # On error, still need to mark tasks as done to prevent hanging
+                for _ in range(pending_task_count):
+                    self._span_queue.task_done()
+                pending_task_count = 0
+                batch.clear()
                 
         # Final flush on shutdown
         if batch:
             self._send_batch(batch)
+            # Mark remaining tasks as done
+            for _ in range(pending_task_count):
+                self._span_queue.task_done()
     
     def _send_batch(self, batch: List[Dict[str, Any]]):
         """
@@ -1747,8 +1761,8 @@ class Tracer:
                 yield trace
             finally:
                 # Flush background spans for this trace before completing
-                if self.background_span_service:
-                    self.background_span_service.flush()
+                # if self.background_span_service:
+                #     self.background_span_service.flush()
                 
                 # Reset the context variable
                 self.reset_current_trace(token)
@@ -1973,8 +1987,9 @@ class Tracer:
                             "parent_name": current_trace.parent_name
                         }
                         self.traces.append(complete_trace_data)
-                        if self.background_span_service:
-                            self.background_span_service.flush()
+          
+                        # if self.background_span_service:
+                        #     self.background_span_service.flush()
 
                         # Reset trace context (span context resets automatically)
                         self.reset_current_trace(trace_token)
@@ -2090,8 +2105,6 @@ class Tracer:
                             "parent_name": current_trace.parent_name
                         }
                         self.traces.append(complete_trace_data)
-                        if self.background_span_service:
-                            self.background_span_service.flush()
                         # Reset trace context (span context resets automatically)
                         self.reset_current_trace(trace_token)
                 else:
