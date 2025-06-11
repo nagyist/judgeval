@@ -992,7 +992,7 @@ class BackgroundSpanService:
             if len(self._worker_threads) < self.num_workers:
                 worker_thread = threading.Thread(
                     target=self._worker_loop, 
-                    daemon=True, 
+                    daemon=True,  # Back to daemon threads so they don't prevent program exit
                     name=f"SpanWorker-{i+1}"
                 )
                 worker_thread.start()
@@ -1004,21 +1004,26 @@ class BackgroundSpanService:
         last_flush_time = time.time()
         pending_task_count = 0  # Track how many tasks we've taken from queue but not marked done
         
-        while not self._shutdown_event.is_set():
+        while True:
             try:
+                print(f"Worker loop queue size: {self._span_queue.qsize()}")
                 # Try to get a span with timeout
                 try:
-                    span_data = self._span_queue.get(timeout=1.0)
+                    timeout = 1.0
+                    span_data = self._span_queue.get(timeout=timeout)
                     batch.append(span_data)
                     pending_task_count += 1  # Increment instead of calling task_done() immediately
                 except queue.Empty:
-                    # No new spans, continue to check for flush conditions
-                    pass
+                    # If shutdown is requested and we have no more work, exit
+                    if self._shutdown_event.is_set():
+                        break
+                    # Otherwise continue waiting for more work
+                    continue
                 
                 current_time = time.time()
                 should_flush = (
                     len(batch) >= self.batch_size or
-                    (batch and (current_time - last_flush_time) >= self.flush_interval)
+                    (batch and (current_time - last_flush_time) >= self.flush_interval) 
                 )
                 
                 if should_flush and batch:
@@ -1040,7 +1045,7 @@ class BackgroundSpanService:
                 pending_task_count = 0
                 batch.clear()
                 
-        # Final flush on shutdown
+        # Final flush on shutdown if we have any remaining items
         if batch:
             self._send_batch(batch)
             # Mark remaining tasks as done
@@ -1189,6 +1194,8 @@ class BackgroundSpanService:
             span: The TraceSpan object to queue
             span_state: State of the span ("input", "output", "completed")
         """
+        # Only queue if shutdown hasn't been requested
+        # If shutdown is in progress, spans already in queue will still be processed
         if not self._shutdown_event.is_set():
             span_data = {
                 "type": "span",
@@ -1199,6 +1206,7 @@ class BackgroundSpanService:
                 }
             }
             self._span_queue.put(span_data)
+        # If shutdown is requested, silently ignore new spans to prevent hanging
     
     def queue_evaluation_run(self, evaluation_run: EvaluationRun, span_id: str, span_data: TraceSpan):
         """
@@ -1209,6 +1217,8 @@ class BackgroundSpanService:
             span_id: The span ID associated with this evaluation run
             span_data: The span data at the time of evaluation (to avoid race conditions)
         """
+        # Only queue if shutdown hasn't been requested
+        # If shutdown is in progress, evaluation runs already in queue will still be processed
         if not self._shutdown_event.is_set():
             eval_data = {
                 "type": "evaluation_run",
@@ -1220,6 +1230,7 @@ class BackgroundSpanService:
                 }
             }
             self._span_queue.put(eval_data)
+        # If shutdown is requested, silently ignore new evaluation runs to prevent hanging
     
     def flush(self):
         """Force immediate sending of all queued spans."""
@@ -1238,15 +1249,17 @@ class BackgroundSpanService:
             # Signal shutdown to stop new items from being queued
             self._shutdown_event.set()
             
-            # Try to flush any remaining spans
+            # Try to flush any remaining spans by waiting for queue to be processed
             try:
+                # Final flush call to ensure queue.join() completes
                 self.flush()
             except Exception as e:
-                warnings.warn(f"Error during final flush: {e}")    
+                warnings.warn(f"Error during final flush: {e}")
+                    
         except Exception as e:
             warnings.warn(f"Error during BackgroundSpanService shutdown: {e}")
         finally:
-            # Clear the worker threads list (daemon threads will be killed automatically)
+            # Clear the worker threads list (daemon threads will be killed automatically on program exit)
             self._worker_threads.clear()
     
     def get_queue_size(self) -> int:
