@@ -1,15 +1,9 @@
 import pytest
-import time
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from uuid import uuid4
-from openai import OpenAI
-from anthropic import Anthropic
 import requests
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any, Union
 
 from judgeval.common.tracer import Tracer, wrap, current_span_var, current_trace_var, TraceClient
-from judgeval.judgment_client import JudgmentClient
 from judgeval.common.exceptions import JudgmentAPIError
 from judgeval.data.trace import TraceSpan
 
@@ -133,7 +127,7 @@ def test_trace_client_span(trace_client):
     assert len(trace_client.trace_spans) == initial_spans_count + 1
 
 def test_trace_client_nested_spans(trace_client):
-    """Test nested spans maintain proper depth recorded in entries"""
+    """Test nested spans maintain proper depth recorded in trace_spans"""
     root_span_id = current_span_var.get()  # From the fixture
 
     with trace_client.span("outer") as outer_span:
@@ -163,7 +157,10 @@ def test_save_trace(mock_post, trace_client):
     mock_response = Mock()
     mock_response.status_code = 200
     mock_response.text = '{"message": "success"}'
-    mock_response.json.return_value = {"ui_results_url": "http://example.com/results"}
+    mock_response.json.return_value = {
+        "ui_results_url": "http://example.com/results",
+        "trace_id": trace_client.trace_id
+    }
     mock_response.raise_for_status.return_value = None
     mock_post.return_value = mock_response
     

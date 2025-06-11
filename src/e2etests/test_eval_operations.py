@@ -24,7 +24,6 @@ from judgeval.scorers import (
 )
 from judgeval.data.datasets.dataset import EvalDataset
 from pydantic import BaseModel
-from judgeval.scorers.prompt_scorer import ClassifierScorer
 from judgeval.tracer import Tracer
 
 # Initialize a tracer instance for this test file
@@ -56,7 +55,7 @@ class TestEvalOperations:
         )
 
         scorer = FaithfulnessScorer(threshold=0.5)
-        scorer2 = HallucinationScorer(threshold=0.5)
+        scorer2 = AnswerRelevancyScorer(threshold=0.5)
 
         client.run_evaluation(
             examples=[example1, example2],
@@ -165,15 +164,14 @@ class TestEvalOperations:
             actual_output="No, the room is too small.",
         )
 
-        scorer = FaithfulnessScorer(threshold=0.5)
-        scorer1 = AnswerRelevancyScorer(threshold=0.5)
+        scorer = AnswerRelevancyScorer(threshold=0.5)
 
         with pytest.raises(AssertionError):
             await client.assert_test(
                 eval_run_name="test_eval",
                 project_name="test_project",
                 examples=[example, example1, example2],
-                scorers=[scorer, scorer1],
+                scorers=[scorer],
                 model="Qwen/Qwen2.5-72B-Instruct-Turbo",
                 override=True
             )
@@ -327,3 +325,4 @@ examples:
                 log_results=True,
                 override=False,
             )
+            

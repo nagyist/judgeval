@@ -12,7 +12,7 @@ from judgeval.common.logger import debug, info, warning, error
 from judgeval.judges import JudgevalJudge
 from judgeval.judges.utils import create_judge
 from judgeval.constants import UNBOUNDED_SCORERS
-
+from judgeval.data.example import ExampleParams
 class JudgevalScorer:
     """
     Base class for scorers in `judgeval`.
@@ -39,6 +39,9 @@ class JudgevalScorer:
     evaluation_cost: Optional[float] = None  # The cost of running the scorer
     verbose_logs: Optional[str] = None  # The verbose logs of the scorer
     additional_metadata: Optional[Dict] = None  # Additional metadata for the scorer
+    required_params: Optional[List[ExampleParams]] = None  # The required parameters for the scorer
+    error: Optional[str] = None
+    success: Optional[bool] = None
 
     def __init__(
         self, 
@@ -49,6 +52,7 @@ class JudgevalScorer:
         reason: Optional[str] = None, 
         success: Optional[bool] = None, 
         evaluation_model: Optional[str] = None, 
+        required_params: Optional[List[ExampleParams]] = None,
         strict_mode: bool = False, 
         async_mode: bool = True, 
         verbose_mode: bool = True, 
@@ -85,6 +89,7 @@ class JudgevalScorer:
             self.evaluation_cost = evaluation_cost
             self.verbose_logs = verbose_logs
             self.additional_metadata = additional_metadata
+            self.required_params = required_params
 
     def _add_model(self, model: Optional[Union[str, List[str], JudgevalJudge]] = None):
         """
@@ -145,3 +150,9 @@ class JudgevalScorer:
             "additional_metadata": self.additional_metadata,
         }
         return f"JudgevalScorer({attributes})"
+    
+    def to_dict(self):
+        return {
+            "score_type": str(self.score_type),  # Convert enum to string for serialization
+            "threshold": self.threshold
+        }

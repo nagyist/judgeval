@@ -9,11 +9,11 @@
 
 <br>
 
-## [🌐 Landing Page](https://www.judgmentlabs.ai/)  • [📚 Docs](https://judgment.mintlify.app/getting_started) • [🚀 Demos](https://www.youtube.com/@AlexShan-j3o) 
+## [🌐 Landing Page](https://www.judgmentlabs.ai/)  • [📚 Docs](https://docs.judgmentlabs.ai/introduction) • [🚀 Demos](https://www.youtube.com/@AlexShan-j3o) 
 
 [![X](https://img.shields.io/badge/-X/Twitter-000?logo=x&logoColor=white)](https://x.com/JudgmentLabs)
 [![LinkedIn](https://custom-icon-badges.demolab.com/badge/LinkedIn%20-0A66C2?logo=linkedin-white&logoColor=fff)](https://www.linkedin.com/company/judgmentlabs)
-[![Discord](https://img.shields.io/badge/-Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/FMxHkYTtFE)
+[![Discord](https://img.shields.io/badge/-Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/ZCnSXYug)
 
 </div>
 
@@ -28,19 +28,19 @@ We support tracing agents built with LangGraph, OpenAI SDK, Anthropic, ... and a
 Judgeval is created and maintained by [Judgment Labs](https://judgmentlabs.ai/).
 
 ## 📋 Table of Contents
-* [✨ Features](#-features)
-    * [🔍 Tracing](#-tracing)
-    * [🧪 Evals](#-evals)
-    * [📡 Monitoring](#-monitoring)
-    * [📊 Datasets](#-datasets)
-    * [💡 Insights](#-insights)
-* [🛠️ Installation](#️-installation)
-* [🏁 Get Started](#-get-started)
-* [🏢 Self-Hosting](#-self-hosting)
-* [📚 Cookbooks](#-cookbooks)
-* [💻 Development with Cursor](#-development-with-cursor)
-* [⭐ Star Us on GitHub](#-star-us-on-github)
-* [❤️ Contributors](#️-contributors)
+- [✨ Features](#-features)
+- [🛠️ Installation](#️-installation)
+- [🏁 Get Started](#-get-started)
+  - [🛰️ Tracing](#️-tracing)
+  - [📝 Offline Evaluations](#-offline-evaluations)
+  - [📡 Online Evaluations](#-online-evaluations)
+- [🏢 Self-Hosting](#-self-hosting)
+  - [Key Features](#key-features)
+  - [Getting Started](#getting-started)
+- [📚 Cookbooks](#-cookbooks)
+- [💻 Development with Cursor](#-development-with-cursor)
+- [⭐ Star Us on GitHub](#-star-us-on-github)
+- [❤️ Contributors](#️-contributors)
 
 <!-- Created by https://github.com/ekalinin/github-markdown-toc -->
 
@@ -192,20 +192,8 @@ You can access our repo of cookbooks [here](https://github.com/JudgmentLabs/judg
 
 ### Sample Agents
 
-#### 💰 [LangGraph Financial QA Agent](https://github.com/JudgmentLabs/judgment-cookbook/blob/main/cookbooks/financial_agent/demo.py)
-A LangGraph-based agent for financial queries, featuring RAG capabilities with a vector database for contextual data retrieval and evaluation of its reasoning and data accuracy.
-
-#### ✈️ [OpenAI Travel Agent](https://github.com/JudgmentLabs/judgment-cookbook/blob/main/cookbooks/openai_travel_agent/agent.py)
-A travel planning agent using OpenAI API calls, custom tool functions, and RAG with a vector database for up-to-date and contextual travel information. Evaluated for itinerary quality and information relevance.
-
-### Custom Evaluators
-
-#### 🔍 [PII Detection](https://github.com/JudgmentLabs/judgment-cookbook/blob/main/cookbooks/classifier_scorer/pii_checker.py)
-Detecting and evaluating Personal Identifiable Information (PII) leakage.
-
-#### 📧 [Cold Email Generation](https://github.com/JudgmentLabs/judgment-cookbook/blob/main/cookbooks/custom_scorers/cold_email_scorer.py)
-
-Evaluates if a cold email generator properly utilizes all relevant information about the target recipient.
+#### [Multi-Agent System](https://github.com/JudgmentLabs/judgment-cookbook/tree/main/cookbooks/agents/multi-agent)
+A multi-agent system augmented with tool calls designed for general purpose tasks like financial research and math. Traced and evaluated on Faithfulness (factual adherence to retrieval context).
 
 ## 💻 Development with Cursor
 When building agents and LLM workflows in Cursor, providing proper context to your coding assistant helps ensure seamless integration with Judgment. This rule file supplies the essential context your coding assistant needs for successful implementation.
