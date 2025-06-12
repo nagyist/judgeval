@@ -113,7 +113,7 @@ class TestJudgevalScorer:
         score = await basic_scorer.a_score_example({"test": "example"})
         assert score == 0.9
 
-    def testsuccess_check_implementation(self, basic_scorer):
+    def test_success_check_implementation(self, basic_scorer):
         """Test success_check with various scores"""
         # Test with score above threshold
         basic_scorer.score = 0.8
