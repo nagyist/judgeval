@@ -67,10 +67,7 @@ JUDGMENT_TRACES_SPANS_BATCH_API_URL = f"{ROOT_API}/traces/spans/batch/"
 JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL = f"{ROOT_API}/traces/evaluation_runs/batch/"
 JUDGMENT_ADD_TO_RUN_EVAL_QUEUE_API_URL = f"{ROOT_API}/add_to_run_eval_queue/"
 JUDGMENT_GET_EVAL_STATUS_API_URL = f"{ROOT_API}/get_evaluation_status/"
-# RabbitMQ
-RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "rabbitmq-networklb-faa155df16ec9085.elb.us-west-1.amazonaws.com")
-RABBITMQ_PORT = os.getenv("RABBITMQ_PORT", 5672)
-RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE", "task_queue")
+
 # Models
 LITELLM_SUPPORTED_MODELS = set(litellm.model_list)
 
