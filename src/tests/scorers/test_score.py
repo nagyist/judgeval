@@ -829,7 +829,7 @@ async def test_a_eval_examples_helper_success(
          patch('judgeval.scorers.score.generate_scoring_result') as mock_generate_result:
         
         # Setup mock returns
-        mock_scorer_data = ScorerData(
+        mock_scorer_data = [ScorerData(
             name=mock_scorer.__name__,
             threshold=mock_scorer.threshold,
             success=True,
@@ -841,12 +841,12 @@ async def test_a_eval_examples_helper_success(
             evaluation_cost=mock_scorer.evaluation_cost,
             verbose_logs=mock_scorer.verbose_logs,
             additional_metadata=mock_scorer.additional_metadata
-        )
+        )]
         mock_create_scorer_data.return_value = mock_scorer_data
         
         mock_scoring_result = ScoringResult(
             success=True,
-            scorers_data=[mock_scorer_data],
+            scorers_data=[mock_scorer_data[0]],
             data_object=mock_example,
             trace_id=mock_example.trace_id
         )
