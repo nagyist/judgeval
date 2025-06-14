@@ -50,28 +50,12 @@ Judgeval is created and maintained by [Judgment Labs](https://judgmentlabs.ai/).
 
 ## ✨ Features
 
-<table>
-<tr>
-<td><h3>🔍 Tracing</h3>Automatic agent tracing integrated with common frameworks (LangGraph, OpenAI, Anthropic): <strong>tracking inputs/outputs, latency, and cost</strong> at every step.<br><br>Online evals can be applied to traces to measure quality on production data in real-time.<br><br>Export trace data to the Judgment Platform or your own S3 buckets, {Parquet, JSON, YAML} files, or data warehouse.<br><br><strong>Useful for:</strong><br>• 🐛 Debugging agent runs <br>• 👤 Tracking user activity <br>• 🔬 Pinpointing performance bottlenecks</td>
-<td><p align="center"><img src="assets/trace_screenshot.png" alt="Tracing visualization" width="1200"/></p></td>
-</tr>
-<tr>
-<td><h3>🧪 Evals</h3>15+ research-backed metrics including tool call accuracy, hallucinations, instruction adherence, and retrieval context recall.<br><br>Build custom evaluators that connect with our metric-tracking infrastructure. <br><br><strong>Useful for:</strong><br>• ⚠️ Unit-testing <br>• 🔬 Experimental prompt testing<br>• 🛡️ Online guardrails <br><br></td>
-<td><p align="center"><img src="assets/experiments_page.png" alt="Evaluation metrics" width="800"/></p></td>
-</tr>
-<tr>
-<td><h3>📡 Monitoring</h3>Real-time performance tracking of your agents in production environments. <strong>Track all your metrics in one place.</strong><br><br>Set up <strong>Slack/email alerts</strong> for critical metrics and receive notifications when thresholds are exceeded.<br><br> <strong>Useful for:</strong> <br>•📉 Identifying degradation early <br>•📈 Visualizing performance trends across versions and time</td>
-<td><p align="center"><img src="assets/monitoring_screenshot.png" alt="Monitoring Dashboard" width="1200"/></p></td>
-</tr>
-<tr>
-<td><h3>📊 Datasets</h3>Export trace data or import external testcases to datasets hosted on Judgment's Platform. Move datasets to/from Parquet, S3, etc. <br><br>Run evals on datasets as unit tests or to A/B test different agent configurations. <br><br> <strong>Useful for:</strong><br>• 🔄 Scaled analysis for A/B tests <br>• 🗃️ Filtered collections of agent runtime data</td>
-<td><p align="center"><img src="assets/datasets_preview_screenshot.png" alt="Dataset management" width="1200"/></p></td>
-</tr>
-<tr>
-<td><h3>💡 Insights</h3>Cluster on your data to reveal common use cases and failure modes.<br><br>Trace failures to their exact source with Judgment's Osiris agent, which localizes errors to specific components for precise fixes.<br><br> <strong>Useful for:</strong><br>•🔮 Surfacing common inputs that lead to error<br>•🤖 Investigating agent/user behavior for optimization <br></td>
-<td><p align="center"><img src="assets/dataset_clustering_screenshot_dm.png" alt="Insights dashboard" width="1200"/></p></td>
-</tr>
-</table>
+|  |  |
+|:---|:---:|
+| <h3>🔍 Tracing</h3>Automatic agent tracing integrated with common frameworks (LangGraph, OpenAI, Anthropic): **tracking inputs/outputs, agent tool calls, latency, and cost** at every step.<br><br>Online evals can be applied to traces to measure quality on production data in real-time.<br><br>Export trace data to the Judgment Platform or your own S3 buckets, {Parquet, JSON, YAML} files, or data warehouse.<br><br>**Useful for:**<br>• 🐛 Debugging agent runs <br>• 👤 Tracking user activity <br>• 🔬 Pinpointing performance bottlenecks| <p align="center"><img src="assets/trace_screenshot.png" alt="Tracing visualization" width="1200"/></p> |
+| <h3>🧪 Evals</h3>Evals are the key to regression testing for agents. Judgeval provides 15+ research-backed metrics including tool call accuracy, hallucinations, instruction adherence, and retrieval context recall.<br><br>Judgeval supports LLM-as-a-judge, manual labeling, and custom evaluators that connect with our metric-tracking infrastructure. <br><br>**Useful for:**<br>• ⚠️ Unit-testing <br>• 🔬 Experimental prompt testing<br>• 🛡️ Online guardrails | <p align="center"><img src="assets/experiments_page.png" alt="Evaluation metrics" width="800"/></p> |
+| <h3>📡 Monitoring</h3>Track all your agent metrics in production. **Catch production regressions early.**<br><br>Configure alerts to trigger automated actions when metric thresholds are exceeded (add agent trace to review queue/dataset, Slack notification, etc.).<br><br> **Useful for:** <br>• 📉 Identifying degradation early <br>• 📈 Visualizing performance trends across agent versions and time | <p align="center"><img src="assets/monitoring_screenshot.png" alt="Monitoring Dashboard" width="1200"/></p> |
+| <h3>📊 Datasets</h3>Export trace data or import external testcases to datasets for scaled unit testing and structured experiments. Move datasets to/from Parquet, S3, etc. <br><br>Run evals on datasets as unit tests or to A/B test different agent configurations. <br><br> **Useful for:**<br>• 🗃️ Filtered agent runtime data for fine tuning<br>• 🔄 Scaled analysis for A/B tests | <p align="center"><img src="assets/datasets_preview_screenshot.png" alt="Dataset management" width="1200"/></p> |
 
 ## 🛠️ Installation
 
@@ -229,7 +213,7 @@ To implement this rule file, simply copy the text below and save it in a ".curso
 
 <summary>Cursor Rule File</summary>
 
-```
+````
 ---
 You are an expert in helping users integrate Judgment with their codebase. When you are helping someone integrate Judgment tracing or evaluations with their agents/workflows, refer to this file. 
 ---
@@ -1403,3 +1387,24 @@ There are many ways to contribute to Judgeval:
 
 <!-- Contributors collage -->
 @![Contributors](https://github.com/JudgmentLabs/judgeval/graphs/contributors)
+
+````
+
+</details>
+
+## ⭐ Star Us on GitHub
+
+If you find Judgeval useful, please consider giving us a star on GitHub! Your support helps us grow our community and continue improving the product.
+
+
+## ❤️ Contributors
+
+There are many ways to contribute to Judgeval:
+
+- Submit [bug reports](https://github.com/JudgmentLabs/judgeval/issues) and [feature requests](https://github.com/JudgmentLabs/judgeval/issues)
+- Review the documentation and submit [Pull Requests](https://github.com/JudgmentLabs/judgeval/pulls) to improve it
+- Speaking or writing about Judgment and letting us know!
+
+<!-- Contributors collage -->
+[![Contributors](https://contributors-img.web.app/image?repo=JudgmentLabs/judgeval)](https://github.com/JudgmentLabs/judgeval/graphs/contributors)
+
