@@ -647,7 +647,6 @@ class TraceClient:
             
     def add_eval_run(self, eval_run: EvaluationRun, start_time: float):
         current_span_id = eval_run.trace_span_id # Get ID from the eval_run object
-        print(f"Current span id: {current_span_id}")
 
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
