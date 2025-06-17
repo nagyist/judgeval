@@ -955,6 +955,28 @@ class TraceClient:
             else:
                 supported_keys = ["customer_id", "tags", "has_notification", "overwrite", "rules", "name"]
                 raise ValueError(f"Unsupported metadata key: {k}. Supported keys: {supported_keys}")
+        
+        # Queue trace update for background processing
+        if self.background_span_service:
+            # Create minimal trace structure for metadata update
+            trace_data = {
+                "trace_id": self.trace_id,
+                "name": self.name,
+                "project_name": self.project_name,
+                "customer_id": self.customer_id,
+                "tags": self.tags,
+                "has_notification": self.has_notification,
+                "overwrite": True,  # Allow overwriting existing trace with metadata
+                "created_at": datetime.utcfromtimestamp(time.time()).isoformat(),
+                "duration": 0,  # Placeholder for ongoing trace
+                "trace_spans": [],  # Empty for metadata-only update
+                "evaluation_runs": [],  # Empty for metadata-only update
+                "offline_mode": self.tracer.offline_mode,
+                "parent_trace_id": self.parent_trace_id,
+                "parent_name": self.parent_name
+            }
+
+            self.background_span_service.queue_trace(trace_data)
 
     def set_customer_id(self, customer_id: str):
         """
@@ -1156,15 +1178,18 @@ class BackgroundSpanService:
             return
             
         try:
-            # Group spans by type for different endpoints
+            # Group items by type for different endpoints
             spans_to_send = []
             evaluation_runs_to_send = []
+            traces_to_send = []
             
             for item in batch:
                 if item['type'] == 'span':
                     spans_to_send.append(item['data'])
                 elif item['type'] == 'evaluation_run':
                     evaluation_runs_to_send.append(item['data'])
+                elif item['type'] == 'trace':
+                    traces_to_send.append(item['data'])
             
             # Send spans if any
             if spans_to_send:
@@ -1173,9 +1198,13 @@ class BackgroundSpanService:
             # Send evaluation runs if any
             if evaluation_runs_to_send:
                 self._send_evaluation_runs_batch(evaluation_runs_to_send)
+            
+            # Send traces if any
+            if traces_to_send:
+                self._send_traces_batch(traces_to_send)
                 
         except Exception as e:
-            warnings.warn(f"Failed to send span batch: {e}")
+            warnings.warn(f"Failed to send batch: {e}")
     
     def _send_spans_batch(self, spans: List[Dict[str, Any]]):
         """Send a batch of spans to the spans endpoint."""
@@ -1279,6 +1308,49 @@ class BackgroundSpanService:
         except Exception as e:
             warnings.warn(f"Failed to send evaluation runs batch: {e}")
     
+    def _send_traces_batch(self, traces: List[Dict[str, Any]]):
+        """Send trace updates using the existing upsert endpoint."""
+        # Use existing upsert endpoint for each trace update
+        for trace_data in traces:
+            self._send_single_trace_update(trace_data)
+    
+    def _send_single_trace_update(self, trace_data: Dict[str, Any]):
+        """Send a single trace update using the upsert endpoint."""
+        # Serialize with fallback encoder
+        def fallback_encoder(obj):
+            try:
+                return repr(obj)
+            except Exception:
+                try:
+                    return str(obj)
+                except Exception as e:
+                    return f"<Unserializable object of type {type(obj).__name__}: {e}>"
+        
+        try:
+            serialized_data = json.dumps(trace_data, default=fallback_encoder)
+            
+            # Use existing upsert endpoint which can handle trace updates
+            response = requests.post(
+                JUDGMENT_TRACES_UPSERT_API_URL,
+                data=serialized_data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.judgment_api_key}",
+                    "X-Organization-Id": self.organization_id
+                },
+                verify=True,
+                timeout=30  # Add timeout to prevent hanging
+            )
+            
+            if response.status_code != HTTPStatus.OK:
+                warnings.warn(f"Failed to send trace update: HTTP {response.status_code} - {response.text}")
+           
+            
+        except requests.RequestException as e:
+            warnings.warn(f"Network error sending trace update: {e}")
+        except Exception as e:
+            warnings.warn(f"Failed to send trace update: {e}")
+    
     def queue_span(self, span: TraceSpan, span_state: str = "input"):
         """
         Queue a span for background sending.
@@ -1318,6 +1390,23 @@ class BackgroundSpanService:
                 }
             }
             self._span_queue.put(eval_data)
+    
+    def queue_trace(self, trace_data: Dict[str, Any]):
+        """
+        Queue a trace update for background sending.
+        
+        Args:
+            trace_data: The trace data to queue for update
+        """
+        if not self._shutdown_event.is_set():
+            trace_entry = {
+                "type": "trace",
+                "data": {
+                    **trace_data,
+                    "queued_at": time.time()
+                }
+            }
+            self._span_queue.put(trace_entry)
     
     def flush(self):
         """Force immediate sending of all queued spans."""
