@@ -1,17 +1,13 @@
-name: CI with Branch Protection
+name: CI
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
-  push:
-    branches:
-      - justin/combine-ci
 
 permissions: read-all
 
 jobs:
   check-if-should-run:
-    if: github.event_name != 'pull_request_target' || (github.event_name == 'pull_request_target' && github.event.changes.base.ref.from != github.event.changes.base.ref.to)
     runs-on: ubuntu-latest
     outputs:
       should-run: ${{ steps.check.outputs.should-run }}
@@ -19,9 +15,10 @@ jobs:
       - name: Check if workflow should run
         id: check
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
+          if [[ "${{ github.event.action }}" == "edited" ]]; then
             echo "PR was edited - checking if base branch changed"
-            if [[ "${{ github.event.changes.base.ref.from }}" != "${{ github.event.changes.base.ref.to }}" ]]; then
+            # Check if base branch was changed
+            if [[ "${{ github.event.changes.base.ref.from }}" != "" && "${{ github.event.changes.base.ref.from }}" != "${{ github.event.changes.base.ref.to }}" ]]; then
               echo "Base branch changed from ${{ github.event.changes.base.ref.from }} to ${{ github.event.changes.base.ref.to }}"
               echo "should-run=true" >> $GITHUB_OUTPUT
             else
@@ -70,7 +67,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         python-version:
           - "3.11"
-    name: Test
+    name: Unit Tests
     runs-on: ${{ matrix.os }}
     env:
       PYTHONPATH: "."
