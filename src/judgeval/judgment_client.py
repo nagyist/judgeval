@@ -5,6 +5,7 @@ import os
 from uuid import uuid4
 from typing import Optional, List, Dict, Any, Union, Callable
 import requests
+import asyncio
 
 from judgeval.constants import ROOT_API
 from judgeval.data.datasets import EvalDataset, EvalDatasetClient
@@ -12,7 +13,7 @@ from judgeval.data import (
     ScoringResult, 
     Example,
     CustomExample,
-    Sequence,
+    Trace,
 )
 from judgeval.scorers import (
     APIJudgmentScorer, 
@@ -23,9 +24,9 @@ from judgeval.evaluation_run import EvaluationRun
 from judgeval.run_evaluation import (
     run_eval, 
     assert_test,
-    run_sequence_eval
+    run_trace_eval
 )
-from judgeval.data.sequence_run import SequenceRun
+from judgeval.data.trace_run import TraceRun
 from judgeval.judges import JudgevalJudge
 from judgeval.constants import (
     JUDGMENT_EVAL_FETCH_API_URL, 
@@ -62,7 +63,15 @@ class SingletonMeta(type):
         return cls._instances[cls]
 
 class JudgmentClient(metaclass=SingletonMeta):
-    def __init__(self, judgment_api_key: str = os.getenv("JUDGMENT_API_KEY"), organization_id: str = os.getenv("JUDGMENT_ORG_ID")):
+    def __init__(self, judgment_api_key: Optional[str] = os.getenv("JUDGMENT_API_KEY"), organization_id: Optional[str] = os.getenv("JUDGMENT_ORG_ID")):
+        # Check if API key is None
+        if judgment_api_key is None:
+            raise ValueError("JUDGMENT_API_KEY cannot be None. Please provide a valid API key or set the JUDGMENT_API_KEY environment variable.")
+        
+        # Check if organization ID is None
+        if organization_id is None:
+            raise ValueError("JUDGMENT_ORG_ID cannot be None. Please provide a valid organization ID or set the JUDGMENT_ORG_ID environment variable.")
+        
         self.judgment_api_key = judgment_api_key
         self.organization_id = organization_id
         self.eval_dataset_client = EvalDatasetClient(judgment_api_key, organization_id)
@@ -105,23 +114,24 @@ class JudgmentClient(metaclass=SingletonMeta):
             rules=rules
         )
 
-    def run_sequence_evaluation(
+    def run_trace_evaluation(
         self,
         scorers: List[Union[APIJudgmentScorer, JudgevalScorer]],
         model: Optional[Union[str, List[str], JudgevalJudge]] = "gpt-4.1",
-        sequences: Optional[List[Sequence]] = None,
+        traces: Optional[List[Trace]] = None,
         examples: Optional[List[Example]] = None,
         test_file: Optional[str] = None,
         aggregator: Optional[str] = None,
         project_name: str = "default_project",
-        eval_run_name: str = "default_eval_sequence",
+        eval_run_name: str = "default_eval_trace",
         log_results: bool = True,
         append: bool = False,
         override: bool = False,
         ignore_errors: bool = True,
         rules: Optional[List[Rule]] = None,
         function: Optional[Callable] = None,
-        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None
+        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None
     ) -> List[ScoringResult]:
         try:         
             
@@ -134,16 +144,16 @@ class JudgmentClient(metaclass=SingletonMeta):
             if examples and not function:
                 raise ValueError("Cannot pass in examples without a function")
             
-            if sequences and function:
-                raise ValueError("Cannot pass in sequences and function")
+            if traces and function:
+                raise ValueError("Cannot pass in traces and function")
             
-            if examples and sequences:
-                raise ValueError("Cannot pass in both examples and sequences")
+            if examples and traces:
+                raise ValueError("Cannot pass in both examples and traces")
             
-            sequence_run = SequenceRun(
+            trace_run = TraceRun(
                 project_name=project_name,
                 eval_name=eval_run_name,
-                sequences=sequences,
+                traces=traces,
                 scorers=scorers,
                 model=model,
                 aggregator=aggregator,
@@ -151,10 +161,11 @@ class JudgmentClient(metaclass=SingletonMeta):
                 append=append,
                 judgment_api_key=self.judgment_api_key,
                 organization_id=self.organization_id,
+                tools=tools
             )
-            return run_sequence_eval(sequence_run, override, ignore_errors, function, tracer, examples)
+            return run_trace_eval(trace_run, override, ignore_errors, function, tracer, examples)
         except ValueError as e:
-            raise ValueError(f"Please check your SequenceRun object, one or more fields are invalid: \n{str(e)}")
+            raise ValueError(f"Please check your TraceRun object, one or more fields are invalid: \n{str(e)}")
         except Exception as e:
             raise Exception(f"An unexpected error occurred during evaluation: {str(e)}")
 
@@ -173,7 +184,7 @@ class JudgmentClient(metaclass=SingletonMeta):
         ignore_errors: bool = True,
         async_execution: bool = False,
         rules: Optional[List[Rule]] = None
-    ) -> List[ScoringResult]:
+    ) -> Union[List[ScoringResult], asyncio.Task]:
         """
         Executes an evaluation of `Example`s using one or more `Scorer`s
         
@@ -244,12 +255,6 @@ class JudgmentClient(metaclass=SingletonMeta):
         Appends an `EvalDataset` to the Judgment platform for storage.
         """
         return self.eval_dataset_client.append_examples(alias, examples, project_name)
-    
-    def append_sequence_dataset(self, alias: str, sequences: List[Sequence], project_name: str) -> bool:
-        """
-        Appends a `Sequence` to the Judgment platform for storage.
-        """
-        return self.eval_dataset_client.append_sequences(alias, sequences, project_name)
     
     def pull_dataset(self, alias: str, project_name: str) -> EvalDataset:
         """
@@ -500,7 +505,9 @@ class JudgmentClient(metaclass=SingletonMeta):
         override: bool = False,
         rules: Optional[List[Rule]] = None,
         function: Optional[Callable] = None,
-        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None
+        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        async_execution: bool = False
     ) -> None:
         """
         Asserts a test by running the evaluation and checking the results for success
@@ -518,12 +525,20 @@ class JudgmentClient(metaclass=SingletonMeta):
             override (bool): Whether to override an existing evaluation run with the same name
             rules (Optional[List[Rule]]): Rules to evaluate against scoring results
         """
+
+        # Check for enable_param_checking and tools
+        for scorer in scorers:
+            if hasattr(scorer, "kwargs") and scorer.kwargs is not None:
+                if scorer.kwargs.get("enable_param_checking") is True:
+                    if not tools:
+                        raise ValueError(f"You must provide the 'tools' argument to assert_test when using a scorer with enable_param_checking=True. If you do not want to do param checking, explicitly set enable_param_checking=False for the {scorer.__name__} scorer.")
+
         # Validate that exactly one of examples or test_file is provided
         if (examples is None and test_file is None) or (examples is not None and test_file is not None):
             raise ValueError("Exactly one of 'examples' or 'test_file' must be provided, but not both")
 
         if function:
-            results = self.run_sequence_evaluation(
+            results = self.run_trace_evaluation(
                 examples=examples,
                 scorers=scorers,
                 model=model,
@@ -535,7 +550,8 @@ class JudgmentClient(metaclass=SingletonMeta):
                 rules=rules,
                 function=function,
                 tracer=tracer,
-                test_file=test_file
+                test_file=test_file,
+                tools=tools
             )
         else:
             results = self.run_evaluation(
@@ -548,7 +564,14 @@ class JudgmentClient(metaclass=SingletonMeta):
                 project_name=project_name,
                 eval_run_name=eval_run_name,
                 override=override,
-                rules=rules
+                rules=rules,
+                async_execution=async_execution
             )
         
-        assert_test(results)
+        if async_execution:
+            # 'results' is an asyncio.Task here, awaiting it gives List[ScoringResult]
+            actual_results = asyncio.run(results)
+            assert_test(actual_results)  # Call the synchronous imported function
+        else:
+            # 'results' is already List[ScoringResult] here (synchronous path)
+            assert_test(results)  # Call the synchronous imported function

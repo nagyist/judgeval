@@ -49,6 +49,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Initialize the tracer and clients
+Tracer._instance = None
 judgment = Tracer(api_key=os.getenv("JUDGMENT_API_KEY"))
 openai_client = wrap(OpenAI())
 anthropic_client = wrap(Anthropic())
@@ -180,11 +181,11 @@ async def test_trace_save_increment(client, cleanup_traces):
             "project_name": "test_project",
             "trace_id": trace_id,
             "created_at": datetime.fromtimestamp(timestamp).isoformat(),
-            "entries": [
+            "trace_spans": [
                 {
                     "timestamp": datetime.fromtimestamp(timestamp).isoformat(),
                     "type": "span",
-                    "name": "test_span",
+                    "function": "test_span",
                     "inputs": {"test": "input"},
                     "outputs": {"test": "output"},
                     "duration": 0.1,
@@ -271,11 +272,11 @@ async def test_concurrent_trace_saves(client, cleanup_traces):
                     "project_name": "test_project",
                     "trace_id": trace_id,
                     "created_at": datetime.fromtimestamp(timestamp).isoformat(),
-                    "entries": [
+                    "trace_spans": [
                         {
                             "timestamp": datetime.fromtimestamp(timestamp).isoformat(),
                             "type": "span",
-                            "name": f"test_span_{index}",
+                            "function": f"test_span_{index}",
                             "inputs": {"test": f"input_{index}"},
                             "outputs": {"test": f"output_{index}"},
                             "duration": 0.1,
@@ -353,7 +354,7 @@ async def test_failed_trace_counting(client):
         "project_name": "test_project",
         "trace_id": str(uuid4()),
         "created_at": str(timestamp),  # Convert to string
-        # Missing entries, which should cause a validation error
+        # Missing trace_spans, which should cause a validation error
         "duration": 0.1,
         "token_counts": {"total": 10},
         "empty_save": False,
@@ -387,6 +388,7 @@ async def test_real_trace_tracking(client):
     try:
         # Initialize tracer
         print("Initializing Tracer...")
+        Tracer._instance = None
         tracer = Tracer(
             api_key=os.getenv("JUDGMENT_API_KEY"),
             project_name="test_project",
@@ -461,11 +463,11 @@ async def test_burst_request_handling(client):
         "project_name": "test_project",
         "trace_id": trace_id,
         "created_at": datetime.fromtimestamp(timestamp).isoformat(),
-        "entries": [
+        "trace_spans": [
             {
                 "timestamp": datetime.fromtimestamp(timestamp).isoformat(),
                 "type": "span",
-                "name": "test_span",
+                "function": "test_span",
                 "inputs": {"test": "input"},
                 "outputs": {"test": "output"},
                 "duration": 0.1,
@@ -486,8 +488,8 @@ async def test_burst_request_handling(client):
         # Create a unique trace ID for each request
         local_trace_data = trace_data.copy()
         local_trace_data["trace_id"] = str(uuid4())
-        local_trace_data["entries"][0]["span_id"] = str(uuid4())
-        local_trace_data["entries"][0]["trace_id"] = local_trace_data["trace_id"]
+        local_trace_data["trace_spans"][0]["span_id"] = str(uuid4())
+        local_trace_data["trace_spans"][0]["trace_id"] = local_trace_data["trace_id"]
         
         response = await client.post(
             f"{SERVER_URL}/traces/save/",

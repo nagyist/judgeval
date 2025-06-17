@@ -12,9 +12,10 @@ NOTE: any function beginning with 'a', e.g. 'afetch_together_api_response', is a
 import asyncio
 import concurrent.futures
 import os
+from types import TracebackType
 import requests
 import pprint
-from typing import Any, Dict, List, Literal, Mapping, Optional, Union
+from typing import Any, Dict, List, Literal, Mapping, Optional, TypeAlias, Union
 
 # Third-party imports
 import litellm
@@ -102,7 +103,7 @@ def validate_api_key(judgment_api_key: str):
     Validates that the user api key is valid
     """
     response = requests.post(
-        f"{ROOT_API}/validate_api_key/",
+        f"{ROOT_API}/auth/validate_api_key/",
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {judgment_api_key}",
@@ -782,3 +783,6 @@ if __name__ == "__main__":
             ]
         ]
     ))
+    
+ExcInfo: TypeAlias = tuple[type[BaseException], BaseException, TracebackType]
+OptExcInfo: TypeAlias = ExcInfo | tuple[None, None, None]

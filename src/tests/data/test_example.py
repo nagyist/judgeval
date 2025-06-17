@@ -6,7 +6,7 @@ import pytest
 from datetime import datetime
 from pydantic import ValidationError
 from judgeval.data import Example
-
+from judgeval.data.tool import Tool
 
 def test_basic_example_creation():
     example = Example(
@@ -16,12 +16,12 @@ def test_basic_example_creation():
     assert example.input == "test input"
     assert example.actual_output == "test output"
     assert example.expected_output is None
-    assert example.timestamp is not None
+    assert example.created_at is not None
     # Verify timestamp format
-    datetime.strptime(example.timestamp, "%Y%m%d_%H%M%S")
 
 
 def test_full_example_creation():
+    time = datetime.now().isoformat()
     example = Example(
         input="test input",
         actual_output="test output",
@@ -30,10 +30,10 @@ def test_full_example_creation():
         retrieval_context=["retrieval1", "retrieval2"],
         additional_metadata={"key": "value"},
         tools_called=["tool1", "tool2"],
-        expected_tools=[{"tool_name": "expected_tool1"}, {"tool_name": "expected_tool2"}],
+        expected_tools=[Tool(tool_name="expected_tool1"), Tool(tool_name="expected_tool2")],
         name="test example",
         example_id="123",
-        timestamp="20240101_120000",
+        created_at=time
     )
     
     assert example.input == "test input"
@@ -43,10 +43,10 @@ def test_full_example_creation():
     assert example.retrieval_context == ["retrieval1", "retrieval2"]
     assert example.additional_metadata == {"key": "value"}
     assert example.tools_called == ["tool1", "tool2"]
-    assert example.expected_tools == [{"tool_name": "expected_tool1"}, {"tool_name": "expected_tool2"}]
+    assert example.expected_tools == [Tool(tool_name="expected_tool1"), Tool(tool_name="expected_tool2")]
     assert example.name == "test example"
     assert example.example_id == "123"
-    assert example.timestamp == "20240101_120000"
+    assert example.created_at == time
 
 
 def test_to_dict():
@@ -60,7 +60,7 @@ def test_to_dict():
     assert example_dict["input"] == "test input"
     assert example_dict["actual_output"] == "test output"
     assert example_dict["name"] == "test example"
-    assert "timestamp" in example_dict
+    assert "created_at" in example_dict
 
 
 def test_string_representation():
