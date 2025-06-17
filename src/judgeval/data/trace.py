@@ -124,4 +124,5 @@ class Trace(BaseModel):
     rules: Optional[Dict[str, Any]] = None
     has_notification: Optional[bool] = False
     customer_id: Optional[str] = None
+    tags: Optional[List[str]] = None
     
