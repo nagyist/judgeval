@@ -31,6 +31,7 @@ dependencies = [
     "google-genai",
     "boto3",
     "matplotlib>=3.10.3",
+    "openapi-python-client>=0.25.0",
 ]
 
 [project.urls]
