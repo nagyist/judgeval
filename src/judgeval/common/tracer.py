@@ -996,18 +996,7 @@ class TraceClient:
         """
         self.set_metadata(tags=tags)
 
-    def print_metadata(self):
-        """Print the current metadata for this trace."""
-        print("\nTrace Metadata:")
-        print(f"  Trace ID: {self.trace_id}")
-        print(f"  Name: {self.name}")
-        print(f"  Project: {self.project_name}")
-        print(f"  Customer ID: {self.customer_id}")
-        print(f"  Tags: {self.tags}")
-        print(f"  Has Notification: {self.has_notification}")
-        print(f"  Overwrite: {self.overwrite}")
-        if self.rules:
-            print(f"  Rules: {len(self.rules)} rule(s)")
+
 
 def _capture_exception_for_trace(current_trace: Optional['TraceClient'], exc_info: ExcInfo):
     if not current_trace:
@@ -2431,13 +2420,7 @@ class Tracer:
         else:
             warnings.warn("No current trace found, cannot set tags")
 
-    def print_metadata(self):
-        """Print the current metadata for the current trace."""
-        current_trace = self.get_current_trace()
-        if current_trace:
-            current_trace.print_metadata()
-        else:
-            warnings.warn("No current trace found, cannot print metadata")
+
 
     def get_background_span_service(self) -> Optional[BackgroundSpanService]:
         """Get the background span service instance."""
