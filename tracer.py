@@ -10,7 +10,7 @@ import sys
 import sysconfig
 import time
 from types import CodeType, FrameType, TracebackType
-from typing import Any, Callable, List, Optional, TypeAlias, TypeVar, Union, cast
+from typing import Any, Callable, Generator, List, Optional, TypeAlias, TypeVar, Union, cast
 
 from core import CurrentSpanEntry, CurrentSpanExit, CurrentSpanType, new_span_id
 from utils import extract_inputs_from_entry_frame
@@ -398,7 +398,6 @@ class TraceClient:
 
 judgment = TraceClient()
 
-
 def fibonacci(n: int) -> int:
     """
     A simple Fibonacci function to demonstrate tracing.
@@ -407,6 +406,7 @@ def fibonacci(n: int) -> int:
         return n
     return fibonacci(n - 1) + fibonacci(n - 2)
 
+
 def length(s: list[Any]) -> int:
     """
     A simple function to return the length of a list.
@@ -414,10 +414,19 @@ def length(s: list[Any]) -> int:
     return len(s)
 
 
+def test_generator(limit: int) -> Generator[int, None, None]:
+    """
+    A simple generator function to demonstrate tracing.
+    """
+    while limit > 0:
+        yield limit
+        limit -= 1
+
+
 import logging
 
 logging.basicConfig(
-    level=logging.WARNING,
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
@@ -428,7 +437,10 @@ def main():
 
 
 with judgment.daemon(deep_tracing=True):
-    main()
+    print(id(test_generator.__code__))
+    g = test_generator(10)
+    for i in g:
+        print(f"Generator yielded: {i}")
 
 
 judgment.print_graph()
