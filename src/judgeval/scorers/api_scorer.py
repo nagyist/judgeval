@@ -24,6 +24,7 @@ class APIJudgmentScorer(BaseModel):
     required_params: List[ExampleParams] = [] # List of the required parameters on examples for the scorer
 
     @field_validator('threshold')
+    @classmethod
     def validate_threshold(cls, v, info):
         """
         Validates that the threshold is between 0 and 1 inclusive.
@@ -40,6 +41,7 @@ class APIJudgmentScorer(BaseModel):
         return v
 
     @field_validator('score_type')
+    @classmethod
     def convert_to_enum_value(cls, v):
         """
         Validates that the `score_type` is a valid `APIScorer` enum value.

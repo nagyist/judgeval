@@ -1,6 +1,5 @@
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
-from judgeval.evaluation_run import EvaluationRun
 from judgeval.data.tool import Tool
 import json
 from datetime import datetime, timezone
@@ -28,24 +27,29 @@ class TraceSpan(BaseModel):
     usage: Optional[TraceUsage] = None
     duration: Optional[float] = None
     annotation: Optional[List[Dict[str, Any]]] = None
-    evaluation_runs: Optional[List[EvaluationRun]] = []
     expected_tools: Optional[List[Tool]] = None
     additional_metadata: Optional[Dict[str, Any]] = None
     has_evaluation: Optional[bool] = False
     agent_name: Optional[str] = None
     state_before: Optional[Dict[str, Any]] = None
     state_after: Optional[Dict[str, Any]] = None
+    
+    def get_name(self):
+        if self.agent_name:
+            return f"{self.agent_name}.{self.function}"
+        else:
+            return self.function
 
     def model_dump(self, **kwargs):
         return {
             "span_id": self.span_id,
             "trace_id": self.trace_id,
             "depth": self.depth,
+#             "created_at": datetime.fromtimestamp(self.created_at).isoformat(),
             "created_at": datetime.fromtimestamp(self.created_at, tz=timezone.utc).isoformat(),
             "inputs": self._serialize_value(self.inputs),
             "output": self._serialize_value(self.output),
             "error": self._serialize_value(self.error),
-            "evaluation_runs": [run.model_dump() for run in self.evaluation_runs] if self.evaluation_runs else [],
             "parent_span_id": self.parent_span_id,
             "function": self.function,
             "duration": self.duration,
@@ -63,7 +67,7 @@ class TraceSpan(BaseModel):
         indent = "  " * self.depth
         parent_info = f" (parent_id: {self.parent_span_id})" if self.parent_span_id else ""
         print(f"{indent}→ {self.function} (id: {self.span_id}){parent_info}")
-
+    
     def _is_json_serializable(self, obj: Any) -> bool:
         """Helper method to check if an object is JSON serializable."""
         try:
@@ -85,6 +89,7 @@ class TraceSpan(BaseModel):
             return repr(output)
         except (TypeError, OverflowError, ValueError):
             pass
+
         return None
         
     def _serialize_value(self, value: Any) -> Any:
@@ -123,4 +128,6 @@ class Trace(BaseModel):
     offline_mode: bool = False
     rules: Optional[Dict[str, Any]] = None
     has_notification: Optional[bool] = False
+    customer_id: Optional[str] = None
+    tags: Optional[List[str]] = None
     
