@@ -2,12 +2,12 @@
 set -e
 
 # Config
-OPENAPI_URL="http://localhost:8000/openapi.json"
+OPENAPI_URL="../openapi.json"
 TEMP_DIR=".gen_temp"
 OUTPUT_DIR="generated_models"
 
 # Step 1: Generate into a temp directory
-openapi-python-client generate --url "$OPENAPI_URL" --output-path "$TEMP_DIR" --meta 'none'
+openapi-python-client generate --path "$OPENAPI_URL" --output-path "$TEMP_DIR" --meta 'none'
 
 # Step 2: Find the actual generated client folder
 CLIENT_DIR=$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d)

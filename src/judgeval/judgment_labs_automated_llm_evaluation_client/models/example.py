@@ -25,8 +25,10 @@ T = TypeVar("T", bound="Example")
 
 @_attrs_define
 class Example:
-    """
+    """Based on the examples table in the database
+
     Attributes:
+        example_id (str):
         input_ (Union['ExampleInputType1', None, Unset, str]):
         actual_output (Union[None, Unset, list[str], str]):
         expected_output (Union[None, Unset, list[str], str]):
@@ -36,14 +38,12 @@ class Example:
         tools_called (Union[None, Unset, list[str]]):
         expected_tools (Union[None, Unset, list['Tool']]):
         name (Union[None, Unset, str]):
-        example_id (Union[Unset, str]):
-        example_index (Union[None, Unset, int]):
         created_at (Union[None, Unset, str]):
-        trace_id (Union[None, Unset, str]):
-        trace_span_id (Union[None, Unset, str]):
         dataset_id (Union[None, Unset, str]):
+        trace_span_id (Union[None, Unset, str]):
     """
 
+    example_id: str
     input_: Union["ExampleInputType1", None, Unset, str] = UNSET
     actual_output: Union[None, Unset, list[str], str] = UNSET
     expected_output: Union[None, Unset, list[str], str] = UNSET
@@ -53,12 +53,9 @@ class Example:
     tools_called: Union[None, Unset, list[str]] = UNSET
     expected_tools: Union[None, Unset, list["Tool"]] = UNSET
     name: Union[None, Unset, str] = UNSET
-    example_id: Union[Unset, str] = UNSET
-    example_index: Union[None, Unset, int] = UNSET
     created_at: Union[None, Unset, str] = UNSET
-    trace_id: Union[None, Unset, str] = UNSET
-    trace_span_id: Union[None, Unset, str] = UNSET
     dataset_id: Union[None, Unset, str] = UNSET
+    trace_span_id: Union[None, Unset, str] = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -66,6 +63,8 @@ class Example:
             ExampleAdditionalMetadataType0,
         )
         from ..models.example_input_type_1 import ExampleInputType1
+
+        example_id = self.example_id
 
         input_: Union[None, Unset, dict[str, Any], str]
         if isinstance(self.input_, Unset):
@@ -146,31 +145,11 @@ class Example:
         else:
             name = self.name
 
-        example_id = self.example_id
-
-        example_index: Union[None, Unset, int]
-        if isinstance(self.example_index, Unset):
-            example_index = UNSET
-        else:
-            example_index = self.example_index
-
         created_at: Union[None, Unset, str]
         if isinstance(self.created_at, Unset):
             created_at = UNSET
         else:
             created_at = self.created_at
-
-        trace_id: Union[None, Unset, str]
-        if isinstance(self.trace_id, Unset):
-            trace_id = UNSET
-        else:
-            trace_id = self.trace_id
-
-        trace_span_id: Union[None, Unset, str]
-        if isinstance(self.trace_span_id, Unset):
-            trace_span_id = UNSET
-        else:
-            trace_span_id = self.trace_span_id
 
         dataset_id: Union[None, Unset, str]
         if isinstance(self.dataset_id, Unset):
@@ -178,9 +157,19 @@ class Example:
         else:
             dataset_id = self.dataset_id
 
+        trace_span_id: Union[None, Unset, str]
+        if isinstance(self.trace_span_id, Unset):
+            trace_span_id = UNSET
+        else:
+            trace_span_id = self.trace_span_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "example_id": example_id,
+            }
+        )
         if input_ is not UNSET:
             field_dict["input"] = input_
         if actual_output is not UNSET:
@@ -199,18 +188,12 @@ class Example:
             field_dict["expected_tools"] = expected_tools
         if name is not UNSET:
             field_dict["name"] = name
-        if example_id is not UNSET:
-            field_dict["example_id"] = example_id
-        if example_index is not UNSET:
-            field_dict["example_index"] = example_index
         if created_at is not UNSET:
             field_dict["created_at"] = created_at
-        if trace_id is not UNSET:
-            field_dict["trace_id"] = trace_id
-        if trace_span_id is not UNSET:
-            field_dict["trace_span_id"] = trace_span_id
         if dataset_id is not UNSET:
             field_dict["dataset_id"] = dataset_id
+        if trace_span_id is not UNSET:
+            field_dict["trace_span_id"] = trace_span_id
 
         return field_dict
 
@@ -223,6 +206,7 @@ class Example:
         from ..models.tool import Tool
 
         d = dict(src_dict)
+        example_id = d.pop("example_id")
 
         def _parse_input_(data: object) -> Union["ExampleInputType1", None, Unset, str]:
             if data is None:
@@ -382,17 +366,6 @@ class Example:
 
         name = _parse_name(d.pop("name", UNSET))
 
-        example_id = d.pop("example_id", UNSET)
-
-        def _parse_example_index(data: object) -> Union[None, Unset, int]:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(Union[None, Unset, int], data)
-
-        example_index = _parse_example_index(d.pop("example_index", UNSET))
-
         def _parse_created_at(data: object) -> Union[None, Unset, str]:
             if data is None:
                 return data
@@ -401,24 +374,6 @@ class Example:
             return cast(Union[None, Unset, str], data)
 
         created_at = _parse_created_at(d.pop("created_at", UNSET))
-
-        def _parse_trace_id(data: object) -> Union[None, Unset, str]:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(Union[None, Unset, str], data)
-
-        trace_id = _parse_trace_id(d.pop("trace_id", UNSET))
-
-        def _parse_trace_span_id(data: object) -> Union[None, Unset, str]:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(Union[None, Unset, str], data)
-
-        trace_span_id = _parse_trace_span_id(d.pop("trace_span_id", UNSET))
 
         def _parse_dataset_id(data: object) -> Union[None, Unset, str]:
             if data is None:
@@ -429,7 +384,17 @@ class Example:
 
         dataset_id = _parse_dataset_id(d.pop("dataset_id", UNSET))
 
+        def _parse_trace_span_id(data: object) -> Union[None, Unset, str]:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(Union[None, Unset, str], data)
+
+        trace_span_id = _parse_trace_span_id(d.pop("trace_span_id", UNSET))
+
         example = cls(
+            example_id=example_id,
             input_=input_,
             actual_output=actual_output,
             expected_output=expected_output,
@@ -439,12 +404,9 @@ class Example:
             tools_called=tools_called,
             expected_tools=expected_tools,
             name=name,
-            example_id=example_id,
-            example_index=example_index,
             created_at=created_at,
-            trace_id=trace_id,
-            trace_span_id=trace_span_id,
             dataset_id=dataset_id,
+            trace_span_id=trace_span_id,
         )
 
         example.additional_properties = d
