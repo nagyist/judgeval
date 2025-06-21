@@ -1,11 +1,14 @@
+import sys
+
+sys.path = ["./src"] + sys.path
+
 from typing import Any, Generator
-from core.tracer import TraceClient
+from judgeval.common.tracer import TraceClient  # type: ignore
 import logging
-import openai
 
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
@@ -48,12 +51,7 @@ class Foo:
             limit -= 1
 
 
-import asteval  # type: ignore
-from asteval import Interpreter  # type: ignore
-
-aeval = Interpreter()
-
-
+@judgment.observe
 def main():
     foo = Foo()
     gen = foo.test_generator(5)
@@ -61,10 +59,8 @@ def main():
         print(value)
     print(length([fibonacci(i) for i in range(6)]))
 
-    aeval("1+1")
-
-    assert_condition(length([1, 2, 3]) == 3, "Length should be 3")
-    assert_condition(False, "This will raise an assertion error")
+    # assert_condition(length([1, 2, 3]) == 3, "Length should be 3")
+    # assert_condition(False, "This will raise an assertion error")
 
 
 import atexit

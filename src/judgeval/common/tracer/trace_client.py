@@ -1,126 +1,27 @@
-from __future__ import annotations
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
-from dataclasses import dataclass
 import functools
-import inspect
 import logging
 import os
-import site
 import sys
-import sysconfig
 import time
 import traceback
-from types import CodeType, FrameType, TracebackType
-from typing import (
-    Any,
-    Callable,
-    List,
-    Optional,
-    TypeAlias,
-    TypeVar,
-    Union,
-    cast,
+from types import CodeType, FrameType
+from typing import Any, Callable, Dict, List, Optional, Union, cast
+
+from judgeval.common.storage.judgment_storage import JudgmentStorage
+from judgeval.common.storage.storage import ABCStorage
+from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
+from judgeval.common.tracer.model import TraceSave, TraceSpan
+from judgeval.common.tracer.types import (
+    CurrentSpanEntry,
+    CurrentSpanExit,
+    CurrentSpanType,
+    ExcInfo,
+    OptExcInfo,
+    TSpanResetTokens,
 )
-
-# Types
-ExcInfo: TypeAlias = tuple[type[BaseException], BaseException, TracebackType]
-OptExcInfo: TypeAlias = ExcInfo | tuple[None, None, None]
-
-
-@dataclass(slots=True, frozen=True, repr=True)
-class CurrentSpanEntry:
-    """
-    Represents the current span entry in the context.
-    This exists in a partial state before the span is fully created.
-    """
-
-    name: str
-    span_id: str
-    span_type: str
-    parent_span_id: str | None
-    start_time: float
-    end_time: float | None = None
-    inputs: dict[str, Any] | None = None
-    output: Any = None
-    error: Union[OptExcInfo, None] = None
-
-
-@dataclass(slots=True, frozen=True, repr=True)
-class CurrentSpanExit:
-    """
-    Represents the current span in the context.
-    This is the fully created span that can be used for tracing.
-    """
-
-    name: str
-    span_id: str
-    span_type: str
-    parent_span_id: str | None
-    start_time: float
-    end_time: float
-    inputs: dict[str, Any] | None = None
-    output: Any = None
-    error: Union[OptExcInfo, None] = None
-
-
-CurrentSpanType = CurrentSpanEntry | CurrentSpanExit
-
-
-TSpanResetTokens: TypeAlias = dict[str, Token[CurrentSpanEntry]]
-TCallable = TypeVar("TCallable", bound=Callable[..., Any])
-# End Types
-
-
-# Utils
-import inspect
-from types import FrameType
-from typing import Any
-import uuid
-
-
-def new_span_id() -> str:
-    """
-    Generates a new unique span ID.
-    """
-    return str(uuid.uuid4())
-
-
-def extract_inputs_from_entry_frame(frame: FrameType) -> dict[str, Any]:
-    """
-    Extracts the inputs from the entry frame.
-    This is used to capture the inputs to the function being traced.
-    """
-    args, varargs, varkw, values = inspect.getargvalues(frame)
-    inputs = {arg: values[arg] for arg in args if arg in values}
-    if varargs:
-        inputs[varargs] = values[varargs]
-    if varkw:
-        inputs[varkw] = values[varkw]
-    return inputs
-
-
-# End Utils
-
-
-# NOTE: This builds once, can be tweaked if we are missing / capturing other unncessary modules
-# @link https://docs.python.org/3.13/library/sysconfig.html
-_TRACE_FILEPATH_BLOCKLIST = tuple(
-    os.path.realpath(p) + os.sep
-    for p in {
-        sysconfig.get_paths()["stdlib"],
-        sysconfig.get_paths().get("platstdlib", ""),
-        *site.getsitepackages(),
-        site.getusersitepackages(),
-        os.path.dirname(__file__),
-        *(
-            [os.path.join(os.path.dirname(__file__), "../../judgeval/")]
-            if os.environ.get("JUDGMENT_DEV")
-            else []
-        ),
-    }
-    if p
-)
+from judgeval.common.tracer.utils import extract_inputs_from_entry_frame, new_id
 
 
 class TraceClient:
@@ -138,9 +39,10 @@ class TraceClient:
         "_surpress_deep_tracing",
         "_code_should_trace",
         "_trace_spans",
+        "_storage_client",
     )
 
-    trace_id: Optional[str]
+    trace_id: str
     name: str
     project_id: Optional[str]
     overwrite: bool
@@ -154,6 +56,8 @@ class TraceClient:
     _code_should_trace: set[int]
     _trace_spans: List[CurrentSpanExit]
 
+    _storage_client: ABCStorage
+
     def __init__(
         self,
         trace_id: Optional[str] = None,
@@ -162,8 +66,9 @@ class TraceClient:
         overwrite: bool = False,
         enable_monitoring: bool = True,
         enable_evaluations: bool = True,
+        storage_client: Optional[ABCStorage] = None,
     ):
-        self.trace_id = trace_id
+        self.trace_id = trace_id if trace_id else new_id()
         self.name = name
         self.project_id = project_id
         self.overwrite = overwrite
@@ -183,6 +88,8 @@ class TraceClient:
 
         self._code_should_trace = set()
         self._trace_spans: list[CurrentSpanExit] = []
+
+        self._storage_client = storage_client or JudgmentStorage()
 
     @property
     def current_span(self) -> Union[CurrentSpanType, None]:
@@ -239,8 +146,46 @@ class TraceClient:
             f"start_time: {current_span.start_time}, end_time: {current_span.end_time}, output: {current_span.output})"
         )
 
+    def _get_formatted_exception_from_exc_info(self, exc_info: ExcInfo):
+        """
+        Format the exception information from the given exc_info tuple.
+        This will extract the exception type, message, and traceback.
+        For additional types of errors it will add specific properties
+        like HTTP status codes and URLs if available.
+        """
+        exc_type, exc_value, exc_traceback_obj = exc_info
+        formatted_exception: Dict[str, Any] = {
+            "type": exc_type.__name__ if exc_type else "UnknownExceptionType",
+            "message": str(exc_value) if exc_value else "No exception message",
+            "traceback": (
+                traceback.format_tb(exc_traceback_obj) if exc_traceback_obj else []
+            ),
+        }
+
+        # This is where we specially handle exceptions that we might want to collect additional data for.
+        # When we do this, always try checking the module from sys.modules instead of importing. This will
+        # Let us support a wider range of exceptions without needing to import them for all clients.
+
+        # Most clients (requests, httpx, urllib) support the standard format of exposing error.request.url and error.response.status_code
+        # The alternative is to hand select libraries we want from sys.modules and check for them:
+        # As an example:  requests_module = sys.modules.get("requests", None) // then do things with requests_module;
+
+        # General HTTP Like errors
+        try:
+            url = getattr(getattr(exc_value, "request", None), "url", None)
+            status_code = getattr(
+                getattr(exc_value, "response", None), "status_code", None
+            )
+            if status_code:
+                formatted_exception["http"] = {
+                    "url": url if url else "Unknown URL",
+                    "status_code": status_code if status_code else None,
+                }
+        except Exception as e:
+            pass
+
     def observe_enter(self, name: str, inputs: Union[dict[str, Any], None]):
-        span_id = new_span_id()
+        span_id = new_id()
         parent_span_id = (
             self.current_span.span_id
             if isinstance(self.current_span, CurrentSpanEntry)
@@ -302,6 +247,16 @@ class TraceClient:
 
             return
 
+        if not exc_info or exc_info == (None, None, None):
+            logging.warning(
+                "Error observed with no exception information. This should not happen."
+            )
+            return
+
+        formatted_exc_info = self._get_formatted_exception_from_exc_info(
+            cast(ExcInfo, exc_info)
+        )
+
         self._current_span_var.set(
             CurrentSpanEntry(
                 name=current_span.name,
@@ -312,7 +267,7 @@ class TraceClient:
                 end_time=current_span.end_time,
                 inputs=current_span.inputs,
                 output=current_span.output,
-                error=exc_info,
+                error=formatted_exc_info,
             )
         )
 
@@ -441,7 +396,7 @@ class TraceClient:
 
         def print_span(span: CurrentSpanExit, depth: int = 0):
             indent = "  " * depth * INDENT_SIZE
-            # Format arguments
+
             args_str = ""
             if span.inputs:
                 args_list = []
@@ -449,18 +404,14 @@ class TraceClient:
                     args_list.append(f"{k}={v!r}")
                 args_str = ", ".join(args_list)
 
-            # Format output
             output_str = f"{span.output!r}"
 
-            # Time taken in ms
             duration_ms = (span.end_time - span.start_time) * 1000
             error_str = ""
-            if span.error is not None and any(span.error):
-                exc_type, exc_value, exc_tb = span.error
-                if exc_type is not None and exc_value is not None:
-                    error_str = f" [ERROR: {exc_type.__name__}: {exc_value}]"
-                else:
-                    error_str = " [ERROR]"
+            if span.error is not None and isinstance(span.error, dict):
+                error_type = span.error.get("type", "UnknownExceptionType")
+                error_message = span.error.get("message", "No exception message")
+                error_str = f" [ERROR: {error_type}: {error_message}]"
             print(
                 f"{indent}→ {span.name}({args_str}) => {output_str} "
                 f"[{duration_ms:.2f} ms]{error_str}"
@@ -472,6 +423,43 @@ class TraceClient:
         for root_span in parents:
             print_span(root_span)
             print()
+
+    def _flush_spans(self):
+        """
+        Flush the trace spans to the storage client.
+        This will save the trace spans to the configured storage client.
+        """
+        if len(self._trace_spans) == 0:
+            logging.info("No trace spans to flush.")
+            return
+
+        logging.info(f"Flushing {len(self._trace_spans)} trace spans to storage.")
+
+        trace_spans = cast(List[TraceSpan], [])
+        for span in self._trace_spans:
+            trace_spans.append(
+                TraceSpan(
+                    span_id=span.span_id,
+                    trace_id=self.trace_id,
+                    function=span.name,
+                    span_type=span.span_type,
+                    parent_span_id=span.parent_span_id,
+                    duration=(span.end_time - span.start_time),
+                )
+            )
+
+        trace_save = TraceSave(
+            trace_id=self.trace_id,
+            name=self.name,
+            created_at=time.time(),
+            duration=(self._trace_spans[-1].end_time - self._trace_spans[0].start_time),
+            trace_spans=trace_spans,
+        )
+
+        self._storage_client.save_trace(
+            trace_data=trace_save, trace_id=self.trace_id, project_name=self.name
+        )
+        self._trace_spans.clear()
 
     @contextmanager
     def daemon(self, deep_tracing: bool = False):
