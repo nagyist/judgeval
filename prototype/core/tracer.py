@@ -1,6 +1,7 @@
 from __future__ import annotations
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
+from dataclasses import dataclass
 import functools
 import inspect
 import logging
@@ -9,17 +10,97 @@ import site
 import sys
 import sysconfig
 import time
+import traceback
 from types import CodeType, FrameType, TracebackType
-from typing import Any, Callable, Generator, List, Optional, TypeAlias, TypeVar, Union, cast
+from typing import (
+    Any,
+    Callable,
+    List,
+    Optional,
+    TypeAlias,
+    TypeVar,
+    Union,
+    cast,
+)
 
-from core import CurrentSpanEntry, CurrentSpanExit, CurrentSpanType, new_span_id
-from utils import extract_inputs_from_entry_frame
-
+# Types
 ExcInfo: TypeAlias = tuple[type[BaseException], BaseException, TracebackType]
 OptExcInfo: TypeAlias = ExcInfo | tuple[None, None, None]
-TSpanResetTokens: TypeAlias = dict[str, Token[CurrentSpanEntry]]
 
+
+@dataclass(slots=True, frozen=True, repr=True)
+class CurrentSpanEntry:
+    """
+    Represents the current span entry in the context.
+    This exists in a partial state before the span is fully created.
+    """
+
+    name: str
+    span_id: str
+    span_type: str
+    parent_span_id: str | None
+    start_time: float
+    end_time: float | None = None
+    inputs: dict[str, Any] | None = None
+    output: Any = None
+    error: Union[OptExcInfo, None] = None
+
+
+@dataclass(slots=True, frozen=True, repr=True)
+class CurrentSpanExit:
+    """
+    Represents the current span in the context.
+    This is the fully created span that can be used for tracing.
+    """
+
+    name: str
+    span_id: str
+    span_type: str
+    parent_span_id: str | None
+    start_time: float
+    end_time: float
+    inputs: dict[str, Any] | None = None
+    output: Any = None
+    error: Union[OptExcInfo, None] = None
+
+
+CurrentSpanType = CurrentSpanEntry | CurrentSpanExit
+
+
+TSpanResetTokens: TypeAlias = dict[str, Token[CurrentSpanEntry]]
 TCallable = TypeVar("TCallable", bound=Callable[..., Any])
+# End Types
+
+
+# Utils
+import inspect
+from types import FrameType
+from typing import Any
+import uuid
+
+
+def new_span_id() -> str:
+    """
+    Generates a new unique span ID.
+    """
+    return str(uuid.uuid4())
+
+
+def extract_inputs_from_entry_frame(frame: FrameType) -> dict[str, Any]:
+    """
+    Extracts the inputs from the entry frame.
+    This is used to capture the inputs to the function being traced.
+    """
+    args, varargs, varkw, values = inspect.getargvalues(frame)
+    inputs = {arg: values[arg] for arg in args if arg in values}
+    if varargs:
+        inputs[varargs] = values[varargs]
+    if varkw:
+        inputs[varkw] = values[varkw]
+    return inputs
+
+
+# End Utils
 
 
 # NOTE: This builds once, can be tweaked if we are missing / capturing other unncessary modules
@@ -31,6 +112,7 @@ _TRACE_FILEPATH_BLOCKLIST = tuple(
         sysconfig.get_paths().get("platstdlib", ""),
         *site.getsitepackages(),
         site.getusersitepackages(),
+        os.path.dirname(__file__),
         *(
             [os.path.join(os.path.dirname(__file__), "../../judgeval/")]
             if os.environ.get("JUDGMENT_DEV")
@@ -157,8 +239,7 @@ class TraceClient:
             f"start_time: {current_span.start_time}, end_time: {current_span.end_time}, output: {current_span.output})"
         )
 
-    def observe_enter(self, frame: FrameType):
-        name = frame.f_code.co_name
+    def observe_enter(self, name: str, inputs: Union[dict[str, Any], None]):
         span_id = new_span_id()
         parent_span_id = (
             self.current_span.span_id
@@ -166,7 +247,6 @@ class TraceClient:
             else None
         )
         start_time = time.time()
-        inputs = extract_inputs_from_entry_frame(frame)
 
         token = self._current_span_var.set(
             CurrentSpanEntry(
@@ -186,7 +266,7 @@ class TraceClient:
             f"Span entered: {name} (id: {span_id}, parent_id: {parent_span_id}, start_time: {start_time}, inputs: {inputs})"
         )
 
-    def observe_exit(self, frame: FrameType, output: Any):
+    def observe_exit(self, output: Any):
         if not isinstance(current_span := self.current_span, CurrentSpanEntry):
             logging.warning(
                 "Exit observed without a corresponding entry span. This should not happen."
@@ -202,8 +282,9 @@ class TraceClient:
             parent_span_id=current_span.parent_span_id,
             start_time=current_span.start_time,
             end_time=end_time,
-            output=output,
             inputs=current_span.inputs,
+            output=output,
+            error=current_span.error,
         )
         self.current_span = span_exit
 
@@ -213,7 +294,7 @@ class TraceClient:
         )
         self._commit_current_span()
 
-    def observe_error(self, frame: FrameType, exc_info: OptExcInfo):
+    def observe_error(self, exc_info: OptExcInfo):
         if not isinstance(current_span := self.current_span, CurrentSpanEntry):
             logging.warning(
                 "Error observed without a corresponding entry span. This should not happen.",
@@ -235,7 +316,7 @@ class TraceClient:
             )
         )
 
-        logging.info(
+        logging.error(
             f"Error observed in span: {current_span.name} (id: {current_span.span_id}, "
             f"parent_id: {current_span.parent_span_id}, start_time: {current_span.start_time}, "
             f"error: {exc_info})"
@@ -262,6 +343,10 @@ class TraceClient:
         def _should_trace(frame: FrameType) -> bool:
             # If we are not deep tracing, we only trace if the code object is in the set of code_should_trace
             if not deep_tracing and id(frame.f_code) in self._code_should_trace:
+                logging.debug(
+                    f"Tracing {frame.f_code.co_name} at {frame.f_code.co_filename} "
+                    f"(id: {id(frame.f_code)}) because it is in the code_should_trace set."
+                )
                 return True
 
             if not self._is_user_code(frame.f_code.co_filename):
@@ -272,6 +357,10 @@ class TraceClient:
                 return False
 
             if deep_tracing:
+                logging.debug(
+                    f"Tracing {frame.f_code.co_name} at {frame.f_code.co_filename} "
+                    f"(id: {id(frame.f_code)}) because deep tracing is enabled."
+                )
                 return True
 
             logging.debug(
@@ -289,10 +378,6 @@ class TraceClient:
             The trace daemon that will be used to handle tracing.
             This function should be set up with sys.settrace / sys.setprofile hooks
             """
-            logging.debug(
-                f"Tracing {event} for {frame.f_code.co_name} at {frame.f_code.co_filename} "
-                f"(id: {id(frame.f_code)})"
-            )
             if event not in ("call", "return", "exception"):
                 return None
 
@@ -308,14 +393,16 @@ class TraceClient:
             )
 
             if event == "call":
-                self.observe_enter(frame)
+                name = frame.f_code.co_qualname
+                inputs = extract_inputs_from_entry_frame(frame)
+                self.observe_enter(name, inputs)
                 return __trace_daemon__
 
             elif event == "return":
-                self.observe_exit(frame, arg)
+                self.observe_exit(arg)
 
             elif event == "exception":
-                self.observe_error(frame, arg)
+                self.observe_error(arg)
 
             return None
 
@@ -327,21 +414,16 @@ class TraceClient:
         Context manager to create a span with the given name and type.
         This will automatically handle entering and exiting the span.
         """
-        frame = inspect.currentframe()
-        if frame is None:
-            raise RuntimeError("Current frame is None, cannot create span.")
-
-        self.observe_enter(frame)
-
         try:
+            self.observe_enter(name, None)
             yield
-        except Exception as exc:
-            self.observe_error(frame, sys.exc_info())
-            raise
+        except Exception as e:
+            self.observe_error(sys.exc_info())
+            raise e
         finally:
-            self.observe_exit(frame, None)
+            self.observe_exit(None)
 
-    def observe(self, func: TCallable) -> TCallable:
+    def observe(self, func):
         self._do_trace_code(func.__code__)
         return func
 
@@ -350,6 +432,7 @@ class TraceClient:
         Prints the trace spans in a tree-like indented format.
         """
 
+        print("-" * 80)
         parents = [span for span in self._trace_spans if span.parent_span_id is None]
         children = [
             span for span in self._trace_spans if span.parent_span_id is not None
@@ -372,9 +455,16 @@ class TraceClient:
 
             # Time taken in ms
             duration_ms = (span.end_time - span.start_time) * 1000
+            error_str = ""
+            if span.error is not None and any(span.error):
+                exc_type, exc_value, exc_tb = span.error
+                if exc_type is not None and exc_value is not None:
+                    error_str = f" [ERROR: {exc_type.__name__}: {exc_value}]"
+                else:
+                    error_str = " [ERROR]"
             print(
                 f"{indent}→ {span.name}({args_str}) => {output_str} "
-                f"[{duration_ms:.2f} ms]"
+                f"[{duration_ms:.2f} ms]{error_str}"
             )
             for child in children:
                 if child.parent_span_id == span.span_id:
@@ -391,56 +481,6 @@ class TraceClient:
         """
         try:
             sys.settrace(self._trace_daemon_factory_(deep_tracing))
-            yield self
+            yield
         finally:
             sys.settrace(None)
-
-
-judgment = TraceClient()
-
-def fibonacci(n: int) -> int:
-    """
-    A simple Fibonacci function to demonstrate tracing.
-    """
-    if n <= 1:
-        return n
-    return fibonacci(n - 1) + fibonacci(n - 2)
-
-
-def length(s: list[Any]) -> int:
-    """
-    A simple function to return the length of a list.
-    """
-    return len(s)
-
-
-def test_generator(limit: int) -> Generator[int, None, None]:
-    """
-    A simple generator function to demonstrate tracing.
-    """
-    while limit > 0:
-        yield limit
-        limit -= 1
-
-
-import logging
-
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-
-
-def main():
-    length([x for x in range(fibonacci(5))])
-
-
-with judgment.daemon(deep_tracing=True):
-    print(id(test_generator.__code__))
-    g = test_generator(10)
-    for i in g:
-        print(f"Generator yielded: {i}")
-
-
-judgment.print_graph()
