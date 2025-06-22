@@ -34,7 +34,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/TraceRun"
+                                "$ref": "#/components/schemas/TraceRun_JudgmentType"
                             }
                         }
                     }
@@ -53,7 +53,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -100,7 +100,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/JudgmentEval"
+                                "$ref": "#/components/schemas/JudgmentEval_JudgmentType"
                             }
                         }
                     }
@@ -119,7 +119,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -155,7 +155,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/EvalResults"
+                                "$ref": "#/components/schemas/EvalResults_JudgmentType"
                             }
                         }
                     }
@@ -174,7 +174,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -188,7 +188,6 @@
                     "evaluation"
                 ],
                 "summary": "Fetch Eval Results By Project Sorted Limit",
-                "description": "Fetch all evaluation results for a project in an organization for the current user",
                 "operationId": "fetch_eval_results_by_project_sorted_limit_fetch_eval_results_by_project_sorted_limit__post",
                 "security": [
                     {
@@ -211,7 +210,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/EvalResultsFetchByProjectSortedLimit"
+                                "$ref": "#/components/schemas/EvalResultsFetchByProjectSortedLimit_JudgmentType"
                             }
                         }
                     }
@@ -230,7 +229,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -267,7 +266,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/DatasetInsertExamples"
+                                "$ref": "#/components/schemas/DatasetInsertExamples_JudgmentType"
                             }
                         }
                     }
@@ -286,7 +285,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -306,7 +305,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/DatasetDeleteExamples"
+                                "$ref": "#/components/schemas/DatasetDeleteExamples_JudgmentType"
                             }
                         }
                     },
@@ -326,7 +325,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -363,7 +362,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/DatasetFetch"
+                                "$ref": "#/components/schemas/DatasetFetch_JudgmentType"
                             }
                         }
                     }
@@ -382,7 +381,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -418,7 +417,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/DatasetPush"
+                                "$ref": "#/components/schemas/DatasetPush_JudgmentType"
                             }
                         }
                     }
@@ -437,7 +436,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -474,7 +473,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/DatasetFetchByProject"
+                                "$ref": "#/components/schemas/DatasetFetchByProject_JudgmentType"
                             }
                         }
                     }
@@ -493,7 +492,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -530,7 +529,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/DatasetDelete"
+                                "$ref": "#/components/schemas/DatasetDelete_JudgmentType"
                             }
                         }
                     }
@@ -549,7 +548,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -585,7 +584,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/TraceSave"
+                                "$ref": "#/components/schemas/TraceSave_JudgmentType"
                             }
                         }
                     }
@@ -604,7 +603,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -641,7 +640,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/TraceSave"
+                                "$ref": "#/components/schemas/TraceSave_JudgmentType"
                             }
                         }
                     }
@@ -660,7 +659,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -697,7 +696,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/TraceFetch"
+                                "$ref": "#/components/schemas/TraceFetch_JudgmentType"
                             }
                         }
                     }
@@ -716,7 +715,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -753,7 +752,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/BatchTraceFetch"
+                                "$ref": "#/components/schemas/BatchTraceFetch_JudgmentType"
                             }
                         }
                     }
@@ -772,7 +771,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -809,7 +808,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/TracesFetchByProject"
+                                "$ref": "#/components/schemas/TracesFetchByProject_JudgmentType"
                             }
                         }
                     }
@@ -828,7 +827,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -865,7 +864,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/TraceDeleteBatch"
+                                "$ref": "#/components/schemas/TraceDeleteBatch_JudgmentType"
                             }
                         }
                     }
@@ -884,63 +883,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/traces/save_span/": {
-            "post": {
-                "tags": [
-                    "traces"
-                ],
-                "summary": "Save Trace Span",
-                "description": "Save a trace span's evaluation results as dataset examples\n\nArgs:\n    save_request: TraceSpanSaveRequest object containing:\n        - span: Trace span entry containing evaluation results\n        - dataset_alias: Target dataset alias to save examples to\n\nReturns:\n    {\"success\": bool} indicating operation status",
-                "operationId": "save_trace_span_traces_save_span__post",
-                "security": [
-                    {
-                        "HTTPBearer": []
-                    }
-                ],
-                "parameters": [
-                    {
-                        "name": "X-Organization-Id",
-                        "in": "header",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "X-Organization-Id"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TraceSpanSaveRequest"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {}
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -976,7 +919,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/ClassifierScorerRequest"
+                                "$ref": "#/components/schemas/ClassifierScorerRequest_JudgmentType"
                             }
                         }
                     }
@@ -995,7 +938,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -1031,7 +974,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/FetchClassifierScorersRequest"
+                                "$ref": "#/components/schemas/FetchClassifierScorersRequest_JudgmentType"
                             }
                         }
                     }
@@ -1050,7 +993,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                    "$ref": "#/components/schemas/HTTPValidationError_JudgmentType"
                                 }
                             }
                         }
@@ -1061,7 +1004,7 @@
     },
     "components": {
         "schemas": {
-            "TraceRun": {
+            "TraceRun_JudgmentType": {
                 "properties": {
                     "project_name": {
                         "anyOf": [
@@ -1087,14 +1030,14 @@
                     },
                     "traces": {
                         "items": {
-                            "$ref": "#/components/schemas/Trace"
+                            "$ref": "#/components/schemas/Trace_JudgmentType"
                         },
                         "type": "array",
                         "title": "Traces"
                     },
                     "scorers": {
                         "items": {
-                            "$ref": "#/components/schemas/Scorer"
+                            "$ref": "#/components/schemas/Scorer_JudgmentType"
                         },
                         "type": "array",
                         "title": "Scorers"
@@ -1224,11 +1167,11 @@
                 ],
                 "title": "TraceRun"
             },
-            "HTTPValidationError": {
+            "HTTPValidationError_JudgmentType": {
                 "properties": {
                     "detail": {
                         "items": {
-                            "$ref": "#/components/schemas/ValidationError"
+                            "$ref": "#/components/schemas/ValidationError_JudgmentType"
                         },
                         "type": "array",
                         "title": "Detail"
@@ -1237,7 +1180,7 @@
                 "type": "object",
                 "title": "HTTPValidationError"
             },
-            "JudgmentEval": {
+            "JudgmentEval_JudgmentType": {
                 "properties": {
                     "project_name": {
                         "anyOf": [
@@ -1263,14 +1206,14 @@
                     },
                     "examples": {
                         "items": {
-                            "$ref": "#/components/schemas/Example"
+                            "$ref": "#/components/schemas/Example_JudgmentType"
                         },
                         "type": "array",
                         "title": "Examples"
                     },
                     "scorers": {
                         "items": {
-                            "$ref": "#/components/schemas/Scorer"
+                            "$ref": "#/components/schemas/Scorer_JudgmentType"
                         },
                         "type": "array",
                         "title": "Scorers"
@@ -1385,11 +1328,11 @@
                 ],
                 "title": "JudgmentEval"
             },
-            "EvalResults": {
+            "EvalResults_JudgmentType": {
                 "properties": {
                     "results": {
                         "items": {
-                            "$ref": "#/components/schemas/ScoringResult"
+                            "$ref": "#/components/schemas/ScoringResult_JudgmentType"
                         },
                         "type": "array",
                         "title": "Results"
@@ -1397,10 +1340,10 @@
                     "run": {
                         "anyOf": [
                             {
-                                "$ref": "#/components/schemas/TraceRun"
+                                "$ref": "#/components/schemas/TraceRun_JudgmentType"
                             },
                             {
-                                "$ref": "#/components/schemas/JudgmentEval"
+                                "$ref": "#/components/schemas/JudgmentEval_JudgmentType"
                             }
                         ],
                         "title": "Run"
@@ -1413,7 +1356,7 @@
                 ],
                 "title": "EvalResults"
             },
-            "EvalResultsFetchByProjectSortedLimit": {
+            "EvalResultsFetchByProjectSortedLimit_JudgmentType": {
                 "properties": {
                     "project_name": {
                         "type": "string",
@@ -1431,7 +1374,7 @@
                 ],
                 "title": "EvalResultsFetchByProjectSortedLimit"
             },
-            "DatasetInsertExamples": {
+            "DatasetInsertExamples_JudgmentType": {
                 "properties": {
                     "dataset_alias": {
                         "type": "string",
@@ -1439,7 +1382,7 @@
                     },
                     "examples": {
                         "items": {
-                            "$ref": "#/components/schemas/Example"
+                            "$ref": "#/components/schemas/Example_JudgmentType"
                         },
                         "type": "array",
                         "title": "Examples"
@@ -1457,7 +1400,7 @@
                 ],
                 "title": "DatasetInsertExamples"
             },
-            "DatasetDeleteExamples": {
+            "DatasetDeleteExamples_JudgmentType": {
                 "properties": {
                     "dataset_alias": {
                         "type": "string",
@@ -1478,7 +1421,7 @@
                 ],
                 "title": "DatasetDeleteExamples"
             },
-            "DatasetFetch": {
+            "DatasetFetch_JudgmentType": {
                 "properties": {
                     "dataset_alias": {
                         "type": "string",
@@ -1496,7 +1439,7 @@
                 ],
                 "title": "DatasetFetch"
             },
-            "DatasetPush": {
+            "DatasetPush_JudgmentType": {
                 "properties": {
                     "dataset_alias": {
                         "type": "string",
@@ -1528,7 +1471,7 @@
                         "anyOf": [
                             {
                                 "items": {
-                                    "$ref": "#/components/schemas/Example"
+                                    "$ref": "#/components/schemas/Example_JudgmentType"
                                 },
                                 "type": "array"
                             },
@@ -1542,7 +1485,7 @@
                         "anyOf": [
                             {
                                 "items": {
-                                    "$ref": "#/components/schemas/Trace"
+                                    "$ref": "#/components/schemas/Trace_JudgmentType"
                                 },
                                 "type": "array"
                             },
@@ -1581,7 +1524,7 @@
                 ],
                 "title": "DatasetPush"
             },
-            "DatasetFetchByProject": {
+            "DatasetFetchByProject_JudgmentType": {
                 "properties": {
                     "project_name": {
                         "type": "string",
@@ -1594,7 +1537,7 @@
                 ],
                 "title": "DatasetFetchByProject"
             },
-            "DatasetDelete": {
+            "DatasetDelete_JudgmentType": {
                 "properties": {
                     "dataset_alias": {
                         "type": "string",
@@ -1612,7 +1555,7 @@
                 ],
                 "title": "DatasetDelete"
             },
-            "TraceSave": {
+            "TraceSave_JudgmentType": {
                 "properties": {
                     "trace_id": {
                         "type": "string",
@@ -1632,7 +1575,7 @@
                     },
                     "trace_spans": {
                         "items": {
-                            "$ref": "#/components/schemas/TraceSpan"
+                            "$ref": "#/components/schemas/TraceSpan_JudgmentType"
                         },
                         "type": "array",
                         "title": "Trace Spans"
@@ -1702,7 +1645,7 @@
                     },
                     "evaluation_runs": {
                         "items": {
-                            "$ref": "#/components/schemas/JudgmentEval"
+                            "$ref": "#/components/schemas/JudgmentEval_JudgmentType"
                         },
                         "type": "array",
                         "title": "Evaluation Runs"
@@ -1720,7 +1663,7 @@
                 ],
                 "title": "TraceSave"
             },
-            "TraceFetch": {
+            "TraceFetch_JudgmentType": {
                 "properties": {
                     "trace_id": {
                         "type": "string",
@@ -1733,7 +1676,7 @@
                 ],
                 "title": "TraceFetch"
             },
-            "BatchTraceFetch": {
+            "BatchTraceFetch_JudgmentType": {
                 "properties": {
                     "trace_ids": {
                         "items": {
@@ -1749,7 +1692,7 @@
                 ],
                 "title": "BatchTraceFetch"
             },
-            "TracesFetchByProject": {
+            "TracesFetchByProject_JudgmentType": {
                 "properties": {
                     "project_name": {
                         "type": "string",
@@ -1762,7 +1705,7 @@
                 ],
                 "title": "TracesFetchByProject"
             },
-            "TraceDeleteBatch": {
+            "TraceDeleteBatch_JudgmentType": {
                 "properties": {
                     "trace_ids": {
                         "items": {
@@ -1778,27 +1721,7 @@
                 ],
                 "title": "TraceDeleteBatch"
             },
-            "TraceSpanSaveRequest": {
-                "properties": {
-                    "span": {
-                        "additionalProperties": true,
-                        "type": "object",
-                        "title": "Span"
-                    },
-                    "dataset_alias": {
-                        "type": "string",
-                        "title": "Dataset Alias"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "span",
-                    "dataset_alias"
-                ],
-                "title": "TraceSpanSaveRequest",
-                "description": "Request model for saving a trace span to a dataset"
-            },
-            "ClassifierScorerRequest": {
+            "ClassifierScorerRequest_JudgmentType": {
                 "properties": {
                     "name": {
                         "type": "string",
@@ -1806,7 +1729,7 @@
                     },
                     "conversation": {
                         "items": {
-                            "$ref": "#/components/schemas/MessageItem"
+                            "$ref": "#/components/schemas/MessageItem_JudgmentType"
                         },
                         "type": "array",
                         "minItems": 1,
@@ -1839,7 +1762,7 @@
                 ],
                 "title": "ClassifierScorerRequest"
             },
-            "FetchClassifierScorersRequest": {
+            "FetchClassifierScorersRequest_JudgmentType": {
                 "properties": {
                     "user_filter": {
                         "anyOf": [
@@ -1858,7 +1781,7 @@
                 "title": "FetchClassifierScorersRequest",
                 "description": "Fetch classifier scorers"
             },
-            "Trace": {
+            "Trace_JudgmentType": {
                 "properties": {
                     "trace_id": {
                         "type": "string",
@@ -1878,7 +1801,7 @@
                     },
                     "trace_spans": {
                         "items": {
-                            "$ref": "#/components/schemas/TraceSpan"
+                            "$ref": "#/components/schemas/TraceSpan_JudgmentType"
                         },
                         "type": "array",
                         "title": "Trace Spans"
@@ -1953,7 +1876,7 @@
                 ],
                 "title": "Trace"
             },
-            "Scorer": {
+            "Scorer_JudgmentType": {
                 "properties": {
                     "threshold": {
                         "type": "number",
@@ -1984,7 +1907,7 @@
                 "title": "Scorer",
                 "description": "Data object to describe a Metric used for evaluating Examples"
             },
-            "ValidationError": {
+            "ValidationError_JudgmentType": {
                 "properties": {
                     "loc": {
                         "items": {
@@ -2017,7 +1940,7 @@
                 ],
                 "title": "ValidationError"
             },
-            "Example": {
+            "Example_JudgmentType": {
                 "properties": {
                     "input": {
                         "anyOf": [
@@ -2126,7 +2049,7 @@
                         "anyOf": [
                             {
                                 "items": {
-                                    "$ref": "#/components/schemas/Tool"
+                                    "$ref": "#/components/schemas/Tool_JudgmentType"
                                 },
                                 "type": "array"
                             },
@@ -2208,9 +2131,13 @@
                     }
                 },
                 "type": "object",
-                "title": "Example"
+                "required": [
+                    "example_id"
+                ],
+                "title": "Example",
+                "description": "Based on the examples table in the database"
             },
-            "ScoringResult": {
+            "ScoringResult_JudgmentType": {
                 "properties": {
                     "success": {
                         "type": "boolean",
@@ -2220,7 +2147,7 @@
                         "anyOf": [
                             {
                                 "items": {
-                                    "$ref": "#/components/schemas/ScorerData"
+                                    "$ref": "#/components/schemas/ScorerData_JudgmentType"
                                 },
                                 "type": "array"
                             },
@@ -2244,13 +2171,13 @@
                     "data_object": {
                         "anyOf": [
                             {
-                                "$ref": "#/components/schemas/TraceSpan"
+                                "$ref": "#/components/schemas/TraceSpan_JudgmentType"
                             },
                             {
-                                "$ref": "#/components/schemas/CustomExample"
+                                "$ref": "#/components/schemas/CustomExample_JudgmentType"
                             },
                             {
-                                "$ref": "#/components/schemas/Example"
+                                "$ref": "#/components/schemas/Example_JudgmentType"
                             },
                             {
                                 "type": "null"
@@ -2298,9 +2225,9 @@
                     "scorers_data"
                 ],
                 "title": "ScoringResult",
-                "description": "A ScoringResult contains the output of one or more scorers applied to a single example.\nIe: One input, one actual_output, one expected_output, etc..., and 1+ scorer (Faithfulness, Hallucination, Summarization, etc...)\n\nArgs:\n    success (bool): Whether the evaluation was successful. \n                    This means that all scorers applied to this example returned a success.\n    scorer_data (List[ScorerData]): The scorers data for the evaluated example\n    data_object (Optional[Example]): The original example object that was used to create the ScoringResult, can be Example, CustomExample (future), WorkflowRun (future)\n    "
+                "description": "A ScoringResult contains the output of one or more scorers applied to a single example.\nIe: One input, one actual_output, one expected_output, etc..., and 1+ scorer (Faithfulness, Hallucination, Summarization, etc...)\n\nArgs:\n    success (bool): Whether the evaluation was successful.\n                    This means that all scorers applied to this example returned a success.\n    scorer_data (List[ScorerData]): The scorers data for the evaluated example\n    data_object (Optional[Example]): The original example object that was used to create the ScoringResult, can be Example, CustomExample (future), WorkflowRun (future)"
             },
-            "TraceSpan": {
+            "TraceSpan_JudgmentType": {
                 "properties": {
                     "span_id": {
                         "type": "string",
@@ -2386,7 +2313,7 @@
                     "usage": {
                         "anyOf": [
                             {
-                                "$ref": "#/components/schemas/TraceUsage"
+                                "$ref": "#/components/schemas/TraceUsage_JudgmentType"
                             },
                             {
                                 "type": "null"
@@ -2423,7 +2350,7 @@
                         "anyOf": [
                             {
                                 "items": {
-                                    "$ref": "#/components/schemas/Tool"
+                                    "$ref": "#/components/schemas/Tool_JudgmentType"
                                 },
                                 "type": "array"
                             },
@@ -2502,7 +2429,7 @@
                 ],
                 "title": "TraceSpan"
             },
-            "MessageItem": {
+            "MessageItem_JudgmentType": {
                 "properties": {
                     "role": {
                         "type": "string",
@@ -2520,7 +2447,7 @@
                 ],
                 "title": "MessageItem"
             },
-            "Tool": {
+            "Tool_JudgmentType": {
                 "properties": {
                     "tool_name": {
                         "type": "string",
@@ -2597,7 +2524,7 @@
                 ],
                 "title": "Tool"
             },
-            "ScorerData": {
+            "ScorerData_JudgmentType": {
                 "properties": {
                     "name": {
                         "type": "string",
@@ -2713,7 +2640,7 @@
                 "title": "ScorerData",
                 "description": "ScorerData holds the information related to a single, completed Scorer evaluation run.\n\nFor example, if running the Judgment Faithfulness scorer on an example, the ScorerData\nobject will contain whether the example passed its threshold expectation, as well as more detailed\ninformation surrounding the evaluation run such as the claims and verdicts generated by the\njudge model(s)."
             },
-            "CustomExample": {
+            "CustomExample_JudgmentType": {
                 "properties": {
                     "input": {
                         "anyOf": [
@@ -2830,6 +2757,10 @@
                         ],
                         "title": "Name"
                     },
+                    "example_id": {
+                        "type": "string",
+                        "title": "Example Id"
+                    },
                     "example_index": {
                         "anyOf": [
                             {
@@ -2867,7 +2798,7 @@
                 "type": "object",
                 "title": "CustomExample"
             },
-            "TraceUsage": {
+            "TraceUsage_JudgmentType": {
                 "properties": {
                     "prompt_tokens": {
                         "anyOf": [

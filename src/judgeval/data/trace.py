@@ -3,37 +3,12 @@ from typing import Optional, Dict, Any, List
 from judgeval.data.tool import Tool
 import json
 from datetime import datetime, timezone
+from judgeval.data.judgment_types import TraceUsageJudgmentType, TraceSpanJudgmentType, TraceJudgmentType
 
-class TraceUsage(BaseModel):
-    prompt_tokens: Optional[int] = None
-    completion_tokens: Optional[int] = None
-    total_tokens: Optional[int] = None
-    prompt_tokens_cost_usd: Optional[float] = None
-    completion_tokens_cost_usd: Optional[float] = None
-    total_cost_usd: Optional[float] = None
-    model_name: Optional[str] = None
+class TraceUsage(TraceUsageJudgmentType):
+    pass
 
-class TraceSpan(BaseModel):
-    span_id: str
-    trace_id: str
-    function: str
-    depth: int
-    created_at: Optional[Any] = None
-    parent_span_id: Optional[str] = None
-    span_type: Optional[str] = "span"
-    inputs: Optional[Dict[str, Any]] = None
-    error: Optional[Dict[str, Any]] = None
-    output: Optional[Any] = None
-    usage: Optional[TraceUsage] = None
-    duration: Optional[float] = None
-    annotation: Optional[List[Dict[str, Any]]] = None
-    expected_tools: Optional[List[Tool]] = None
-    additional_metadata: Optional[Dict[str, Any]] = None
-    has_evaluation: Optional[bool] = False
-    agent_name: Optional[str] = None
-    state_before: Optional[Dict[str, Any]] = None
-    state_after: Optional[Dict[str, Any]] = None
-    
+class TraceSpan(TraceSpanJudgmentType):    
     def get_name(self):
         if self.agent_name:
             return f"{self.agent_name}.{self.function}"
@@ -118,16 +93,6 @@ class TraceSpan(BaseModel):
         # Start serialization with the top-level value
         return serialize_value(value)
 
-class Trace(BaseModel):
-    trace_id: str
-    name: str
-    created_at: str
-    duration: float
-    trace_spans: List[TraceSpan]
-    overwrite: bool = False
-    offline_mode: bool = False
-    rules: Optional[Dict[str, Any]] = None
-    has_notification: Optional[bool] = False
-    customer_id: Optional[str] = None
-    tags: Optional[List[str]] = None
+class Trace(TraceJudgmentType):
+    pass
     
