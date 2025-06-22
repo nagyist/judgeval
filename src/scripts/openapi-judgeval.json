@@ -763,7 +763,7 @@
       "post": {
         "tags": ["traces"],
         "summary": "Update Trace Usage Counters",
-        "description": "Update trace usage counters for an organization.\nThis endpoint should be called after successfully saving traces.",
+        "description": "Update trace usage counters for an organization. \nThis endpoint should be called after successfully saving traces.",
         "operationId": "update_trace_usage_counters_traces_usage_update__post",
         "security": [{ "HTTPBearer": [] }],
         "parameters": [
@@ -843,7 +843,7 @@
       "post": {
         "tags": ["traces"],
         "summary": "Process Evaluation Runs Batch",
-        "description": "Process batched evaluation runs from the background service.\n\nThis endpoint receives batched evaluation run data from the BackgroundSpanService,\nfirst upserts the associated span data to avoid race conditions, then queues\nthe evaluation runs for async processing via RabbitMQ.\n\nArgs:\n    request_data: EvaluationRunsBatchRequest containing evaluation entries\n    trace_span_client: Injected TraceSpanClient for span upserts\n    rabbit_client: Injected RabbitMQ client for queueing\n    user_organization: Injected auth validation\n\nReturns:\n    EvaluationRunsBatchResponse: Success status and processing details",
+        "description": "Process batched evaluation runs from the background service.\n\nThis endpoint receives batched evaluation run data from the BackgroundSpanService,\nfirst upserts the associated span data to avoid race conditions, then queues \nthe evaluation runs for async processing via RabbitMQ.\n\nArgs:\n    request_data: EvaluationRunsBatchRequest containing evaluation entries\n    trace_span_client: Injected TraceSpanClient for span upserts\n    rabbit_client: Injected RabbitMQ client for queueing\n    user_organization: Injected auth validation\n\nReturns:\n    EvaluationRunsBatchResponse: Success status and processing details",
         "operationId": "process_evaluation_runs_batch_traces_evaluation_runs_batch__post",
         "security": [{ "HTTPBearer": [] }],
         "parameters": [
@@ -1640,7 +1640,7 @@
         "type": "object",
         "required": ["success", "scorers_data"],
         "title": "ScoringResult",
-        "description": "A ScoringResult contains the output of one or more scorers applied to a single example.\nIe: One input, one actual_output, one expected_output, etc..., and 1+ scorer (Faithfulness, Hallucination, Summarization, etc...)\n\nArgs:\n    success (bool): Whether the evaluation was successful.\n                    This means that all scorers applied to this example returned a success.\n    scorer_data (List[ScorerData]): The scorers data for the evaluated example\n    data_object (Optional[Example]): The original example object that was used to create the ScoringResult, can be Example, CustomExample (future), WorkflowRun (future)"
+        "description": "A ScoringResult contains the output of one or more scorers applied to a single example.\nIe: One input, one actual_output, one expected_output, etc..., and 1+ scorer (Faithfulness, Hallucination, Summarization, etc...)\n\nArgs:\n    success (bool): Whether the evaluation was successful. \n                    This means that all scorers applied to this example returned a success.\n    scorer_data (List[ScorerData]): The scorers data for the evaluated example\n    data_object (Optional[Example]): The original example object that was used to create the ScoringResult, can be Example, CustomExample (future), WorkflowRun (future)\n    "
       },
       "TraceSpan": {
         "properties": {

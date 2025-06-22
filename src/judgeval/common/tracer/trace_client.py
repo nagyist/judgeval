@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
+from datetime import datetime
 import functools
 import logging
 import os
@@ -9,6 +10,7 @@ import traceback
 from types import CodeType, FrameType
 from typing import Any, Callable, Dict, List, Optional, Union, cast
 
+from judgeval.common.storage.judgment_batched_storage import JudgmentBatchedStorage
 from judgeval.common.storage.judgment_storage import JudgmentStorage
 from judgeval.common.storage.storage import ABCStorage
 from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
@@ -21,7 +23,11 @@ from judgeval.common.tracer.types import (
     OptExcInfo,
     TSpanResetTokens,
 )
-from judgeval.common.tracer.utils import extract_inputs_from_entry_frame, new_id
+from judgeval.common.tracer.utils import (
+    extract_inputs_from_entry_frame,
+    get_span_exit_depth_map,
+    new_id,
+)
 
 
 class TraceClient:
@@ -87,9 +93,9 @@ class TraceClient:
         )
 
         self._code_should_trace = set()
-        self._trace_spans: list[CurrentSpanExit] = []
+        self._trace_spans = []
 
-        self._storage_client = storage_client or JudgmentStorage()
+        self._storage_client = storage_client or JudgmentBatchedStorage()
 
     @property
     def current_span(self) -> Union[CurrentSpanType, None]:
@@ -184,6 +190,8 @@ class TraceClient:
         except Exception as e:
             pass
 
+        return formatted_exception
+
     def observe_enter(self, name: str, inputs: Union[dict[str, Any], None]):
         span_id = new_id()
         parent_span_id = (
@@ -192,7 +200,6 @@ class TraceClient:
             else None
         )
         start_time = time.time()
-
         token = self._current_span_var.set(
             CurrentSpanEntry(
                 name=name,
@@ -351,6 +358,7 @@ class TraceClient:
                 name = frame.f_code.co_qualname
                 inputs = extract_inputs_from_entry_frame(frame)
                 self.observe_enter(name, inputs)
+                return __trace_daemon__
 
             elif event == "return":
                 self.observe_exit(arg)
@@ -435,6 +443,7 @@ class TraceClient:
 
         logging.info(f"Flushing {len(self._trace_spans)} trace spans to storage.")
 
+        depth_map = get_span_exit_depth_map(self._trace_spans)
         trace_spans = cast(List[TraceSpan], [])
         for span in self._trace_spans:
             trace_spans.append(
@@ -442,23 +451,31 @@ class TraceClient:
                     span_id=span.span_id,
                     trace_id=self.trace_id,
                     function=span.name,
+                    depth=depth_map.get(self._trace_spans[0].span_id, -1),
                     span_type=span.span_type,
                     parent_span_id=span.parent_span_id,
                     duration=(span.end_time - span.start_time),
+                    inputs=span.inputs or {},
+                    output=span.output,
+                    error=span.error,
                 )
             )
 
         trace_save = TraceSave(
             trace_id=self.trace_id,
             name=self.name,
-            created_at=time.time(),
+            created_at=datetime.utcfromtimestamp(time.time()).isoformat(),
             duration=(self._trace_spans[-1].end_time - self._trace_spans[0].start_time),
             trace_spans=trace_spans,
+            project_name=self.name,
+            evaluation_runs=[],
         )
 
         self._storage_client.save_trace(
             trace_data=trace_save, trace_id=self.trace_id, project_name=self.name
         )
+
+        self.print_graph()
         self._trace_spans.clear()
 
     @contextmanager
@@ -471,3 +488,4 @@ class TraceClient:
             yield
         finally:
             sys.settrace(None)
+            self._flush_spans()

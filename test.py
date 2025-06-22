@@ -8,7 +8,7 @@ import logging
 
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
@@ -59,13 +59,9 @@ def main():
         print(value)
     print(length([fibonacci(i) for i in range(6)]))
 
-    # assert_condition(length([1, 2, 3]) == 3, "Length should be 3")
-    # assert_condition(False, "This will raise an assertion error")
+    assert_condition(length([1, 2, 3]) == 3, "Length should be 3")
+    assert_condition(False, "This will raise an assertion error")
 
 
-import atexit
-
-atexit.register(judgment.print_graph)
-
-with judgment.daemon(deep_tracing=False):
+with judgment.daemon(deep_tracing=True):
     main()

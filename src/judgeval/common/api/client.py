@@ -16,32 +16,31 @@ class APIClient:
         api_key: str,
         org_id: str,
     ):
-        self.base_url = ROOT_API
+        self.base_url = ROOT_API.rstrip("/")
         self.api_key = api_key
         self.org_id = org_id
         self.headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
             "Authorization": "Bearer %s" % self.api_key,
-            "X-Orgaization-ID": self.org_id,
+            "X-Organization-Id": self.org_id,
         }
 
-    def _do_get(
+    def do_get(
         self,
         endpoint: str,
         params: Union[dict[str, str], None] = None,
     ) -> requests.Response:
         url = "%s/%s" % (self.base_url, endpoint)
-        response = requests.get(url, params=params, headers=self.headers)
-        response.raise_for_status()
+        response = requests.get(url, params=params, headers=self.headers, verify=True)
         return response
 
-    def _do_post(
+    def do_post(
         self,
         endpoint: str,
         data: Any = None,
     ) -> requests.Response:
-        url = "%s/%s" % (self.base_url, endpoint)
-        response = requests.post(url, json=data, headers=self.headers)
-        response.raise_for_status()
+        url = "%s/%s" % (self.base_url, endpoint.lstrip("/"))
+
+        response = requests.post(url, data=data, headers=self.headers, verify=True)
         return response
