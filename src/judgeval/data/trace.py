@@ -1,6 +1,4 @@
-from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
-from judgeval.data.tool import Tool
+from typing import Any
 import json
 from datetime import datetime, timezone
 from judgeval.data.judgment_types import TraceUsageJudgmentType, TraceSpanJudgmentType, TraceJudgmentType

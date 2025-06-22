@@ -4,8 +4,6 @@ Implementation of the ScorerData class.
 ScorerData holds the information related to a single, completed Scorer evaluation run.
 """
 
-from typing import List, Union, Optional, Dict
-from pydantic import BaseModel
 from judgeval.data.judgment_types import ScorerDataJudgmentType
 from judgeval.scorers import JudgevalScorer
 

@@ -1,15 +1,9 @@
 """
 Classes for representing examples in a dataset.
 """
-
-
-from typing import Optional, Any, Dict, List, Union
 from uuid import uuid4
-from pydantic import BaseModel, Field, field_validator
 from enum import Enum
 from datetime import datetime
-from judgeval.data.tool import Tool
-import time
 from judgeval.data.judgment_types import ExampleJudgmentType
 
 

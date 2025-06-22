@@ -1,6 +1,5 @@
-from pydantic import BaseModel, field_validator, model_serializer
+from pydantic import model_serializer
 from typing import Dict, Any, Optional, List
-import warnings
 from judgeval.data.judgment_types import ToolJudgmentType
 
 class Tool(ToolJudgmentType):
