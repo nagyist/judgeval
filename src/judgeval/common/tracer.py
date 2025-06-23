@@ -1557,7 +1557,6 @@ class _DeepTracer:
 #         current_trace.record_output({"log": message})
     
 class Tracer:
-    # _instance = None
 
     # Tracer.current_trace class variable is currently used in wrap()
     # TODO: Keep track of cross-context state for current trace and current span ID solely through class variables instead of instance variables?
@@ -1566,11 +1565,6 @@ class Tracer:
     # current_span_id: Optional[str] = None
 
     trace_across_async_contexts: bool = False # BY default, we don't trace across async contexts
-
-    # def __new__(cls, *args, **kwargs):
-    #     if cls._instance is None:
-    #         cls._instance = super(Tracer, cls).__new__(cls)
-    #     return cls._instance
 
     def __init__(
         self, 
@@ -1595,7 +1589,6 @@ class Tracer:
         span_flush_interval: float = 1.0,  # Time in seconds between automatic flushes
         span_num_workers: int = 10  # Number of worker threads for span processing
         ):
-        # if not hasattr(self, 'initialized'):
         if not api_key:
             raise ValueError("Tracer must be configured with a Judgment API key")
         
@@ -1613,7 +1606,6 @@ class Tracer:
         self.organization_id: str = organization_id
         self.rules: List[Rule] = rules or []  # Store rules at tracer level
         self.traces: List[Trace] = []
-        # self.initialized: bool = True
         self.enable_monitoring: bool = enable_monitoring
         self.enable_evaluations: bool = enable_evaluations
         self.class_identifiers: Dict[str, str] = {}  # Dictionary to store class identifiers
