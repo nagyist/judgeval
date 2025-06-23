@@ -4,23 +4,27 @@ from judgeval.data import ScorerData, Example
 from judgeval.data.trace import TraceSpan
 from judgeval.data.judgment_types import ScoringResultJudgmentType
 
+
 class ScoringResult(ScoringResultJudgmentType):
     """
     A ScoringResult contains the output of one or more scorers applied to a single example.
     Ie: One input, one actual_output, one expected_output, etc..., and 1+ scorer (Faithfulness, Hallucination, Summarization, etc...)
 
     Args:
-        success (bool): Whether the evaluation was successful. 
+        success (bool): Whether the evaluation was successful.
                         This means that all scorers applied to this example returned a success.
         scorer_data (List[ScorerData]): The scorers data for the evaluated example
         data_object (Optional[Example]): The original example object that was used to create the ScoringResult, can be Example, CustomExample (future), WorkflowRun (future)
-        
+
     """
+
     def to_dict(self) -> dict:
         """Convert the ScoringResult instance to a dictionary, properly serializing scorer_data."""
         return {
             "success": self.success,
-            "scorers_data": [scorer_data.to_dict() for scorer_data in self.scorers_data] if self.scorers_data else None,
+            "scorers_data": [scorer_data.to_dict() for scorer_data in self.scorers_data]
+            if self.scorers_data
+            else None,
             "data_object": self.data_object.to_dict() if self.data_object else None,
         }
 

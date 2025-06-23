@@ -1,6 +1,7 @@
 """
 Classes for representing examples in a dataset.
 """
+
 from uuid import uuid4
 from enum import Enum
 from datetime import datetime
@@ -21,11 +22,11 @@ class ExampleParams(Enum):
 
 class Example(ExampleJudgmentType):
     def __init__(self, **data):
-        if 'example_id' not in data:
-            data['example_id'] = str(uuid4())
+        if "example_id" not in data:
+            data["example_id"] = str(uuid4())
         # Set timestamp if not provided
-        if 'created_at' not in data:
-            data['created_at'] = datetime.now().isoformat()
+        if "created_at" not in data:
+            data["created_at"] = datetime.now().isoformat()
         super().__init__(**data)
 
     def to_dict(self):

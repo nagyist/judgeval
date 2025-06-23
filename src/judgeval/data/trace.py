@@ -1,12 +1,19 @@
 from typing import Any
 import json
 from datetime import datetime, timezone
-from judgeval.data.judgment_types import TraceUsageJudgmentType, TraceSpanJudgmentType, TraceJudgmentType
+from judgeval.data.judgment_types import (
+    TraceUsageJudgmentType,
+    TraceSpanJudgmentType,
+    TraceJudgmentType,
+)
+from pydantic import BaseModel
+
 
 class TraceUsage(TraceUsageJudgmentType):
     pass
 
-class TraceSpan(TraceSpanJudgmentType):    
+
+class TraceSpan(TraceSpanJudgmentType):
     def get_name(self):
         if self.agent_name:
             return f"{self.agent_name}.{self.function}"
@@ -18,8 +25,9 @@ class TraceSpan(TraceSpanJudgmentType):
             "span_id": self.span_id,
             "trace_id": self.trace_id,
             "depth": self.depth,
-#             "created_at": datetime.fromtimestamp(self.created_at).isoformat(),
-            "created_at": datetime.fromtimestamp(self.created_at, tz=timezone.utc).isoformat(),
+            "created_at": datetime.fromtimestamp(
+                self.created_at, tz=timezone.utc
+            ).isoformat(),
             "inputs": self._serialize_value(self.inputs),
             "output": self._serialize_value(self.output),
             "error": self._serialize_value(self.error),
@@ -32,15 +40,17 @@ class TraceSpan(TraceSpanJudgmentType):
             "agent_name": self.agent_name,
             "state_before": self.state_before,
             "state_after": self.state_after,
-            "additional_metadata": self._serialize_value(self.additional_metadata)
+            "additional_metadata": self._serialize_value(self.additional_metadata),
         }
-    
+
     def print_span(self):
         """Print the span with proper formatting and parent relationship information."""
         indent = "  " * self.depth
-        parent_info = f" (parent_id: {self.parent_span_id})" if self.parent_span_id else ""
+        parent_info = (
+            f" (parent_id: {self.parent_span_id})" if self.parent_span_id else ""
+        )
         print(f"{indent}→ {self.function} (id: {self.span_id}){parent_info}")
-    
+
     def _is_json_serializable(self, obj: Any) -> bool:
         """Helper method to check if an object is JSON serializable."""
         try:
@@ -57,19 +67,19 @@ class TraceSpan(TraceSpanJudgmentType):
             return str(output)
         except (TypeError, OverflowError, ValueError):
             pass
-    
+
         try:
             return repr(output)
         except (TypeError, OverflowError, ValueError):
             pass
 
         return None
-        
+
     def _serialize_value(self, value: Any) -> Any:
         """Helper method to deep serialize a value safely supporting Pydantic Models / regular PyObjects."""
         if value is None:
             return None
-            
+
         def serialize_value(value):
             if isinstance(value, BaseModel):
                 return value.model_dump()
@@ -91,6 +101,6 @@ class TraceSpan(TraceSpanJudgmentType):
         # Start serialization with the top-level value
         return serialize_value(value)
 
+
 class Trace(TraceJudgmentType):
     pass
-    

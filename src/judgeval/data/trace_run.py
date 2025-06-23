@@ -9,8 +9,8 @@ from judgeval.rules import Rule
 class TraceRun(BaseModel):
     """
     Stores example and evaluation scorers together for running an eval task
-    
-    Args: 
+
+    Args:
         project_name (str): The name of the project the evaluation results belong to
         eval_name (str): A name for this evaluation run
         traces (List[Trace]): The traces to evaluate
