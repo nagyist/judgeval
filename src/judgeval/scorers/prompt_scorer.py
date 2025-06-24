@@ -27,7 +27,7 @@ NOTE: When implementing build_measure_prompt and build_schema:
 
 from abc import abstractmethod
 from typing import List, Optional, Tuple, Any
-from pydantic import Field
+from pydantic import Field, BaseModel
 
 from judgeval.data import Example
 from judgeval.data.example import ExampleParams
@@ -41,12 +41,13 @@ from judgeval.scorers.utils import (
 from judgeval.judges import JudgevalJudge
 
 
-class PromptScorer(JudgevalScorer):
+class PromptScorer(JudgevalScorer, BaseModel):
     name: str
     score_type: str
     threshold: float = Field(default=0.5)
     using_native_model: bool = Field(default=True)
     model: Optional[JudgevalJudge] = Field(default=None)
+    skipped: bool = Field(default=False)
     # DO NOT SET THESE FIELDS MANUALLY, THEY ARE SET BY THE SCORE_EXAMPLE METHOD
     _response: Optional[dict] = None
     _result: Optional[float] = None
@@ -61,7 +62,20 @@ class PromptScorer(JudgevalScorer):
         verbose_mode: bool = False,
         required_params: Optional[List[ExampleParams]] = None,
     ):
-        super().__init__(
+        # Initialize BaseModel first
+        BaseModel.__init__(
+            self,
+            name=name,
+            score_type=name,
+            threshold=1 if strict_mode else threshold,
+            include_reason=include_reason,
+            async_mode=async_mode,
+            strict_mode=strict_mode,
+            verbose_mode=verbose_mode,
+        )
+        # Then initialize JudgevalScorer
+        JudgevalScorer.__init__(
+            self,
             score_type=name,
             threshold=1 if strict_mode else threshold,
             include_reason=include_reason,

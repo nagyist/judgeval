@@ -6,7 +6,7 @@ To create a custom scorer, extend this class and implement the `score_example`, 
 """
 
 from typing import Optional, Dict, Union, List
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 
 from judgeval.common.logger import debug, info, warning, error
 from judgeval.judges import JudgevalJudge
@@ -14,10 +14,8 @@ from judgeval.judges.utils import create_judge
 from judgeval.constants import UNBOUNDED_SCORERS
 from judgeval.data.example import ExampleParams
 
-from pydantic import BaseModel
 
-
-class JudgevalScorer(BaseModel, ABC):
+class JudgevalScorer:
     """
     Base class for scorers in `judgeval`.
 
