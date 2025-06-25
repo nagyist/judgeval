@@ -89,7 +89,7 @@ class ClassifierScorer(APIJudgmentScorer):
             self.push_classifier_scorer()
         else:
             raise ValueError(
-                "You must provide the name, conversation and options to create a new scorer. If you are fetching an existing scorer, pass in the slug."
+                "You must provide the name, conversation, and options to create a new scorer. If you are fetching an existing scorer, pass in the slug. The conversation and options variables must be non-empty."
             )
 
     # Setter functions. Each setter function pushes the scorer to the DB.
