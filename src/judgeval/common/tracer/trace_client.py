@@ -8,7 +8,7 @@ import sys
 import time
 import traceback
 from types import CodeType, FrameType
-from typing import Any, Callable, Dict, List, Optional, Union, cast
+from typing import Any, Callable, Dict, Iterable, List, Optional, Union, cast
 
 from judgeval.common.storage.judgment_batched_storage import JudgmentBatchedStorage
 from judgeval.common.storage.judgment_storage import JudgmentStorage
@@ -192,7 +192,9 @@ class TraceClient:
 
         return formatted_exception
 
-    def observe_enter(self, name: str, inputs: Union[dict[str, Any], None]):
+    def observe_enter(
+        self, name: str, inputs: Union[dict[str, Any], None], span_type: str = "span"
+    ):
         span_id = new_id()
         parent_span_id = (
             self.current_span.span_id
@@ -204,7 +206,7 @@ class TraceClient:
             CurrentSpanEntry(
                 name=name,
                 span_id=span_id,
-                span_type="function",
+                span_type=span_type,
                 parent_span_id=parent_span_id,
                 start_time=start_time,
                 inputs=inputs,
@@ -357,7 +359,7 @@ class TraceClient:
             if event == "call":
                 name = frame.f_code.co_qualname
                 inputs = extract_inputs_from_entry_frame(frame)
-                self.observe_enter(name, inputs)
+                self.observe_enter(name, inputs, "function")
                 return __trace_daemon__
 
             elif event == "return":
@@ -370,6 +372,24 @@ class TraceClient:
 
         return __trace_daemon__
 
+    def iter(
+        self, iterable: Iterable[Any], name: Optional[str] = None
+    ) -> Iterable[Any]:
+        """
+        Generator to trace an iterable.
+        This will automatically handle entering and exiting the span for each item in the iterable.
+        """
+        outer_span_name = (
+            name if name is not None else f"iter({type(iterable).__name__})"
+        )
+        inner_span_name = f"{outer_span_name} - %d"
+        i = 0
+        with self.span(outer_span_name, span_type="iter"):
+            for item in iterable:
+                with self.span(inner_span_name % i, span_type="iter_item"):
+                    yield item
+                i += 1
+
     @contextmanager
     def span(self, name: str, span_type: str = "span"):
         """
@@ -377,7 +397,7 @@ class TraceClient:
         This will automatically handle entering and exiting the span.
         """
         try:
-            self.observe_enter(name, None)
+            self.observe_enter(name, None, span_type=span_type)
             yield
         except Exception as e:
             self.observe_error(sys.exc_info())

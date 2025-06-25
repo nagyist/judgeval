@@ -55,12 +55,8 @@ class Foo:
 def main():
     foo = Foo()
     gen = foo.test_generator(5)
-    for value in gen:
-        print(value)
-    print(length([fibonacci(i) for i in range(6)]))
-
-    assert_condition(length([1, 2, 3]) == 3, "Length should be 3")
-    assert_condition(False, "This will raise an assertion error")
+    for i in judgment.iter(range(5)):
+        print(length([fibonacci(i) for i in range(6)]))
 
 
 with judgment.daemon(deep_tracing=True):
