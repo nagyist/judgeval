@@ -840,7 +840,6 @@ class TraceClient:
 
         # Calculate total elapsed time
         total_duration = self.get_duration()
-        print("Total duration: ", total_duration)
 
         if self.start_time is None:
             self.start_time = time.time()

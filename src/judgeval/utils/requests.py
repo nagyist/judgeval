@@ -60,12 +60,9 @@ class AsyncRetryClient:
                     if response.status_code in self.status_forcelist:
                         response.raise_for_status()
                     return response
-                except (httpx.RequestError, httpx.HTTPStatusError) as e:
+                except (httpx.RequestError, httpx.HTTPStatusError):
                     if attempt < self.retries - 1:
                         sleep_duration = self.backoff_factor * (2**attempt)
-                        print(
-                            f"Request failed with {e}. Retrying in {sleep_duration:.2f} seconds... (Attempt {attempt + 1}/{self.retries})"
-                        )
                         await asyncio.sleep(sleep_duration)
                     else:
                         print(f"Request failed after {self.retries} attempts.")
