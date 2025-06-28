@@ -442,6 +442,7 @@ class TraceClient:
         self.customer_id: Optional[str] = None  # Added customer_id attribute
         self.tags: Optional[List[str]] = None  # Added tags attribute
         self.has_notification: Optional[bool] = False  # Initialize has_notification
+        self.update_id: int = 0  # Track ordering of trace saves/updates
         self.trace_spans: List[TraceSpan] = []
         self.span_id_to_span: Dict[str, TraceSpan] = {}
         self.evaluation_runs: List[EvaluationRun] = []
@@ -800,12 +801,15 @@ class TraceClient:
         Save the current trace to the database. This is a non-blocking operation.
         """
         # Set start_time if this is the first save
+        if self.start_time is None:
+            self.start_time = time.time()
+
+        # Increment update_id for ordering
+        self.update_id += 1
 
         # Calculate total elapsed time
         total_duration = self.get_duration()
 
-        if self.start_time is None:
-            self.start_time = time.time()
         # Create trace document - Always use standard keys for top-level counts
         trace_data = {
             "trace_id": self.trace_id,
@@ -815,6 +819,7 @@ class TraceClient:
                 self.start_time, timezone.utc
             ).isoformat(),
             "duration": total_duration,
+            "update_id": self.update_id,
             "trace_spans": [span.model_dump() for span in self.trace_spans],
             "evaluation_runs": [run.model_dump() for run in self.evaluation_runs],
             "overwrite": overwrite,
@@ -841,12 +846,14 @@ class TraceClient:
         This is a non-blocking operation.
         """
 
+        # Increment update_id for ordering
+        self.update_id += 1
+
         # Calculate total elapsed time
         total_duration = self.get_duration()
 
         if self.start_time is None:
             self.start_time = time.time()
-
         # Create trace document
         trace_data = {
             "trace_id": self.trace_id,
@@ -856,6 +863,7 @@ class TraceClient:
                 self.start_time, timezone.utc
             ).isoformat(),
             "duration": total_duration,
+            "update_id": self.update_id,
             "trace_spans": [span.model_dump() for span in self.trace_spans],
             "evaluation_runs": [run.model_dump() for run in self.evaluation_runs],
             "overwrite": overwrite,
@@ -2156,6 +2164,7 @@ class Tracer:
                                     current_trace.start_time, timezone.utc
                                 ).isoformat(),
                                 "duration": current_trace.get_duration(),
+                                "update_id": current_trace.update_id,
                                 "trace_spans": [
                                     span.model_dump()
                                     for span in current_trace.trace_spans
@@ -2296,6 +2305,7 @@ class Tracer:
                                     current_trace.start_time, timezone.utc
                                 ).isoformat(),
                                 "duration": current_trace.get_duration(),
+                                "update_id": current_trace.update_id,
                                 "trace_spans": [
                                     span.model_dump()
                                     for span in current_trace.trace_spans

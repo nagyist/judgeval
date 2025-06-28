@@ -312,6 +312,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                             self._trace_client.start_time
                         ).isoformat(),
                         "duration": self._trace_client.get_duration(),
+                        "update_id": self._trace_client.update_id,
                         "trace_spans": [
                             span.model_dump() for span in self._trace_client.trace_spans
                         ],
@@ -522,6 +523,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                         trace_client.start_time
                     ).isoformat(),
                     "duration": trace_client.get_duration(),
+                    "update_id": trace_client.update_id,
                     "trace_spans": [
                         span.model_dump() for span in trace_client.trace_spans
                     ],
