@@ -2145,33 +2145,31 @@ class Tracer:
                     finally:
                         # Flush background spans before saving the trace
                         try:
+                            # Save the completed trace
+                            current_trace.save(overwrite=overwrite, final_save=True)
+
+                            # Store the complete trace data
                             complete_trace_data = {
                                 "trace_id": current_trace.trace_id,
                                 "name": current_trace.name,
-                                "created_at": datetime.utcfromtimestamp(
-                                    current_trace.start_time
+                                "created_at": datetime.fromtimestamp(
+                                    current_trace.start_time, timezone.utc
                                 ).isoformat(),
                                 "duration": current_trace.get_duration(),
                                 "trace_spans": [
                                     span.model_dump()
                                     for span in current_trace.trace_spans
                                 ],
+                                "evaluation_runs": [
+                                    run.model_dump()
+                                    for run in current_trace.evaluation_runs
+                                ],
                                 "overwrite": overwrite,
                                 "offline_mode": self.offline_mode,
                                 "parent_trace_id": current_trace.parent_trace_id,
                                 "parent_name": current_trace.parent_name,
                             }
-                            # Save the completed trace
-                            trace_id, server_response = current_trace.save(
-                                overwrite=overwrite, final_save=True
-                            )
-
-                            # Store the complete trace data instead of just server response
-
                             self.traces.append(complete_trace_data)
-
-                            # if self.background_span_service:
-                            #     self.background_span_service.flush()
 
                             # Reset trace context (span context resets automatically)
                             self.reset_current_trace(trace_token)
@@ -2288,21 +2286,23 @@ class Tracer:
                         # Flush background spans before saving the trace
                         try:
                             # Save the completed trace
-                            trace_id, server_response = current_trace.save(
-                                overwrite=overwrite, final_save=True
-                            )
+                            current_trace.save(overwrite=overwrite, final_save=True)
 
-                            # Store the complete trace data instead of just server response
+                            # Store the complete trace data
                             complete_trace_data = {
                                 "trace_id": current_trace.trace_id,
                                 "name": current_trace.name,
-                                "created_at": datetime.utcfromtimestamp(
-                                    current_trace.start_time
+                                "created_at": datetime.fromtimestamp(
+                                    current_trace.start_time, timezone.utc
                                 ).isoformat(),
                                 "duration": current_trace.get_duration(),
                                 "trace_spans": [
                                     span.model_dump()
                                     for span in current_trace.trace_spans
+                                ],
+                                "evaluation_runs": [
+                                    run.model_dump()
+                                    for run in current_trace.evaluation_runs
                                 ],
                                 "overwrite": overwrite,
                                 "offline_mode": self.offline_mode,
