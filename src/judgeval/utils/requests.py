@@ -4,6 +4,7 @@ from urllib3.util.retry import Retry
 from http import HTTPStatus
 import httpx
 import asyncio
+import random
 
 
 class RetrySession(requests_original.Session):
@@ -11,6 +12,7 @@ class RetrySession(requests_original.Session):
         self,
         retries=3,
         backoff_factor=1,
+        backoff_jitter=0.1,
         status_forcelist=[
             HTTPStatus.BAD_GATEWAY,
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -24,6 +26,7 @@ class RetrySession(requests_original.Session):
             read=retries,
             connect=retries,
             backoff_factor=backoff_factor,
+            backoff_jitter=backoff_jitter,
             status_forcelist=status_forcelist,
         )
 
@@ -40,6 +43,7 @@ class AsyncRetryClient:
         self,
         retries=3,
         backoff_factor=1,
+        jitter=True,
         status_forcelist=None,
     ):
         if status_forcelist is None:
@@ -50,6 +54,7 @@ class AsyncRetryClient:
             }
         self.retries = retries
         self.backoff_factor = backoff_factor
+        self.jitter = jitter
         self.status_forcelist = status_forcelist
 
     async def _request_with_retry(self, method: str, *args, **kwargs):
@@ -63,6 +68,9 @@ class AsyncRetryClient:
                 except (httpx.RequestError, httpx.HTTPStatusError):
                     if attempt < self.retries - 1:
                         sleep_duration = self.backoff_factor * (2**attempt)
+                        if self.jitter:
+                            # Apply full jitter: random value between 0 and calculated delay
+                            sleep_duration = random.uniform(0, sleep_duration)
                         await asyncio.sleep(sleep_duration)
                     else:
                         print(f"Request failed after {self.retries} attempts.")
