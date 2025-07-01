@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 from requests import exceptions
 from judgeval.utils.requests import requests
 import time
@@ -377,7 +378,16 @@ def run_with_spinner(message: str, func, *args, **kwargs) -> Any:
     spinner_thread.start()
 
     try:
-        result = func(*args, **kwargs)
+        if asyncio.iscoroutinefunction(func):
+            coro = func(*args, **kwargs)
+            try:
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, coro)
+                    result = future.result()
+            except RuntimeError:
+                result = asyncio.run(coro)
+        else:
+            result = func(*args, **kwargs)
     except Exception as e:
         error(f"An error occurred: {str(e)}")
         stop_spinner_event.set()
