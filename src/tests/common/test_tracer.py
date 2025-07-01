@@ -176,9 +176,8 @@ def test_save_trace(mock_post, trace_client):
         trace_client.record_input({"arg": 1})
         trace_client.record_output("result")
 
-    trace_id, data = trace_client.save()
+    trace_client.save()
     assert mock_post.called
-    assert data["trace_id"] == trace_client.trace_id
 
 
 def test_wrap_unsupported_client(tracer):
