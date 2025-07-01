@@ -10,7 +10,13 @@ from datetime import datetime
 from judgeval.data.tool import Tool
 
 
-class ExampleParams(Enum):
+class ExampleParams(str, Enum):
+    """
+    Enum for example parameters that supports JSON serialization.
+
+    Inherits from str to enable JSON serialization without custom encoders.
+    """
+
     INPUT = "input"
     ACTUAL_OUTPUT = "actual_output"
     EXPECTED_OUTPUT = "expected_output"
@@ -20,6 +26,22 @@ class ExampleParams(Enum):
     EXPECTED_TOOLS = "expected_tools"
     REASONING = "reasoning"
     ADDITIONAL_METADATA = "additional_metadata"
+
+    def __str__(self) -> str:
+        """Return the string value for JSON serialization."""
+        return self.value
+
+    def __repr__(self) -> str:
+        """Return a string representation of the enum member."""
+        return f"ExampleParams.{self.name}"
+
+    @classmethod
+    def from_string(cls, value: str) -> "ExampleParams":
+        """Create ExampleParams from string value."""
+        for param in cls:
+            if param.value == value:
+                return param
+        raise ValueError(f"No ExampleParams with value '{value}'")
 
 
 class Example(BaseModel):
