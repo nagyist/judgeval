@@ -15,12 +15,6 @@ class TraceUsage(TraceUsageJudgmentType):
 
 
 class TraceSpan(TraceSpanJudgmentType):
-    def get_name(self):
-        if self.agent_name:
-            return f"{self.agent_name}.{self.function}"
-        else:
-            return self.function
-
     def model_dump(self, **kwargs):
         return {
             "span_id": self.span_id,
