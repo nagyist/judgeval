@@ -51,7 +51,6 @@ from google import genai
 # Local application/library-specific imports
 from judgeval.constants import (
     JUDGMENT_TRACES_ADD_ANNOTATION_API_URL,
-    JUDGMENT_TRACES_SAVE_API_URL,
     JUDGMENT_TRACES_UPSERT_API_URL,
     JUDGMENT_TRACES_FETCH_API_URL,
     JUDGMENT_TRACES_DELETE_API_URL,
@@ -166,80 +165,6 @@ class TraceManagerClient:
             raise ValueError(f"Failed to fetch traces: {response.text}")
 
         return response.json()
-
-    async def _save_trace_async(
-        self, trace_data: dict, offline_mode: bool = False, final_save: bool = True
-    ):
-        """
-        Saves a trace to the Judgment Supabase asynchronously.
-        """
-
-        def fallback_encoder(obj):
-            """
-            Custom JSON encoder fallback.
-            Tries to use obj.__repr__(), then str(obj) if that fails or for a simpler string.
-            You can choose which one you prefer or try them in sequence.
-            """
-            try:
-                # Option 1: Prefer __repr__ for a more detailed representation
-                return repr(obj)
-            except Exception:
-                # Option 2: Fallback to str() if __repr__ fails or if you prefer str()
-                try:
-                    return str(obj)
-                except Exception as e:
-                    # If both fail, you might return a placeholder or re-raise
-                    return f"<Unserializable object of type {type(obj).__name__}: {e}>"
-
-        serialized_trace_data = json.dumps(trace_data, default=fallback_encoder)
-        try:
-            response = await async_requests.post(
-                JUDGMENT_TRACES_SAVE_API_URL,
-                data=serialized_trace_data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.judgment_api_key}",
-                    "X-Organization-Id": self.organization_id,
-                },
-                # verify=True, # httpx uses ssl.create_default_context() by default
-            )
-
-            if response.status_code == HTTPStatus.BAD_REQUEST:
-                warnings.warn(
-                    f"Failed to save trace data: Check your Trace name for conflicts, set overwrite=True to overwrite existing traces: {response.text}"
-                )
-            elif response.status_code != HTTPStatus.OK:
-                warnings.warn(f"Failed to save trace data: {response.text}")
-            else:
-                server_response = response.json()
-
-                if self.tracer and self.tracer.use_s3 and final_save:
-                    try:
-                        s3_key = self.tracer.s3_storage.save_trace(
-                            trace_data=trace_data,
-                            trace_id=trace_data["trace_id"],
-                            project_name=trace_data["project_name"],
-                        )
-                        print(f"Trace also saved to S3 at key: {s3_key}")
-                    except Exception as e:
-                        warnings.warn(f"Failed to save trace to S3: {str(e)}")
-
-                if not offline_mode and "ui_results_url" in server_response:
-                    pretty_str = f"\n🔍 You can view your trace data here: [rgb(106,0,255)][link={server_response['ui_results_url']}]View Trace[/link]\n"
-                    rprint(pretty_str)
-        except Exception as e:
-            warnings.warn(f"Failed to save trace: {e}")
-
-    def save_trace(
-        self, trace_data: dict, offline_mode: bool = False, final_save: bool = True
-    ):
-        """
-        Saves a trace to the Judgment Supabase and optionally to S3 if configured.
-        This operation is non-blocking.
-        """
-        self._run_async_from_sync(
-            self._save_trace_async(trace_data, offline_mode, final_save)
-        )
 
     async def _upsert_trace_async(
         self,
