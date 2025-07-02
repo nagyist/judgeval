@@ -131,7 +131,13 @@ class TraceManagerClient:
         self.organization_id = organization_id
         self.tracer = tracer
         self.executor = concurrent.futures.ThreadPoolExecutor()
-        atexit.register(lambda: self.executor.shutdown(wait=True))
+        self._shutdown = False  # Add shutdown flag
+        atexit.register(self._cleanup)
+
+    def _cleanup(self):
+        """Proper cleanup to prevent scheduling futures after shutdown."""
+        self._shutdown = True
+        self.executor.shutdown(wait=True)
 
     def _run_async_from_sync(self, coro):
         """
@@ -142,7 +148,20 @@ class TraceManagerClient:
         loop in a separate thread. This approach is safe to call from both sync
         and async contexts and avoids issues with tasks being lost on program exit.
         """
-        self.executor.submit(asyncio.run, coro)
+        # Check if we're shutting down before submitting new tasks
+        if self._shutdown:
+            warnings.warn(
+                "TraceManagerClient is shutting down, skipping async operation"
+            )
+            return
+
+        try:
+            self.executor.submit(asyncio.run, coro)
+        except RuntimeError as e:
+            if "cannot schedule new futures after shutdown" in str(e):
+                warnings.warn("Executor already shut down, skipping async operation")
+            else:
+                raise
 
     def fetch_trace(self, trace_id: str):
         """
