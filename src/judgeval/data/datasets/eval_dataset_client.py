@@ -1,5 +1,6 @@
 from typing import Optional, List
-import requests
+from requests import Response, exceptions
+from judgeval.utils.requests import requests
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from judgeval.common.logger import debug, error, warning, info
@@ -9,7 +10,6 @@ from judgeval.constants import (
     JUDGMENT_DATASETS_PULL_API_URL,
     JUDGMENT_DATASETS_PROJECT_STATS_API_URL,
     JUDGMENT_DATASETS_DELETE_API_URL,
-    JUDGMENT_DATASETS_INSERT_API_URL,
     JUDGMENT_DATASETS_EXPORT_JSONL_API_URL,
 )
 from judgeval.data import Example, Trace
@@ -79,7 +79,7 @@ class EvalDatasetClient:
                     error(f"Server error during push: {response.json()}")
                     raise Exception(f"Server error during push: {response.json()}")
                 response.raise_for_status()
-            except requests.exceptions.HTTPError as err:
+            except exceptions.HTTPError as err:
                 if response.status_code == 422:
                     error(f"Validation error during push: {err.response.json()}")
                 else:
@@ -142,7 +142,7 @@ class EvalDatasetClient:
                     error(f"Server error during append: {response.json()}")
                     raise Exception(f"Server error during append: {response.json()}")
                 response.raise_for_status()
-            except requests.exceptions.HTTPError as err:
+            except exceptions.HTTPError as err:
                 if response.status_code == 422:
                     error(f"Validation error during append: {err.response.json()}")
                 else:
@@ -197,7 +197,7 @@ class EvalDatasetClient:
                     verify=True,
                 )
                 response.raise_for_status()
-            except requests.exceptions.RequestException as e:
+            except exceptions.RequestException as e:
                 error(f"Error pulling dataset: {str(e)}")
                 raise
 
@@ -238,7 +238,7 @@ class EvalDatasetClient:
                     verify=True,
                 )
                 response.raise_for_status()
-            except requests.exceptions.RequestException as e:
+            except exceptions.RequestException as e:
                 error(f"Error deleting dataset: {str(e)}")
                 raise
 
@@ -285,7 +285,7 @@ class EvalDatasetClient:
                     verify=True,
                 )
                 response.raise_for_status()
-            except requests.exceptions.RequestException as e:
+            except exceptions.RequestException as e:
                 error(f"Error pulling dataset: {str(e)}")
                 raise
 
@@ -299,55 +299,7 @@ class EvalDatasetClient:
 
             return payload
 
-    def insert_dataset(
-        self, alias: str, examples: List[Example], project_name: str
-    ) -> bool:
-        """
-        Edits the dataset on Judgment platform by adding new examples
-
-        Mock request:
-        {
-            "alias": alias,
-            "examples": [...],
-            "project_name": project_name
-        }
-        """
-        with Progress(
-            SpinnerColumn(style="rgb(106,0,255)"),
-            TextColumn("[progress.description]{task.description}"),
-            transient=False,
-        ) as progress:
-            progress.add_task(
-                f"Editing dataset [rgb(106,0,255)]'{alias}'[/rgb(106,0,255)] on Judgment...",
-                total=100,
-            )
-
-            content = {
-                "dataset_alias": alias,
-                "examples": [e.to_dict() for e in examples],
-                "project_name": project_name,
-            }
-
-            try:
-                response = requests.post(
-                    JUDGMENT_DATASETS_INSERT_API_URL,
-                    json=content,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {self.judgment_api_key}",
-                        "X-Organization-Id": self.organization_id,
-                    },
-                    verify=True,
-                )
-                response.raise_for_status()
-            except requests.exceptions.RequestException as e:
-                error(f"Error editing dataset: {str(e)}")
-                return False
-
-            info(f"Successfully edited dataset '{alias}'")
-            return True
-
-    def export_jsonl(self, alias: str, project_name: str) -> requests.Response:
+    def export_jsonl(self, alias: str, project_name: str) -> Response:
         """Export dataset in JSONL format from Judgment platform"""
         debug(f"Exporting dataset with alias '{alias}' as JSONL")
         with Progress(
@@ -372,7 +324,7 @@ class EvalDatasetClient:
                     verify=True,
                 )
                 response.raise_for_status()
-            except requests.exceptions.HTTPError as err:
+            except exceptions.HTTPError as err:
                 if err.response.status_code == 404:
                     error(f"Dataset not found: {alias}")
                 else:

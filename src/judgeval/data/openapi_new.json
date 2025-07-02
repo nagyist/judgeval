@@ -1043,42 +1043,8 @@
                         "title": "Scorers"
                     },
                     "model": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "items": {
-                                    "type": "string"
-                                },
-                                "type": "array"
-                            }
-                        ],
+                        "type": "string",
                         "title": "Model"
-                    },
-                    "aggregator": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Aggregator"
-                    },
-                    "metadata": {
-                        "anyOf": [
-                            {
-                                "additionalProperties": true,
-                                "type": "object"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Metadata",
-                        "default": {}
                     },
                     "judgment_api_key": {
                         "anyOf": [
@@ -1090,10 +1056,6 @@
                             }
                         ],
                         "title": "Judgment Api Key"
-                    },
-                    "log_results": {
-                        "type": "boolean",
-                        "title": "Log Results"
                     },
                     "append": {
                         "anyOf": [
@@ -1118,18 +1080,6 @@
                         ],
                         "title": "Override Existing Eval Run Name",
                         "default": false
-                    },
-                    "rules": {
-                        "anyOf": [
-                            {
-                                "items": {},
-                                "type": "array"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Rules"
                     },
                     "trace_span_id": {
                         "anyOf": [
@@ -1162,8 +1112,7 @@
                 "required": [
                     "traces",
                     "scorers",
-                    "model",
-                    "log_results"
+                    "model"
                 ],
                 "title": "TraceRun"
             },
@@ -1219,42 +1168,8 @@
                         "title": "Scorers"
                     },
                     "model": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "items": {
-                                    "type": "string"
-                                },
-                                "type": "array"
-                            }
-                        ],
+                        "type": "string",
                         "title": "Model"
-                    },
-                    "aggregator": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Aggregator"
-                    },
-                    "metadata": {
-                        "anyOf": [
-                            {
-                                "additionalProperties": true,
-                                "type": "object"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Metadata",
-                        "default": {}
                     },
                     "judgment_api_key": {
                         "anyOf": [
@@ -1266,10 +1181,6 @@
                             }
                         ],
                         "title": "Judgment Api Key"
-                    },
-                    "log_results": {
-                        "type": "boolean",
-                        "title": "Log Results"
                     },
                     "append": {
                         "anyOf": [
@@ -1295,18 +1206,6 @@
                         "title": "Override Existing Eval Run Name",
                         "default": false
                     },
-                    "rules": {
-                        "anyOf": [
-                            {
-                                "items": {},
-                                "type": "array"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Rules"
-                    },
                     "trace_span_id": {
                         "anyOf": [
                             {
@@ -1323,8 +1222,7 @@
                 "required": [
                     "examples",
                     "scorers",
-                    "model",
-                    "log_results"
+                    "model"
                 ],
                 "title": "JudgmentEval"
             },
@@ -1591,26 +1489,12 @@
                         "default": false
                     },
                     "rules": {
-                        "anyOf": [
-                            {
-                                "additionalProperties": true,
-                                "type": "object"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
+                        "additionalProperties": true,
+                        "type": "object",
                         "title": "Rules"
                     },
                     "has_notification": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
+                        "type": "boolean",
                         "title": "Has Notification",
                         "default": false
                     },
@@ -1626,18 +1510,16 @@
                         "title": "Customer Id"
                     },
                     "tags": {
-                        "anyOf": [
-                            {
-                                "items": {
-                                    "type": "string"
-                                },
-                                "type": "array"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
                         "title": "Tags"
+                    },
+                    "metadata": {
+                        "additionalProperties": true,
+                        "type": "object",
+                        "title": "Metadata"
                     },
                     "project_name": {
                         "type": "string",
@@ -1817,26 +1699,12 @@
                         "default": false
                     },
                     "rules": {
-                        "anyOf": [
-                            {
-                                "additionalProperties": true,
-                                "type": "object"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
+                        "additionalProperties": true,
+                        "type": "object",
                         "title": "Rules"
                     },
                     "has_notification": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
+                        "type": "boolean",
                         "title": "Has Notification",
                         "default": false
                     },
@@ -1852,18 +1720,16 @@
                         "title": "Customer Id"
                     },
                     "tags": {
-                        "anyOf": [
-                            {
-                                "items": {
-                                    "type": "string"
-                                },
-                                "type": "array"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
                         "title": "Tags"
+                    },
+                    "metadata": {
+                        "additionalProperties": true,
+                        "type": "object",
+                        "title": "Metadata"
                     }
                 },
                 "type": "object",
