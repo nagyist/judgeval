@@ -6,3 +6,6 @@ uv run judgeval/data/openapi_transform.py > judgeval/data/openapi_new.json
 
 # Then, datamodel-codegen will generate the judgment_types.py file based on the schema in openapi_new.json.
 datamodel-codegen --input judgeval/data/openapi_new.json --output judgeval/data/judgment_types.py
+
+# Remove the openapi_new.json file since it is no longer needed
+rm judgeval/data/openapi_new.json

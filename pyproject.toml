@@ -31,7 +31,6 @@ dependencies = [
     "google-genai",
     "boto3",
     "matplotlib>=3.10.3",
-    "openapi-python-client>=0.25.0",
     "datamodel-code-generator>=0.31.1",
 ]
 
