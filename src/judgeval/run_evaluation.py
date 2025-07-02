@@ -404,7 +404,6 @@ def run_with_spinner(message: str, func, *args, **kwargs) -> Any:
         if asyncio.iscoroutinefunction(func):
             coro = func(*args, **kwargs)
             result = safe_run_async(coro)
-
         else:
             result = func(*args, **kwargs)
     except Exception as e:
