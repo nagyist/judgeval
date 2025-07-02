@@ -1645,7 +1645,7 @@ class Tracer:
         # Initialize background span service
         self.enable_background_spans: bool = enable_background_spans
         self.background_span_service: Optional[BackgroundSpanService] = None
-        if enable_background_spans and not offline_mode:
+        if enable_background_spans:
             self.background_span_service = BackgroundSpanService(
                 judgment_api_key=api_key,
                 organization_id=organization_id,
