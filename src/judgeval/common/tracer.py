@@ -70,6 +70,19 @@ import concurrent.futures
 from collections.abc import Iterator, AsyncIterator  # Add Iterator and AsyncIterator
 import atexit
 
+# Global shutdown flag to detect interpreter shutdown
+_INTERPRETER_SHUTTING_DOWN = False
+
+
+def _set_shutdown_flag():
+    """Set the global shutdown flag during interpreter shutdown."""
+    global _INTERPRETER_SHUTTING_DOWN
+    _INTERPRETER_SHUTTING_DOWN = True
+
+
+# Register the shutdown flag setter
+atexit.register(_set_shutdown_flag)
+
 # Define context variables for tracking the current trace and the current span within a trace
 current_trace_var = contextvars.ContextVar[Optional["TraceClient"]](
     "current_trace", default=None
@@ -162,22 +175,43 @@ class TraceManagerClient:
         loop in a separate thread. This approach is safe to call from both sync
         and async contexts and avoids issues with tasks being lost on program exit.
         """
-        future = self.executor.submit(asyncio.run, coro)
+        # Check if interpreter is shutting down
+        if _INTERPRETER_SHUTTING_DOWN:
+            # During shutdown, run the coroutine synchronously to avoid hanging
+            try:
+                return asyncio.run(coro)
+            except Exception as e:
+                warnings.warn(f"Failed to run async operation during shutdown: {e}")
+                return None
 
-        # Track the future for cleanup during shutdown
-        with self._futures_lock:
-            self._pending_futures.append(future)
+        try:
+            future = self.executor.submit(asyncio.run, coro)
 
-        # Clean up completed futures periodically to prevent memory leaks
-        def cleanup_future(fut):
+            # Track the future for cleanup during shutdown
             with self._futures_lock:
-                try:
-                    self._pending_futures.remove(fut)
-                except ValueError:
-                    pass  # Future already removed
+                self._pending_futures.append(future)
 
-        future.add_done_callback(cleanup_future)
-        return future
+            # Clean up completed futures periodically to prevent memory leaks
+            def cleanup_future(fut):
+                with self._futures_lock:
+                    try:
+                        self._pending_futures.remove(fut)
+                    except ValueError:
+                        pass  # Future already removed
+
+            future.add_done_callback(cleanup_future)
+            return future
+        except RuntimeError as e:
+            if "cannot schedule new futures after interpreter shutdown" in str(e):
+                # Fallback: run synchronously during shutdown
+                try:
+                    return asyncio.run(coro)
+                except Exception as fallback_error:
+                    warnings.warn(
+                        f"Failed to run async operation during shutdown: {fallback_error}"
+                    )
+                    return None
+            raise
 
     def fetch_trace(self, trace_id: str):
         """
@@ -275,9 +309,17 @@ class TraceManagerClient:
         Upserts a trace to the Judgment API (always overwrites if exists).
         This operation is non-blocking.
         """
-        self._run_async_from_sync(
-            self._upsert_trace_async(trace_data, offline_mode, show_link, final_save)
-        )
+        try:
+            future = self._run_async_from_sync(
+                self._upsert_trace_async(
+                    trace_data, offline_mode, show_link, final_save
+                )
+            )
+            # If _run_async_from_sync returns None due to shutdown, just return
+            if future is None:
+                return
+        except Exception as e:
+            warnings.warn(f"Failed to upsert trace: {e}")
 
     async def _save_annotation_async(self, annotation: TraceAnnotation):
         json_data = {
@@ -307,7 +349,13 @@ class TraceManagerClient:
 
     ## TODO: Should have a log endpoint, endpoint should also support batched payloads
     def save_annotation(self, annotation: TraceAnnotation):
-        self._run_async_from_sync(self._save_annotation_async(annotation))
+        try:
+            future = self._run_async_from_sync(self._save_annotation_async(annotation))
+            # If _run_async_from_sync returns None due to shutdown, just return
+            if future is None:
+                return
+        except Exception as e:
+            warnings.warn(f"Failed to save annotation: {e}")
 
     def delete_trace(self, trace_id: str):
         """
@@ -1205,7 +1253,16 @@ class BackgroundSpanService:
             },
         }
         # Use call_soon_threadsafe to put item on the asyncio.Queue from this (main) thread
-        self._loop.call_soon_threadsafe(self._span_queue.put_nowait, span_data)
+        try:
+            self._loop.call_soon_threadsafe(self._span_queue.put_nowait, span_data)
+        except RuntimeError as e:
+            if (
+                "cannot schedule new futures after interpreter shutdown" in str(e)
+                or _INTERPRETER_SHUTTING_DOWN
+            ):
+                # During shutdown, skip queuing to avoid hanging
+                return
+            raise
 
     def queue_evaluation_run(
         self, evaluation_run: EvaluationRun, span_id: str, span_data: TraceSpan
@@ -1225,7 +1282,16 @@ class BackgroundSpanService:
                 "queued_at": time.time(),
             },
         }
-        self._loop.call_soon_threadsafe(self._span_queue.put_nowait, eval_data)
+        try:
+            self._loop.call_soon_threadsafe(self._span_queue.put_nowait, eval_data)
+        except RuntimeError as e:
+            if (
+                "cannot schedule new futures after interpreter shutdown" in str(e)
+                or _INTERPRETER_SHUTTING_DOWN
+            ):
+                # During shutdown, skip queuing to avoid hanging
+                return
+            raise
 
     async def _flush_async(self):
         """Coroutine to wait for the queue to be fully processed."""
@@ -1246,6 +1312,14 @@ class BackgroundSpanService:
             # Submit the async flush to the loop and wait for its result
             future = asyncio.run_coroutine_threadsafe(self._flush_async(), self._loop)
             future.result()  # Blocks until the flush is complete
+        except RuntimeError as e:
+            if (
+                "cannot schedule new futures after interpreter shutdown" in str(e)
+                or _INTERPRETER_SHUTTING_DOWN
+            ):
+                # During shutdown, skip flushing to avoid hanging
+                return
+            warnings.warn(f"Error during flush: {e}")
         except Exception as e:
             warnings.warn(f"Error during flush: {e}")
 
@@ -1263,7 +1337,17 @@ class BackgroundSpanService:
 
         if self._loop and self._loop.is_running():
             # Schedule the event loop to stop.
-            self._loop.call_soon_threadsafe(self._loop.stop)
+            try:
+                self._loop.call_soon_threadsafe(self._loop.stop)
+            except RuntimeError as e:
+                if (
+                    "cannot schedule new futures after interpreter shutdown" in str(e)
+                    or _INTERPRETER_SHUTTING_DOWN
+                ):
+                    # During shutdown, the loop is likely already stopping
+                    pass
+                else:
+                    raise
 
         if self._thread:
             # Wait for the background thread to finish cleanly.
