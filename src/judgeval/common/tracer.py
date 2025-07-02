@@ -131,7 +131,27 @@ class TraceManagerClient:
         self.organization_id = organization_id
         self.tracer = tracer
         self.executor = concurrent.futures.ThreadPoolExecutor()
-        atexit.register(self.executor.shutdown)
+        self._pending_futures: List[
+            concurrent.futures.Future
+        ] = []  # Track pending futures
+        self._futures_lock = threading.Lock()  # Thread-safe access to futures list
+        atexit.register(self._cleanup_shutdown)
+
+    def _cleanup_shutdown(self):
+        """Enhanced shutdown method that waits for all pending futures to complete"""
+        # Wait for all pending futures to complete
+        with self._futures_lock:
+            if self._pending_futures:
+                try:
+                    # Wait for all futures to complete with a reasonable timeout
+                    concurrent.futures.wait(self._pending_futures, timeout=30.0)
+                except Exception as e:
+                    warnings.warn(f"Error waiting for futures during shutdown: {e}")
+                finally:
+                    self._pending_futures.clear()
+
+        # Shutdown the executor and wait for threads to complete
+        self.executor.shutdown(wait=True)
 
     def _run_async_from_sync(self, coro):
         """
@@ -142,7 +162,22 @@ class TraceManagerClient:
         loop in a separate thread. This approach is safe to call from both sync
         and async contexts and avoids issues with tasks being lost on program exit.
         """
-        self.executor.submit(asyncio.run, coro)
+        future = self.executor.submit(asyncio.run, coro)
+
+        # Track the future for cleanup during shutdown
+        with self._futures_lock:
+            self._pending_futures.append(future)
+
+        # Clean up completed futures periodically to prevent memory leaks
+        def cleanup_future(fut):
+            with self._futures_lock:
+                try:
+                    self._pending_futures.remove(fut)
+                except ValueError:
+                    pass  # Future already removed
+
+        future.add_done_callback(cleanup_future)
+        return future
 
     def fetch_trace(self, trace_id: str):
         """
@@ -1652,6 +1687,9 @@ class Tracer:
                 flush_interval=span_flush_interval,
             )
 
+        # Register cleanup for proper shutdown
+        atexit.register(self._cleanup_tracer)
+
     def set_current_span(self, span_id: str) -> Optional[contextvars.Token[str | None]]:
         self.span_id_to_previous_span_id[span_id] = self.current_span_id
         self.current_span_id = span_id
@@ -2371,6 +2409,15 @@ class Tracer:
         if self.background_span_service:
             self.background_span_service.shutdown()
             self.background_span_service = None
+
+    def _cleanup_tracer(self):
+        """Cleanup method called on interpreter shutdown"""
+        try:
+            # Clean up background span service
+            self.shutdown_background_service()
+        except Exception as e:
+            # Use warnings instead of print to avoid issues during shutdown
+            warnings.warn(f"Error during tracer cleanup: {e}")
 
 
 def _get_current_trace(
