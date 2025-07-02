@@ -27,22 +27,6 @@ class ExampleParams(str, Enum):
     REASONING = "reasoning"
     ADDITIONAL_METADATA = "additional_metadata"
 
-    def __str__(self) -> str:
-        """Return the string value for JSON serialization."""
-        return self.value
-
-    def __repr__(self) -> str:
-        """Return a string representation of the enum member."""
-        return f"ExampleParams.{self.name}"
-
-    @classmethod
-    def from_string(cls, value: str) -> "ExampleParams":
-        """Create ExampleParams from string value."""
-        for param in cls:
-            if param.value == value:
-                return param
-        raise ValueError(f"No ExampleParams with value '{value}'")
-
 
 class Example(BaseModel):
     input: Optional[Union[str, Dict[str, Any]]] = None
