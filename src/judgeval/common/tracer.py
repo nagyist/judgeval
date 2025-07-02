@@ -1586,7 +1586,6 @@ class Tracer:
         enable_background_spans: bool = True,  # Enable background span service by default
         span_batch_size: int = 50,  # Number of spans to batch before sending
         span_flush_interval: float = 1.0,  # Time in seconds between automatic flushes
-        span_num_workers: int = 1,  # Number of worker threads for span processing
     ):
         if not api_key:
             raise ValueError("Tracer must be configured with a Judgment API key")
