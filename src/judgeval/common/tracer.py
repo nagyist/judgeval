@@ -131,7 +131,7 @@ class TraceManagerClient:
         self.organization_id = organization_id
         self.tracer = tracer
         self.executor = concurrent.futures.ThreadPoolExecutor()
-        atexit.register(self.executor.shutdown)
+        atexit.register(lambda: self.executor.shutdown(wait=True))
 
     def _run_async_from_sync(self, coro):
         """
