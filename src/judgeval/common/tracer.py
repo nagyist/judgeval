@@ -70,6 +70,27 @@ import concurrent.futures
 from collections.abc import Iterator, AsyncIterator  # Add Iterator and AsyncIterator
 import atexit
 
+# Global shutdown coordination
+_GLOBAL_SHUTDOWN = False
+_GLOBAL_SHUTDOWN_LOCK = threading.Lock()
+
+
+def _set_global_shutdown():
+    """Set the global shutdown flag thread-safely."""
+    global _GLOBAL_SHUTDOWN
+    with _GLOBAL_SHUTDOWN_LOCK:
+        _GLOBAL_SHUTDOWN = True
+
+
+def _is_global_shutdown():
+    """Check if global shutdown has started."""
+    with _GLOBAL_SHUTDOWN_LOCK:
+        return _GLOBAL_SHUTDOWN
+
+
+# Register global shutdown at module level
+atexit.register(_set_global_shutdown)
+
 # Define context variables for tracking the current trace and the current span within a trace
 current_trace_var = contextvars.ContextVar[Optional["TraceClient"]](
     "current_trace", default=None
@@ -148,8 +169,8 @@ class TraceManagerClient:
         loop in a separate thread. This approach is safe to call from both sync
         and async contexts and avoids issues with tasks being lost on program exit.
         """
-        # Check if we're shutting down before submitting new tasks
-        if self._shutdown:
+        # Check both global and local shutdown flags before submitting new tasks
+        if _is_global_shutdown() or self._shutdown:
             warnings.warn(
                 "TraceManagerClient is shutting down, skipping async operation"
             )
@@ -1177,7 +1198,12 @@ class BackgroundSpanService:
         """
         Queue a span for background sending. This method is thread-safe.
         """
-        if self._shutdown_event.is_set() or not self._loop or not self._span_queue:
+        if (
+            _is_global_shutdown()
+            or self._shutdown_event.is_set()
+            or not self._loop
+            or not self._span_queue
+        ):
             return
 
         span_data = {
@@ -1197,7 +1223,12 @@ class BackgroundSpanService:
         """
         Queue an evaluation run for background sending. This method is thread-safe.
         """
-        if self._shutdown_event.is_set() or not self._loop or not self._span_queue:
+        if (
+            _is_global_shutdown()
+            or self._shutdown_event.is_set()
+            or not self._loop
+            or not self._span_queue
+        ):
             return
 
         eval_data = {
@@ -1670,6 +1701,9 @@ class Tracer:
                 batch_size=span_batch_size,
                 flush_interval=span_flush_interval,
             )
+
+        # Register shutdown handler to ensure background service shuts down before TraceManagerClient instances
+        atexit.register(self.shutdown)
 
     def set_current_span(self, span_id: str) -> Optional[contextvars.Token[str | None]]:
         self.span_id_to_previous_span_id[span_id] = self.current_span_id
@@ -2390,6 +2424,18 @@ class Tracer:
         if self.background_span_service:
             self.background_span_service.shutdown()
             self.background_span_service = None
+
+    def shutdown(self):
+        """
+        Shutdown all tracer services in the correct order.
+        Call this explicitly if you need to ensure clean shutdown.
+        """
+        # Shutdown background services first to prevent new tasks
+        self.shutdown_background_service()
+
+        # Global shutdown flag will be set by atexit handler
+        # but we can also set it manually if shutdown() is called explicitly
+        _set_global_shutdown()
 
 
 def _get_current_trace(
