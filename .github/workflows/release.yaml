@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - trigger_release
 
 jobs:
   release:
@@ -38,7 +39,8 @@ jobs:
           IFS='.' read -r major minor patch <<< "$latest_version"
 
           # Bump patch version
-          patch=$((patch + 1))
+          # patch=$((patch + 1))
+          patch=46
           new_version="$major.$minor.$patch"
 
           echo "New version: $new_version"
