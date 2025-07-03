@@ -31,21 +31,21 @@ Judgeval offers **open-source tooling** for tracing, evaluating, and monitoring 
 <table style="width: 100%; max-width: 800px; table-layout: fixed;">
 <tr>
 <td align="center" style="padding: 8px; width: 50%;">
-  <img src="https://judgeval-readme.s3.us-west-1.amazonaws.com/agent_compressed.gif" alt="Agent Demo" style="width: 100%; max-width: 350px; height: auto;" />
+  <img src="assets/agent.gif" alt="Agent Demo" style="width: 100%; max-width: 350px; height: auto;" />
   <br><strong>🤖 Agents Running</strong>
 </td>
 <td align="center" style="padding: 8px; width: 50%;">
-  <img src="https://judgeval-readme.s3.us-west-1.amazonaws.com/trace_compressed.gif" alt="Trace Demo" style="width: 100%; max-width: 350px; height: auto;" />
+  <img src="assets/trace.gif" alt="Trace Demo" style="width: 100%; max-width: 350px; height: auto;" />
   <br><strong>📊 Real-time Tracing</strong>
 </td>
 </tr>
 <tr>
 <td align="center" style="padding: 8px; width: 50%;">
-  <img src="https://judgeval-readme.s3.us-west-1.amazonaws.com/document_compressed.gif" alt="Agent Completed Demo" style="width: 100%; max-width: 350px; height: auto;" />
+  <img src="assets/document.gif" alt="Agent Completed Demo" style="width: 100%; max-width: 350px; height: auto;" />
   <br><strong>✅ Agents Completed Running</strong>
 </td>
 <td align="center" style="padding: 8px; width: 50%;">
-  <img src="https://judgeval-readme.s3.us-west-1.amazonaws.com/data_compressed.gif" alt="Data Export Demo" style="width: 100%; max-width: 350px; height: auto;" />
+  <img src="assets/data.gif" alt="Data Export Demo" style="width: 100%; max-width: 350px; height: auto;" />
   <br><strong>📤 Exporting Agent Environment Data</strong>
 </td>
 </tr>
