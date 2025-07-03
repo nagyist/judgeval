@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      custom_version:
+        description: 'Custom version number (e.g., 1.2.3) - leave empty for auto-increment'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   release:
@@ -34,12 +41,20 @@ jobs:
           latest_version=${{ steps.get_version.outputs.latest_version }}
           echo "Latest version: $latest_version"
 
-          # Extract version numbers
-          IFS='.' read -r major minor patch <<< "$latest_version"
-
-          # Bump patch version
-          patch=$((patch + 1))
-          new_version="$major.$minor.$patch"
+          # Check if custom version was provided
+          custom_version="${{ github.event.inputs.custom_version }}"
+          
+          if [ -n "$custom_version" ]; then
+            # Use custom version if provided
+            new_version="$custom_version"
+            echo "Using custom version: $new_version"
+          else
+            # Auto-increment patch version
+            IFS='.' read -r major minor patch <<< "$latest_version"
+            patch=$((patch + 1))
+            new_version="$major.$minor.$patch"
+            echo "Auto-incremented version: $new_version"
+          fi
 
           echo "New version: $new_version"
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
