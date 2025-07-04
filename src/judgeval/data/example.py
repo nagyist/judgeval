@@ -8,7 +8,7 @@ from datetime import datetime
 from judgeval.data.judgment_types import ExampleJudgmentType
 
 
-class ExampleParams(Enum):
+class ExampleParams(str, Enum):
     INPUT = "input"
     ACTUAL_OUTPUT = "actual_output"
     EXPECTED_OUTPUT = "expected_output"

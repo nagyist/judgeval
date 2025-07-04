@@ -3,17 +3,22 @@ from pydantic import ValidationError
 
 from judgeval.evaluation_run import EvaluationRun
 from judgeval.data import Example, CustomExample
-from judgeval.scorers import JudgevalScorer, APIJudgmentScorer
+from judgeval.scorers import BaseScorer, APIScorerConfig
 from judgeval.judges import JudgevalJudge
+from judgeval.constants import APIScorerType
 
 
-class MockScorer(JudgevalScorer):
-    def __init__(self, score_type: str = "faithfulness", threshold: float = 0.5):
+class MockScorer(BaseScorer):
+    def __init__(
+        self, score_type: str = APIScorerType.FAITHFULNESS, threshold: float = 0.5
+    ):
         super().__init__(score_type=score_type, threshold=threshold)
 
 
-class MockAPIScorer(APIJudgmentScorer):
-    def __init__(self, score_type: str = "faithfulness", threshold: float = 0.5):
+class MockAPIScorer(APIScorerConfig):
+    def __init__(
+        self, score_type: str = APIScorerType.FAITHFULNESS, threshold: float = 0.5
+    ):
         super().__init__(score_type=score_type, threshold=threshold)
 
 
@@ -84,7 +89,9 @@ def test_validate_scorers():
     class InvalidScorer:
         pass
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(
+        ValueError, match="All scorers must be of type BaseScorer or APIScorerConfig."
+    ):
         EvaluationRun(
             examples=[Example(input="test", actual_output="test")],
             scorers=[InvalidScorer()],

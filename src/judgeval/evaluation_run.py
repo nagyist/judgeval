@@ -2,7 +2,7 @@ from typing import List, Optional, Union
 from pydantic import BaseModel, field_validator, Field
 
 from judgeval.data import Example, CustomExample
-from judgeval.scorers import JudgevalScorer, APIJudgmentScorer
+from judgeval.scorers import BaseScorer, APIScorerConfig
 from judgeval.constants import ACCEPTABLE_MODELS
 
 
@@ -14,7 +14,7 @@ class EvaluationRun(BaseModel):
         project_name (str): The name of the project the evaluation results belong to
         eval_name (str): A name for this evaluation run
         examples (Union[List[Example], List[CustomExample]]): The examples to evaluate
-        scorers (List[Union[JudgmentScorer, JudgevalScorer]]): A list of scorers to use for evaluation
+        scorers (List[Union[JudgmentScorer, BaseScorer]]): A list of scorers to use for evaluation
         model (str): The model used as a judge when using LLM as a Judge
         metadata (Optional[Dict[str, Any]]): Additional metadata to include for this evaluation run, e.g. comments, dataset name, purpose, etc.
         judgment_api_key (Optional[str]): The API key for running evaluations on the Judgment API
@@ -24,7 +24,7 @@ class EvaluationRun(BaseModel):
     project_name: Optional[str] = Field(default=None, validate_default=True)
     eval_name: Optional[str] = Field(default=None, validate_default=True)
     examples: Union[List[Example], List[CustomExample]]
-    scorers: List[Union[APIJudgmentScorer, JudgevalScorer]]
+    scorers: List[Union[APIScorerConfig, BaseScorer]]
     model: Optional[str] = "gpt-4.1"
     trace_span_id: Optional[str] = None
     # API Key will be "" until user calls client.run_eval(), then API Key will be set
@@ -36,13 +36,8 @@ class EvaluationRun(BaseModel):
         data = super().model_dump(**kwargs)
 
         data["scorers"] = [
-            scorer.to_dict()
-            if hasattr(scorer, "to_dict")
-            else scorer.model_dump()
-            if hasattr(scorer, "model_dump")
-            else {"score_type": scorer.score_type, "threshold": scorer.threshold}
-            for scorer in self.scorers
-        ]
+            scorer.model_dump() for scorer in self.scorers
+        ]  # Pydantic has problems with properly calling model_dump() on the scorers, so we need to do it manually
 
         return data
 
@@ -61,10 +56,17 @@ class EvaluationRun(BaseModel):
 
         return v
 
-    @field_validator("scorers")
+    @field_validator("scorers", mode="before")
     def validate_scorers(cls, v):
         if not v:
             raise ValueError("Scorers cannot be empty.")
+        if not all(
+            isinstance(scorer, BaseScorer) or isinstance(scorer, APIScorerConfig)
+            for scorer in v
+        ):
+            raise ValueError(
+                "All scorers must be of type BaseScorer or APIScorerConfig."
+            )
         return v
 
     @field_validator("model")

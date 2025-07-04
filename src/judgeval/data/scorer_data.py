@@ -5,7 +5,7 @@ ScorerData holds the information related to a single, completed Scorer evaluatio
 """
 
 from judgeval.data.judgment_types import ScorerDataJudgmentType
-from judgeval.scorers import JudgevalScorer
+from judgeval.scorers import BaseScorer
 from typing import List
 
 
@@ -36,7 +36,7 @@ class ScorerData(ScorerDataJudgmentType):
         }
 
 
-def create_scorer_data(scorer: JudgevalScorer) -> List[ScorerData]:
+def create_scorer_data(scorer: BaseScorer) -> List[ScorerData]:
     """
     After a `scorer` is run, it contains information about the example that was evaluated
     using the scorer. For example, after computing Faithfulness, the `scorer` object will contain
@@ -50,7 +50,7 @@ def create_scorer_data(scorer: JudgevalScorer) -> List[ScorerData]:
     if scorer.error is not None:  # error occurred during eval run
         scorers_result.append(
             ScorerData(
-                name=scorer.__name__,
+                name=scorer.name,
                 threshold=scorer.threshold,
                 score=None,
                 reason=None,
@@ -65,7 +65,7 @@ def create_scorer_data(scorer: JudgevalScorer) -> List[ScorerData]:
     else:  # standard execution, no error
         scorers_result.append(
             ScorerData(
-                name=scorer.__name__,
+                name=scorer.name,
                 score=scorer.score,
                 threshold=scorer.threshold,
                 reason=scorer.reason,
@@ -82,7 +82,7 @@ def create_scorer_data(scorer: JudgevalScorer) -> List[ScorerData]:
         if scorer.internal_scorer.error is not None:
             scorers_result.append(
                 ScorerData(
-                    name=scorer.internal_scorer.__name__,
+                    name=scorer.internal_scorer.name,
                     score=None,
                     threshold=scorer.internal_scorer.threshold,
                     reason=None,
@@ -97,7 +97,7 @@ def create_scorer_data(scorer: JudgevalScorer) -> List[ScorerData]:
         else:
             scorers_result.append(
                 ScorerData(
-                    name=scorer.internal_scorer.__name__,
+                    name=scorer.internal_scorer.name,
                     score=scorer.internal_scorer.score,
                     threshold=scorer.internal_scorer.threshold,
                     reason=scorer.internal_scorer.reason,
