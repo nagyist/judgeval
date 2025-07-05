@@ -23,7 +23,7 @@ from contextlib import (
     AbstractContextManager,
 )  # Import context manager bases
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import (
     Any,
@@ -799,7 +799,7 @@ class TraceClient:
             "trace_id": self.trace_id,
             "name": self.name,
             "project_name": self.project_name,
-            "created_at": datetime.utcfromtimestamp(time.time()).isoformat(),
+            "created_at": datetime.fromtimestamp(time.time(), timezone.utc).isoformat(),
             "duration": total_duration,
             "trace_spans": [span.model_dump() for span in self.trace_spans],
             "evaluation_runs": [run.model_dump() for run in self.evaluation_runs],
@@ -2066,8 +2066,8 @@ class Tracer:
                             complete_trace_data = {
                                 "trace_id": current_trace.trace_id,
                                 "name": current_trace.name,
-                                "created_at": datetime.utcfromtimestamp(
-                                    current_trace.start_time
+                                "created_at": datetime.fromtimestamp(
+                                    current_trace.start_time, timezone.utc
                                 ).isoformat(),
                                 "duration": current_trace.get_duration(),
                                 "trace_spans": [
@@ -2214,8 +2214,8 @@ class Tracer:
                             complete_trace_data = {
                                 "trace_id": current_trace.trace_id,
                                 "name": current_trace.name,
-                                "created_at": datetime.utcfromtimestamp(
-                                    current_trace.start_time
+                                "created_at": datetime.fromtimestamp(
+                                    current_trace.start_time, timezone.utc
                                 ).isoformat(),
                                 "duration": current_trace.get_duration(),
                                 "trace_spans": [
