@@ -2068,7 +2068,8 @@ class Tracer:
                                 "trace_id": current_trace.trace_id,
                                 "name": current_trace.name,
                                 "created_at": datetime.fromtimestamp(
-                                    self.start_time or time.time(), timezone.utc
+                                    current_trace.start_time or time.time(),
+                                    timezone.utc,
                                 ).isoformat(),
                                 "duration": current_trace.get_duration(),
                                 "trace_spans": [
@@ -2216,7 +2217,8 @@ class Tracer:
                                 "trace_id": current_trace.trace_id,
                                 "name": current_trace.name,
                                 "created_at": datetime.fromtimestamp(
-                                    self.start_time or time.time(), timezone.utc
+                                    current_trace.start_time or time.time(),
+                                    timezone.utc,
                                 ).isoformat(),
                                 "duration": current_trace.get_duration(),
                                 "trace_spans": [
