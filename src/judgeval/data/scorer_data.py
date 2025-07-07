@@ -7,7 +7,7 @@ ScorerData holds the information related to a single, completed Scorer evaluatio
 from typing import List, Union, Optional, Dict
 from pydantic import BaseModel
 
-from judgeval.scorers import JudgevalScorer
+from judgeval.scorers import BaseScorer
 
 
 class ScorerData(BaseModel):
@@ -49,7 +49,7 @@ class ScorerData(BaseModel):
         }
 
 
-def create_scorer_data(scorer: JudgevalScorer) -> ScorerData:
+def create_scorer_data(scorer: BaseScorer) -> ScorerData:
     """
     After a `scorer` is run, it contains information about the example that was evaluated
     using the scorer. For example, after computing Faithfulness, the `scorer` object will contain
@@ -61,7 +61,7 @@ def create_scorer_data(scorer: JudgevalScorer) -> ScorerData:
     """
     if scorer.error is not None:  # error occurred during eval run
         return ScorerData(
-            name=scorer.__name__,
+            name=scorer.name,
             threshold=scorer.threshold,
             score=None,
             reason=None,
@@ -74,7 +74,7 @@ def create_scorer_data(scorer: JudgevalScorer) -> ScorerData:
         )
     else:  # standard execution, no error
         return ScorerData(
-            name=scorer.__name__,
+            name=scorer.name,
             score=scorer.score,
             threshold=scorer.threshold,
             reason=scorer.reason,

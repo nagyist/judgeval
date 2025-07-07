@@ -5,7 +5,8 @@ Implements the JudgmentClient to interact with the Judgment API.
 import os
 from uuid import uuid4
 from typing import Optional, List, Dict, Any, Union, Callable
-import requests
+from requests import codes
+from judgeval.utils.requests import requests
 import asyncio
 
 from judgeval.constants import ROOT_API
@@ -17,26 +18,28 @@ from judgeval.data import (
     Trace,
 )
 from judgeval.scorers import (
-    APIJudgmentScorer,
-    JudgevalScorer,
+    APIScorerConfig,
+    BaseScorer,
     ClassifierScorer,
 )
 from judgeval.evaluation_run import EvaluationRun
-from judgeval.run_evaluation import run_eval, assert_test, run_trace_eval
+from judgeval.run_evaluation import (
+    run_eval,
+    assert_test,
+    run_trace_eval,
+    safe_run_async,
+)
 from judgeval.data.trace_run import TraceRun
-from judgeval.judges import JudgevalJudge
 from judgeval.constants import (
     JUDGMENT_EVAL_FETCH_API_URL,
     JUDGMENT_PROJECT_DELETE_API_URL,
     JUDGMENT_PROJECT_CREATE_API_URL,
 )
-from judgeval.utils.data_utils import add_from_yaml
 from judgeval.common.exceptions import JudgmentAPIError
 from langchain_core.callbacks import BaseCallbackHandler
 from judgeval.common.tracer import Tracer
 from judgeval.common.utils import validate_api_key
 from pydantic import BaseModel
-from judgeval.rules import Rule
 from judgeval.run_evaluation import SpinnerWrappedTask
 
 
@@ -95,61 +98,41 @@ class JudgmentClient(metaclass=SingletonMeta):
     def a_run_evaluation(
         self,
         examples: List[Example],
-        scorers: List[Union[APIJudgmentScorer, JudgevalScorer]],
-        model: Optional[Union[str, List[str], JudgevalJudge]] = "gpt-4.1",
-        aggregator: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        log_results: bool = True,
+        scorers: List[Union[APIScorerConfig, BaseScorer]],
+        model: Optional[str] = "gpt-4.1",
         project_name: str = "default_project",
         eval_run_name: str = "default_eval_run",
         override: bool = False,
         append: bool = False,
-        ignore_errors: bool = True,
-        rules: Optional[List[Rule]] = None,
     ) -> List[ScoringResult]:
         result = self.run_evaluation(
             examples=examples,
             scorers=scorers,
             model=model,
-            aggregator=aggregator,
-            metadata=metadata,
-            log_results=log_results,
             project_name=project_name,
             eval_run_name=eval_run_name,
             override=override,
             append=append,
-            ignore_errors=ignore_errors,
-            rules=rules,
+            async_execution=True,
         )
         assert not isinstance(result, (asyncio.Task, SpinnerWrappedTask))
         return result
 
     def run_trace_evaluation(
         self,
-        scorers: List[Union[APIJudgmentScorer, JudgevalScorer]],
-        model: Optional[Union[str, List[str], JudgevalJudge]] = "gpt-4.1",
-        traces: Optional[List[Trace]] = None,
+        scorers: List[Union[APIScorerConfig, BaseScorer]],
         examples: Optional[List[Example]] = None,
-        test_file: Optional[str] = None,
-        aggregator: Optional[str] = None,
-        project_name: str = "default_project",
-        eval_run_name: str = "default_eval_trace",
-        log_results: bool = True,
-        append: bool = False,
-        override: bool = False,
-        ignore_errors: bool = True,
-        rules: Optional[List[Rule]] = None,
         function: Optional[Callable] = None,
         tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
+        traces: Optional[List[Trace]] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        project_name: str = "default_project",
+        eval_run_name: str = "default_eval_trace",
+        model: Optional[str] = "gpt-4.1",
+        append: bool = False,
+        override: bool = False,
     ) -> List[ScoringResult]:
         try:
-            if test_file:
-                try:
-                    examples = add_from_yaml(test_file)
-                except FileNotFoundError:
-                    raise FileNotFoundError(f"Test file not found: {test_file}")
-
             if examples and not function:
                 raise ValueError("Cannot pass in examples without a function")
 
@@ -165,16 +148,12 @@ class JudgmentClient(metaclass=SingletonMeta):
                 traces=traces,
                 scorers=scorers,
                 model=model,
-                aggregator=aggregator,
-                log_results=log_results,
                 append=append,
                 judgment_api_key=self.judgment_api_key,
                 organization_id=self.organization_id,
                 tools=tools,
             )
-            return run_trace_eval(
-                trace_run, override, ignore_errors, function, tracer, examples
-            )
+            return run_trace_eval(trace_run, override, function, tracer, examples)
         except ValueError as e:
             raise ValueError(
                 f"Please check your TraceRun object, one or more fields are invalid: \n{str(e)}"
@@ -185,34 +164,26 @@ class JudgmentClient(metaclass=SingletonMeta):
     def run_evaluation(
         self,
         examples: Union[List[Example], List[CustomExample]],
-        scorers: List[Union[APIJudgmentScorer, JudgevalScorer]],
-        model: Optional[Union[str, List[str], JudgevalJudge]] = "gpt-4.1",
-        aggregator: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        log_results: bool = True,
+        scorers: List[Union[APIScorerConfig, BaseScorer]],
+        model: Optional[str] = "gpt-4.1",
         project_name: str = "default_project",
         eval_run_name: str = "default_eval_run",
         override: bool = False,
         append: bool = False,
-        ignore_errors: bool = True,
         async_execution: bool = False,
-        rules: Optional[List[Rule]] = None,
     ) -> Union[List[ScoringResult], asyncio.Task | SpinnerWrappedTask]:
         """
         Executes an evaluation of `Example`s using one or more `Scorer`s
 
         Args:
             examples (Union[List[Example], List[CustomExample]]): The examples to evaluate
-            scorers (List[Union[APIJudgmentScorer, JudgevalScorer]]): A list of scorers to use for evaluation
-            model (Union[str, List[str], JudgevalJudge]): The model used as a judge when using LLM as a Judge
-            aggregator (Optional[str]): The aggregator to use for evaluation if using Mixture of Judges
-            metadata (Optional[Dict[str, Any]]): Additional metadata to include for this evaluation run
-            log_results (bool): Whether to log the results to the Judgment API
+            scorers (List[Union[APIScorerConfig, BaseScorer]]): A list of scorers to use for evaluation
+            model (str): The model used as a judge when using LLM as a Judge
             project_name (str): The name of the project the evaluation results belong to
             eval_run_name (str): A name for this evaluation run
             override (bool): Whether to override an existing evaluation run with the same name
-            ignore_errors (bool): Whether to ignore errors during evaluation (safely handled)
-            rules (Optional[List[Rule]]): Rules to evaluate against scoring results
+            append (bool): Whether to append to an existing evaluation run with the same name
+            async_execution (bool): Whether to execute the evaluation asynchronously
 
         Returns:
             List[ScoringResult]: The results of the evaluation
@@ -223,29 +194,19 @@ class JudgmentClient(metaclass=SingletonMeta):
             )
 
         try:
-            if rules and any(isinstance(scorer, JudgevalScorer) for scorer in scorers):
-                raise ValueError(
-                    "Cannot use Judgeval scorers (only API scorers) when using rules. Please either remove rules or use only APIJudgmentScorer types."
-                )
-
             eval = EvaluationRun(
-                log_results=log_results,
                 append=append,
                 project_name=project_name,
                 eval_name=eval_run_name,
                 examples=examples,
                 scorers=scorers,
                 model=model,
-                aggregator=aggregator,
-                metadata=metadata,
                 judgment_api_key=self.judgment_api_key,
-                rules=rules,
                 organization_id=self.organization_id,
             )
             return run_eval(
                 eval,
                 override,
-                ignore_errors=ignore_errors,
                 async_execution=async_execution,
             )
         except ValueError as e:
@@ -280,7 +241,7 @@ class JudgmentClient(metaclass=SingletonMeta):
         dataset.judgment_api_key = self.judgment_api_key
         return self.eval_dataset_client.push(dataset, alias, project_name, overwrite)
 
-    def append_example_dataset(
+    def append_dataset(
         self, alias: str, examples: List[Example], project_name: str
     ) -> bool:
         """
@@ -318,14 +279,6 @@ class JudgmentClient(metaclass=SingletonMeta):
         """
         return self.eval_dataset_client.pull_project_dataset_stats(project_name)
 
-    def insert_dataset(
-        self, alias: str, examples: List[Example], project_name: str
-    ) -> bool:
-        """
-        Edits the dataset on Judgment platform by adding new examples
-        """
-        return self.eval_dataset_client.insert_dataset(alias, examples, project_name)
-
     # Maybe add option where you can pass in the EvaluationRun object and it will pull the eval results from the backend
     def pull_eval(
         self, project_name: str, eval_run_name: str
@@ -356,7 +309,7 @@ class JudgmentClient(metaclass=SingletonMeta):
             json=eval_run_request_body.model_dump(),
             verify=True,
         )
-        if eval_run.status_code != requests.codes.ok:
+        if eval_run.status_code != codes.ok:
             raise ValueError(f"Error fetching eval results: {eval_run.json()}")
 
         return eval_run.json()
@@ -376,7 +329,7 @@ class JudgmentClient(metaclass=SingletonMeta):
                 "X-Organization-Id": self.organization_id,
             },
         )
-        if response.status_code != requests.codes.ok:
+        if response.status_code != codes.ok:
             raise ValueError(f"Error creating project: {response.json()}")
         return response.json()
 
@@ -395,7 +348,7 @@ class JudgmentClient(metaclass=SingletonMeta):
                 "X-Organization-Id": self.organization_id,
             },
         )
-        if response.status_code != requests.codes.ok:
+        if response.status_code != codes.ok:
             raise ValueError(f"Error deleting project: {response.json()}")
         return response.json()
 
@@ -496,37 +449,83 @@ class JudgmentClient(metaclass=SingletonMeta):
 
     def assert_test(
         self,
-        scorers: List[Union[APIJudgmentScorer, JudgevalScorer]],
-        examples: Optional[List[Example]] = None,
-        model: Optional[Union[str, List[str], JudgevalJudge]] = "gpt-4.1",
-        test_file: Optional[str] = None,
-        aggregator: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        log_results: bool = True,
+        examples: List[Example],
+        scorers: List[Union[APIScorerConfig, BaseScorer]],
+        model: Optional[str] = "gpt-4.1",
         project_name: str = "default_test",
         eval_run_name: str = str(uuid4()),
         override: bool = False,
-        rules: Optional[List[Rule]] = None,
-        function: Optional[Callable] = None,
-        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
+        append: bool = False,
         async_execution: bool = False,
     ) -> None:
         """
         Asserts a test by running the evaluation and checking the results for success
 
         Args:
-            examples (Optional[List[Example]]): The examples to evaluate. Must be provided if test_file is not.
-            test_file (Optional[str]): Path to a YAML file containing test examples. Must be provided if examples is not.
-            scorers (List[Union[APIJudgmentScorer, JudgevalScorer]]): A list of scorers to use for evaluation
-            model (Union[str, List[str], JudgevalJudge]): The model used as a judge when using LLM as a Judge
-            aggregator (Optional[str]): The aggregator to use for evaluation if using Mixture of Judges
-            metadata (Optional[Dict[str, Any]]): Additional metadata to include for this evaluation run
-            log_results (bool): Whether to log the results to the Judgment API
+            examples (List[Example]): The examples to evaluate.
+            scorers (List[Union[APIScorerConfig, BaseScorer]]): A list of scorers to use for evaluation
+            model (str): The model used as a judge when using LLM as a Judge
             project_name (str): The name of the project the evaluation results belong to
             eval_run_name (str): A name for this evaluation run
             override (bool): Whether to override an existing evaluation run with the same name
-            rules (Optional[List[Rule]]): Rules to evaluate against scoring results
+            append (bool): Whether to append to an existing evaluation run with the same name
+            async_execution (bool): Whether to run the evaluation asynchronously
+        """
+
+        results: Union[List[ScoringResult], asyncio.Task | SpinnerWrappedTask]
+
+        results = self.run_evaluation(
+            examples=examples,
+            scorers=scorers,
+            model=model,
+            project_name=project_name,
+            eval_run_name=eval_run_name,
+            override=override,
+            append=append,
+            async_execution=async_execution,
+        )
+
+        if async_execution and isinstance(results, (asyncio.Task, SpinnerWrappedTask)):
+
+            async def run_async():  # Using wrapper here to resolve mypy error with passing Task into asyncio.run
+                return await results
+
+            actual_results = safe_run_async(run_async())
+            assert_test(actual_results)  # Call the synchronous imported function
+        else:
+            # 'results' is already List[ScoringResult] here (synchronous path)
+            assert_test(results)  # Call the synchronous imported function
+
+    def assert_trace_test(
+        self,
+        scorers: List[Union[APIScorerConfig, BaseScorer]],
+        examples: Optional[List[Example]] = None,
+        function: Optional[Callable] = None,
+        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
+        traces: Optional[List[Trace]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        model: Optional[str] = "gpt-4.1",
+        project_name: str = "default_test",
+        eval_run_name: str = str(uuid4()),
+        override: bool = False,
+        append: bool = False,
+        async_execution: bool = False,
+    ) -> None:
+        """
+        Asserts a test by running the evaluation and checking the results for success
+
+        Args:
+            examples (List[Example]): The examples to evaluate.
+            scorers (List[Union[APIScorerConfig, BaseScorer]]): A list of scorers to use for evaluation
+            model (str): The model used as a judge when using LLM as a Judge
+            project_name (str): The name of the project the evaluation results belong to
+            eval_run_name (str): A name for this evaluation run
+            override (bool): Whether to override an existing evaluation run with the same name
+            append (bool): Whether to append to an existing evaluation run with the same name
+            function (Optional[Callable]): A function to use for evaluation
+            tracer (Optional[Union[Tracer, BaseCallbackHandler]]): A tracer to use for evaluation
+            tools (Optional[List[Dict[str, Any]]]): A list of tools to use for evaluation
+            async_execution (bool): Whether to run the evaluation asynchronously
         """
 
         # Check for enable_param_checking and tools
@@ -538,57 +537,28 @@ class JudgmentClient(metaclass=SingletonMeta):
                             f"You must provide the 'tools' argument to assert_test when using a scorer with enable_param_checking=True. If you do not want to do param checking, explicitly set enable_param_checking=False for the {scorer.__name__} scorer."
                         )
 
-        # Validate that exactly one of examples or test_file is provided
-        if (examples is None and test_file is None) or (
-            examples is not None and test_file is not None
-        ):
-            raise ValueError(
-                "Exactly one of 'examples' or 'test_file' must be provided, but not both"
-            )
-
         results: Union[List[ScoringResult], asyncio.Task | SpinnerWrappedTask]
 
-        if function:
-            results = self.run_trace_evaluation(
-                examples=examples,
-                scorers=scorers,
-                model=model,
-                aggregator=aggregator,
-                log_results=log_results,
-                project_name=project_name,
-                eval_run_name=eval_run_name,
-                override=override,
-                rules=rules,
-                function=function,
-                tracer=tracer,
-                test_file=test_file,
-                tools=tools,
-            )
-        else:
-            if examples is None:
-                raise ValueError(
-                    "'examples' cannot be None when 'function' is not provided"
-                )
-            results = self.run_evaluation(
-                examples=examples,
-                scorers=scorers,
-                model=model,
-                aggregator=aggregator,
-                metadata=metadata,
-                log_results=log_results,
-                project_name=project_name,
-                eval_run_name=eval_run_name,
-                override=override,
-                rules=rules,
-                async_execution=async_execution,
-            )
+        results = self.run_trace_evaluation(
+            examples=examples,
+            traces=traces,
+            scorers=scorers,
+            model=model,
+            project_name=project_name,
+            eval_run_name=eval_run_name,
+            override=override,
+            append=append,
+            function=function,
+            tracer=tracer,
+            tools=tools,
+        )
 
         if async_execution and isinstance(results, (asyncio.Task, SpinnerWrappedTask)):
 
             async def run_async():  # Using wrapper here to resolve mypy error with passing Task into asyncio.run
                 return await results
 
-            actual_results = asyncio.run(run_async())
+            actual_results = safe_run_async(run_async())
             assert_test(actual_results)  # Call the synchronous imported function
         else:
             # 'results' is already List[ScoringResult] here (synchronous path)

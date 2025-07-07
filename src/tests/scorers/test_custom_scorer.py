@@ -2,7 +2,8 @@ import asyncio
 import pytest
 from unittest.mock import Mock, patch
 
-from judgeval.scorers.judgeval_scorer import JudgevalScorer
+from judgeval.scorers.base_scorer import BaseScorer
+from judgeval.scorers.example_scorer import ExampleScorer
 from judgeval.judges import JudgevalJudge
 from judgeval.common.exceptions import InvalidJudgeModelError
 
@@ -23,8 +24,8 @@ class MockJudge(JudgevalJudge):
         return "mock-model"
 
 
-class SampleScorer(JudgevalScorer):
-    """Concrete implementation of JudgevalScorer for testing"""
+class SampleScorer(BaseScorer):
+    """Concrete implementation of BaseScorer for testing"""
 
     def score_example(self, example, *args, **kwargs) -> float:
         return 0.8
@@ -46,15 +47,13 @@ def mock_judge():
     return MockJudge(model_name="mock-model")
 
 
-class TestJudgevalScorer:
+class TestBaseScorer:
     def test_initialization(self):
         """Test basic initialization with minimal parameters"""
         scorer = SampleScorer(score_type="test", threshold=0.5)
         assert scorer.score_type == "test"
         assert scorer.threshold == 0.5
         assert scorer.score is None
-        assert scorer.async_mode is True
-        assert scorer.verbose_mode is True
 
     def test_initialization_with_all_params(self):
         """Test initialization with all optional parameters"""
@@ -85,7 +84,7 @@ class TestJudgevalScorer:
         assert scorer.async_mode is False
         assert scorer.additional_metadata == additional_metadata
 
-    @patch("judgeval.scorers.judgeval_scorer.create_judge")
+    @patch("judgeval.scorers.base_scorer.create_judge")
     def test_add_model_success(self, mock_create_judge, mock_judge, basic_scorer):
         """Test successful model addition"""
         mock_create_judge.return_value = (mock_judge, True)
@@ -97,7 +96,7 @@ class TestJudgevalScorer:
         assert scorer.using_native_model is True
         mock_create_judge.assert_called_once_with("mock-model")
 
-    @patch("judgeval.scorers.judgeval_scorer.create_judge")
+    @patch("judgeval.scorers.base_scorer.create_judge")
     def test_add_model_error(self, mock_create_judge, basic_scorer):
         """Test model addition with invalid model"""
         mock_create_judge.side_effect = InvalidJudgeModelError("Invalid model")
@@ -134,14 +133,14 @@ class TestJudgevalScorer:
     def test_str_representation(self, basic_scorer):
         """Test string representation of scorer"""
         str_rep = str(basic_scorer)
-        assert "JudgevalScorer" in str_rep
+        assert "BaseScorer" in str_rep
         assert "test_scorer" in str_rep
         assert "0.7" in str_rep  # threshold value
 
     def test_abstract_methods_base_class(self):
         """Test that abstract methods raise NotImplementedError when not implemented"""
 
-        class IncompleteScorer(JudgevalScorer):
+        class IncompleteScorer(ExampleScorer):
             pass
 
         scorer = IncompleteScorer(score_type="test", threshold=0.5)
@@ -151,6 +150,3 @@ class TestJudgevalScorer:
 
         with pytest.raises(NotImplementedError):
             asyncio.run(scorer.a_score_example({}))
-
-        with pytest.raises(NotImplementedError):
-            scorer._success_check()

@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from uuid import UUID
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from judgeval.common.tracer import (
     TraceClient,
@@ -121,7 +121,6 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                 event_name,
                 project_name=project,
                 overwrite=False,
-                rules=self.tracer.rules,
                 enable_monitoring=self.tracer.enable_monitoring,
                 enable_evaluations=self.tracer.enable_evaluations,
             )
@@ -139,11 +138,9 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
 
                 # NEW: Initial save for live tracking (follows the new practice)
                 try:
-                    trace_id_saved, server_response = (
-                        self._trace_client.save_with_rate_limiting(
-                            overwrite=self._trace_client.overwrite,
-                            final_save=False,  # Initial save for live tracking
-                        )
+                    trace_id_saved, server_response = self._trace_client.save(
+                        overwrite=self._trace_client.overwrite,
+                        final_save=False,  # Initial save for live tracking
                     )
                 except Exception as e:
                     import warnings
@@ -310,8 +307,8 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                     complete_trace_data = {
                         "trace_id": self._trace_client.trace_id,
                         "name": self._trace_client.name,
-                        "created_at": datetime.utcfromtimestamp(
-                            self._trace_client.start_time
+                        "created_at": datetime.fromtimestamp(
+                            self._trace_client.start_time, timezone.utc
                         ).isoformat(),
                         "duration": self._trace_client.get_duration(),
                         "trace_spans": [
@@ -322,9 +319,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                         "parent_trace_id": self._trace_client.parent_trace_id,
                         "parent_name": self._trace_client.parent_name,
                     }
-
-                    # NEW: Use save_with_rate_limiting with final_save=True for final save
-                    trace_id, trace_data = self._trace_client.save_with_rate_limiting(
+                    trace_id, trace_data = self._trace_client.save(
                         overwrite=self._trace_client.overwrite,
                         final_save=True,  # Final save with usage counter updates
                     )
@@ -522,8 +517,8 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                 complete_trace_data = {
                     "trace_id": trace_client.trace_id,
                     "name": trace_client.name,
-                    "created_at": datetime.utcfromtimestamp(
-                        trace_client.start_time
+                    "created_at": datetime.fromtimestamp(
+                        trace_client.start_time, timezone.utc
                     ).isoformat(),
                     "duration": trace_client.get_duration(),
                     "trace_spans": [
@@ -534,10 +529,9 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                     "parent_trace_id": trace_client.parent_trace_id,
                     "parent_name": trace_client.parent_name,
                 }
-                # NEW: Use save_with_rate_limiting with final_save=True for final save
-                trace_id_saved, trace_data = trace_client.save_with_rate_limiting(
+                trace_id_saved, trace_data = trace_client.save(
                     overwrite=trace_client.overwrite,
-                    final_save=True,  # Final save with usage counter updates
+                    final_save=True,
                 )
 
                 self.tracer.traces.append(complete_trace_data)

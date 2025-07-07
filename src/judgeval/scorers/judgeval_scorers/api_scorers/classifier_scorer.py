@@ -1,6 +1,6 @@
-from judgeval.scorers.api_scorer import APIJudgmentScorer
-from judgeval.constants import APIScorer
-from typing import List, Mapping, Optional
+from judgeval.scorers.api_scorer import APIScorerConfig
+from judgeval.constants import APIScorerType
+from typing import List, Mapping, Optional, Dict, Any
 import requests
 from judgeval.constants import ROOT_API
 from judgeval.common.exceptions import JudgmentAPIError
@@ -10,7 +10,7 @@ import random
 import string
 
 
-class ClassifierScorer(APIJudgmentScorer):
+class ClassifierScorer(APIScorerConfig):
     """
     In the Judgment backend, this scorer is implemented as a PromptScorer that takes
     1. a system role that may involve the Example object
@@ -23,17 +23,11 @@ class ClassifierScorer(APIJudgmentScorer):
     options = {"positive": 1, "negative": 0}
 
     Args:
-        name (str): The name of the scorer
         slug (str): A unique identifier for the scorer
         conversation (List[dict]): The conversation template with placeholders (e.g., {{actual_output}})
         options (Mapping[str, float]): A mapping of classification options to their corresponding scores
-        threshold (float): The threshold for determining success (default: 0.5)
-        include_reason (bool): Whether to include reasoning in the response (default: True)
-        strict_mode (bool): Whether to use strict mode (default: False)
-        verbose_mode (bool): Whether to include verbose logging (default: False)
     """
 
-    name: Optional[str] = None
     slug: Optional[str] = None
     conversation: Optional[List[dict]] = None
     options: Optional[Mapping[str, float]] = None
@@ -42,6 +36,7 @@ class ClassifierScorer(APIJudgmentScorer):
     include_reason: bool = True
     async_mode: bool = True
     threshold: float = 0.5
+    score_type: APIScorerType = APIScorerType.PROMPT_SCORER
 
     # Constructor. Sets the variables and pushes the scorer to the DB.
     def __init__(
@@ -51,14 +46,13 @@ class ClassifierScorer(APIJudgmentScorer):
         options: Optional[Mapping[str, float]] = None,
         threshold: float = 0.5,
         slug: Optional[str] = None,
-        include_reason: bool = True,
         strict_mode: bool = False,
-        verbose_mode: bool = False,
-        async_mode: bool = True,
     ):
         super().__init__(
+            score_type=APIScorerType.PROMPT_SCORER,
+            name=name,
             threshold=threshold,
-            score_type=APIScorer.CLASSIFIER,
+            strict_mode=strict_mode,
         )
 
         if slug and not (name is None and conversation is None and options is None):
@@ -73,19 +67,13 @@ class ClassifierScorer(APIJudgmentScorer):
             self.conversation = scorer_config["conversation"]
             self.options = scorer_config["options"]
             self.threshold = threshold
-            self.verbose_mode = verbose_mode
             self.strict_mode = strict_mode
-            self.include_reason = include_reason
-            self.async_mode = async_mode
         elif name and conversation and options:
             self.name = name
-            self.verbose_mode = verbose_mode
             self.strict_mode = strict_mode
-            self.include_reason = include_reason
             self.slug = slugify(name) + "-" + self._generate_suffix()
             self.conversation = conversation
             self.options = options
-            self.async_mode = async_mode
             self.push_classifier_scorer()
         else:
             raise ValueError(
@@ -266,15 +254,15 @@ class ClassifierScorer(APIJudgmentScorer):
     def __str__(self):
         return f"ClassifierScorer(name={self.name}, slug={self.slug}, conversation={self.conversation}, threshold={self.threshold}, options={self.options})"
 
-    def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "score_type": self.name,
-            "conversation": self.conversation,
-            "options": self.options,
-            "threshold": self.threshold,
-            "include_reason": self.include_reason,
-            "async_mode": self.async_mode,
-            "strict_mode": self.strict_mode,
-            "verbose_mode": self.verbose_mode,
+    def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
+        base = super().model_dump(*args, **kwargs)
+        base_fields = set(APIScorerConfig.model_fields.keys())
+        all_fields = set(self.__class__.model_fields.keys())
+
+        extra_fields = all_fields - base_fields - {"kwargs"}
+
+        base["kwargs"] = {
+            k: getattr(self, k) for k in extra_fields if getattr(self, k) is not None
         }
+
+        return base

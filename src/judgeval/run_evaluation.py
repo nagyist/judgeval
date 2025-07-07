@@ -1,5 +1,7 @@
 import asyncio
-import requests
+import concurrent.futures
+from requests import exceptions
+from judgeval.utils.requests import requests
 import time
 import json
 import sys
@@ -9,7 +11,7 @@ from typing import List, Dict, Any, Union, Optional, Callable
 from rich import print as rprint
 
 from judgeval.data import ScorerData, ScoringResult, Example, Trace
-from judgeval.scorers import JudgevalScorer, APIJudgmentScorer, ClassifierScorer
+from judgeval.scorers import BaseScorer, APIScorerConfig
 from judgeval.scorers.score import a_execute_scoring
 from judgeval.constants import (
     ROOT_API,
@@ -27,6 +29,29 @@ from judgeval.evaluation_run import EvaluationRun
 from judgeval.data.trace_run import TraceRun
 from judgeval.common.tracer import Tracer
 from langchain_core.callbacks import BaseCallbackHandler
+
+
+def safe_run_async(coro):
+    """
+    Safely run an async coroutine whether or not there's already an event loop running.
+
+    Args:
+        coro: The coroutine to run
+
+    Returns:
+        The result of the coroutine
+    """
+    try:
+        # Try to get the running loop
+        asyncio.get_running_loop()
+        # If we get here, there's already a loop running
+        # Run in a separate thread to avoid "asyncio.run() cannot be called from a running event loop"
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(asyncio.run, coro)
+            return future.result()
+    except RuntimeError:
+        # No event loop is running, safe to use asyncio.run()
+        return asyncio.run(coro)
 
 
 def send_to_rabbitmq(evaluation_run: EvaluationRun) -> None:
@@ -61,7 +86,7 @@ def execute_api_eval(evaluation_run: EvaluationRun) -> Dict:
 
     try:
         # submit API request to execute evals
-        payload = evaluation_run.model_dump(warnings=False)
+        payload = evaluation_run.model_dump()
         response = requests.post(
             JUDGMENT_EVAL_API_URL,
             headers={
@@ -257,7 +282,7 @@ def check_experiment_type(
             error(f"Error checking eval run name: {error_message}")
             raise JudgmentAPIError(error_message)
 
-    except requests.exceptions.RequestException as e:
+    except exceptions.RequestException as e:
         error(f"Failed to check if experiment type exists: {str(e)}")
         raise JudgmentAPIError(f"Failed to check if experiment type exists: {str(e)}")
 
@@ -307,7 +332,7 @@ def check_eval_run_name_exists(
             error(f"Error checking eval run name: {error_message}")
             raise JudgmentAPIError(error_message)
 
-    except requests.exceptions.RequestException as e:
+    except exceptions.RequestException as e:
         error(f"Failed to check if eval run name exists: {str(e)}")
         raise JudgmentAPIError(f"Failed to check if eval run name exists: {str(e)}")
 
@@ -351,7 +376,7 @@ def log_evaluation_results(
 
         return None
 
-    except requests.exceptions.RequestException as e:
+    except exceptions.RequestException as e:
         error(f"Request failed while saving evaluation results to DB: {str(e)}")
         raise JudgmentAPIError(
             f"Request failed while saving evaluation results to DB: {str(e)}"
@@ -376,7 +401,11 @@ def run_with_spinner(message: str, func, *args, **kwargs) -> Any:
     spinner_thread.start()
 
     try:
-        result = func(*args, **kwargs)
+        if asyncio.iscoroutinefunction(func):
+            coro = func(*args, **kwargs)
+            result = safe_run_async(coro)
+        else:
+            result = func(*args, **kwargs)
     except Exception as e:
         error(f"An error occurred: {str(e)}")
         stop_spinner_event.set()
@@ -393,7 +422,7 @@ def run_with_spinner(message: str, func, *args, **kwargs) -> Any:
 
 
 def check_examples(
-    examples: List[Example], scorers: List[Union[APIJudgmentScorer, JudgevalScorer]]
+    examples: List[Example], scorers: List[Union[APIScorerConfig, BaseScorer]]
 ) -> None:
     """
     Checks if the example contains the necessary parameters for the scorer.
@@ -425,13 +454,12 @@ def check_examples(
 def run_trace_eval(
     trace_run: TraceRun,
     override: bool = False,
-    ignore_errors: bool = True,
     function: Optional[Callable] = None,
     tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
     examples: Optional[List[Example]] = None,
 ) -> List[ScoringResult]:
     # Call endpoint to check to see if eval run name exists (if we DON'T want to override and DO want to log results)
-    if not override and trace_run.log_results and not trace_run.append:
+    if not override and not trace_run.append:
         check_eval_run_name_exists(
             trace_run.eval_name,
             trace_run.project_name,
@@ -508,14 +536,14 @@ def run_trace_eval(
     # Convert the response data to `ScoringResult` objects
     debug("Processing API results")
     # TODO: allow for custom scorer on traces
-    if trace_run.log_results:
-        pretty_str = run_with_spinner(
-            "Logging Results: ",
-            log_evaluation_results,
-            response_data["agent_results"],
-            trace_run,
-        )
-        rprint(pretty_str)
+
+    pretty_str = run_with_spinner(
+        "Logging Results: ",
+        log_evaluation_results,
+        response_data["agent_results"],
+        trace_run,
+    )
+    rprint(pretty_str)
 
     return scoring_results
 
@@ -559,7 +587,7 @@ async def get_evaluation_status(
             raise JudgmentAPIError(error_message)
 
         return response.json()
-    except requests.exceptions.RequestException as e:
+    except exceptions.RequestException as e:
         error(f"Failed to check evaluation status: {str(e)}")
         raise JudgmentAPIError(f"Failed to check evaluation status: {str(e)}")
 
@@ -880,7 +908,6 @@ class SpinnerWrappedTask:
 def run_eval(
     evaluation_run: EvaluationRun,
     override: bool = False,
-    ignore_errors: bool = True,
     async_execution: bool = False,
 ) -> Union[List[ScoringResult], asyncio.Task, SpinnerWrappedTask]:
     """
@@ -889,7 +916,6 @@ def run_eval(
     Args:
         evaluation_run (EvaluationRun): Stores example and evaluation together for running
         override (bool, optional): Whether to override existing evaluation run with same name. Defaults to False.
-        ignore_errors (bool, optional): Whether to ignore scorer errors during evaluation. Defaults to True.
         async_execution (bool, optional): Whether to execute the evaluation asynchronously. Defaults to False.
 
     Returns:
@@ -899,7 +925,7 @@ def run_eval(
     """
 
     # Call endpoint to check to see if eval run name exists (if we DON'T want to override and DO want to log results)
-    if not override and evaluation_run.log_results and not evaluation_run.append:
+    if not override and not evaluation_run.append:
         check_eval_run_name_exists(
             evaluation_run.eval_name,
             evaluation_run.project_name,
@@ -942,12 +968,12 @@ def run_eval(
 
     debug(f"Starting evaluation run with {len(evaluation_run.examples)} examples")
 
-    # Group APIJudgmentScorers and JudgevalScorers, then evaluate them in parallel
+    # Group APIScorerConfigs and BaseScorers, then evaluate them in parallel
     debug("Grouping scorers by type")
-    judgment_scorers: List[APIJudgmentScorer] = []
-    local_scorers: List[JudgevalScorer] = []
+    judgment_scorers: List[APIScorerConfig] = []
+    local_scorers: List[BaseScorer] = []
     for scorer in evaluation_run.scorers:
-        if isinstance(scorer, (APIJudgmentScorer, ClassifierScorer)):
+        if isinstance(scorer, APIScorerConfig):
             judgment_scorers.append(scorer)
             debug(f"Added judgment scorer: {type(scorer).__name__}")
         else:
@@ -1010,9 +1036,7 @@ def run_eval(
             )
 
             pretty_str_to_print = None
-            if (
-                evaluation_run.log_results and results
-            ):  # Ensure results exist before logging
+            if results:  # Ensure results exist before logging
                 send_results = [
                     scoring_result.model_dump(warnings=False)
                     for scoring_result in results
@@ -1047,12 +1071,8 @@ def run_eval(
                     examples=evaluation_run.examples,
                     scorers=judgment_scorers,
                     model=evaluation_run.model,
-                    aggregator=evaluation_run.aggregator,
-                    metadata=evaluation_run.metadata,
                     judgment_api_key=evaluation_run.judgment_api_key,
                     organization_id=evaluation_run.organization_id,
-                    log_results=evaluation_run.log_results,
-                    rules=evaluation_run.rules,
                 )
                 debug("Sending request to Judgment API")
                 response_data: Dict = run_with_spinner(
@@ -1077,19 +1097,18 @@ def run_eval(
                 ScoringResult(**result) for result in response_data["results"]
             ]
         # Run local evals
-        if local_scorers:  # List[JudgevalScorer]
+        if local_scorers:  # List[BaseScorer]
             # We should be removing local scorers soon
             info("Starting local evaluation")
             for example in evaluation_run.examples:
                 with example_logging_context(example.created_at, example.example_id):
                     debug(f"Processing example {example.example_id}: {example.input}")
 
-            results: List[ScoringResult] = asyncio.run(
+            results: List[ScoringResult] = safe_run_async(
                 a_execute_scoring(
                     evaluation_run.examples,
                     local_scorers,
                     model=evaluation_run.model,
-                    ignore_errors=ignore_errors,
                     skip_on_missing_params=True,
                     show_indicator=True,
                     _use_bar_indicator=True,
@@ -1115,18 +1134,17 @@ def run_eval(
         #         organization_id=evaluation_run.organization_id
         #     )
         # print(merged_results)
-        if evaluation_run.log_results:
-            send_results = [
-                scoring_result.model_dump(warnings=False)
-                for scoring_result in merged_results
-            ]
-            pretty_str = run_with_spinner(
-                "Logging Results: ",
-                log_evaluation_results,
-                send_results,
-                evaluation_run,
-            )
-            rprint(pretty_str)
+        send_results = [
+            scoring_result.model_dump(warnings=False)
+            for scoring_result in merged_results
+        ]
+        pretty_str = run_with_spinner(
+            "Logging Results: ",
+            log_evaluation_results,
+            send_results,
+            evaluation_run,
+        )
+        rprint(pretty_str)
 
         for i, result in enumerate(merged_results):
             if (
