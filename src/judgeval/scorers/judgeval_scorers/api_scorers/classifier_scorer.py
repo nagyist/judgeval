@@ -47,6 +47,8 @@ class ClassifierScorer(APIScorerConfig):
         threshold: float = 0.5,
         slug: Optional[str] = None,
         strict_mode: bool = False,
+        judgment_api_key: Optional[str] = os.getenv("JUDGMENT_API_KEY"),
+        organization_id: Optional[str] = os.getenv("JUDGMENT_ORG_ID"),
     ):
         super().__init__(
             score_type=APIScorerType.PROMPT_SCORER,
@@ -54,6 +56,20 @@ class ClassifierScorer(APIScorerConfig):
             threshold=threshold,
             strict_mode=strict_mode,
         )
+
+        # Check if API key or Org ID are None
+        if judgment_api_key is None:
+            raise ValueError(
+                "JUDGMENT_API_KEY cannot be None. Please provide a valid API key or set the JUDGMENT_API_KEY environment variable."
+            )
+
+        if organization_id is None:
+            raise ValueError(
+                "JUDGMENT_ORG_ID cannot be None. Please provide a valid organization ID or set the JUDGMENT_ORG_ID environment variable."
+            )
+
+        self.judgment_api_key = judgment_api_key
+        self.organization_id = organization_id
 
         if slug and not (name is None and conversation is None and options is None):
             raise ValueError(
@@ -156,10 +172,6 @@ class ClassifierScorer(APIScorerConfig):
         """
         Pushes a classifier scorer configuration to the Judgment API.
 
-        Args:
-            slug (str): Slug identifier for the scorer. If it exists, the scorer will be updated.
-            scorer (ClassifierScorer): The classifier scorer to save
-
         Returns:
             str: The slug identifier of the saved scorer
 
@@ -205,7 +217,7 @@ class ClassifierScorer(APIScorerConfig):
             slug (str): Slug identifier of the custom scorer to fetch
 
         Returns:
-            ClassifierScorer: The configured classifier scorer object
+            dict: The configured classifier scorer object as a dictionary
 
         Raises:
             JudgmentAPIError: If the scorer cannot be fetched or doesn't exist
@@ -219,8 +231,8 @@ class ClassifierScorer(APIScorerConfig):
             json=request_body,
             headers={
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {os.getenv('JUDGMENT_API_KEY')}",
-                "X-Organization-Id": os.getenv("JUDGMENT_ORG_ID"),
+                "Authorization": f"Bearer {self.judgment_api_key}",
+                "X-Organization-Id": self.organization_id,
             },
             verify=True,
         )
@@ -238,12 +250,7 @@ class ClassifierScorer(APIScorerConfig):
         scorer_config.pop("created_at")
         scorer_config.pop("updated_at")
 
-        try:
-            return scorer_config
-        except Exception as e:
-            raise JudgmentAPIError(
-                f"Failed to create classifier scorer '{slug}' with config {scorer_config}: {str(e)}"
-            )
+        return scorer_config
 
     def _generate_suffix(self):
         """
