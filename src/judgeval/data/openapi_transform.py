@@ -14,29 +14,7 @@ else:
         SPEC = json.load(f)
 
 JUDGEVAL_PATHS: List[str] = [
-    # Traces
-    "/traces/save/",
-    "/traces/fetch/",
-    "/traces/upsert/",
-    "/traces/batch_fetch/",
-    "/traces/delete/",
-    "/traces/fetch_by_project/",
-    "/traces/save_span/",
-    # Evaluations
-    "/evaluate_trace/",
-    "/evaluate/",
     "/log_eval_results/",
-    "/fetch_eval_results_by_project_sorted_limit/",
-    # Datasets
-    "/datasets/pull_for_judgeval/",
-    "/datasets/push/",
-    "/datasets/insert_examples/",
-    "/datasets/delete/",
-    "/datasets/delete_examples/",
-    "/datasets/fetch_by_project/",
-    # Scorers
-    "/save_scorer/",
-    "/fetch_scorers/",
 ]
 
 
