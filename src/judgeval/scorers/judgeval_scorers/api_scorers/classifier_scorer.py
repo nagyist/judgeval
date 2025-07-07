@@ -190,8 +190,8 @@ class ClassifierScorer(APIScorerConfig):
             json=request_body,
             headers={
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {os.getenv('JUDGMENT_API_KEY')}",
-                "X-Organization-Id": os.getenv("JUDGMENT_ORG_ID"),
+                "Authorization": f"Bearer {self.judgment_api_key}",
+                "X-Organization-Id": self.organization_id,
             },
             verify=True,
         )
