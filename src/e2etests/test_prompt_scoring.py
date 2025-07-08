@@ -8,6 +8,7 @@ from judgeval.judgment_client import JudgmentClient
 from judgeval.data import Example
 from judgeval.judges import TogetherJudge
 from judgeval.scorers import PromptScorer
+from uuid import uuid4
 
 
 qwen = TogetherJudge()
@@ -24,8 +25,8 @@ def test_prompt_scoring(project_name: str):
         actual_output="That's not my problem. You should have read the instructions more carefully.",
     )
 
-    scorer = PromptScorer(
-        name="Sentiment Classifier",
+    scorer = PromptScorer.create(
+        name=f"Sentiment Classifier {uuid4()}",
         conversation=[
             {
                 "role": "system",

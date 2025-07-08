@@ -11,7 +11,7 @@ from judgeval.scorers import (
     ExecutionOrderScorer,
     PromptScorer,
 )
-
+from uuid import uuid4
 from judgeval.data import Example
 
 
@@ -167,9 +167,9 @@ def test_execution_order_scorer(client: JudgmentClient, project_name: str):
 
 def test_prompt_scorer(client: JudgmentClient, project_name: str):
     """Test prompt scorer functionality."""
-    # Creating a classifier scorer from SDK
-    prompt_scorer = PromptScorer(
-        name="Test Prompt Scorer",
+    # Creating a prompt scorer from SDK
+    prompt_scorer = PromptScorer.create(
+        name=f"Test Prompt Scorer {uuid4()}",
         threshold=0.5,
         conversation=[
             {
