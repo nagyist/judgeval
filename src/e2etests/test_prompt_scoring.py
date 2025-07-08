@@ -8,16 +8,9 @@ from judgeval.judgment_client import JudgmentClient
 from judgeval.data import Example
 from judgeval.judges import TogetherJudge
 from judgeval.scorers import PromptScorer
-import random
-import string
 
 
 qwen = TogetherJudge()
-
-
-def generate_random_slug(length=6):
-    """Generate a random string of fixed length"""
-    return "".join(random.choices(string.ascii_lowercase, k=length))
 
 
 def test_prompt_scoring(project_name: str):
@@ -32,7 +25,6 @@ def test_prompt_scoring(project_name: str):
     )
 
     scorer = PromptScorer(
-        slug=generate_random_slug(),  # Generate random 6-letter slug
         name="Sentiment Classifier",
         conversation=[
             {
@@ -41,8 +33,6 @@ def test_prompt_scoring(project_name: str):
             }
         ],
         options={"Y": 1, "N": 0},
-        threshold=0.5,
-        include_reason=True,
     )
 
     # Test direct API call first
@@ -52,13 +42,13 @@ def test_prompt_scoring(project_name: str):
     import os
 
     # Then test using client.run_evaluation()
-    client = JudgmentClient(judgment_api_key=os.getenv("JUDGMENT_API_KEY"))
+    client = JudgmentClient(api_key=os.getenv("JUDGMENT_API_KEY"))
     results = client.run_evaluation(
         examples=[pos_example, neg_example],
         scorers=[scorer],
         model="Qwen/Qwen2.5-72B-Instruct-Turbo",
         project_name=project_name,
-        eval_run_name=f"sentiment_run_{generate_random_slug()}",  # Unique run name
+        eval_run_name="sentiment_run_1",  # Unique run name
         override=True,
     )
     assert results[0].success

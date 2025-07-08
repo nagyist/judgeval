@@ -21,24 +21,14 @@ class PromptScorer(APIScorerConfig):
     ex:
     system_role = "You are a judge that evaluates whether the response is positive or negative. The response is: {example.actual_output}"
     options = {"positive": 1, "negative": 0}
-
-    Args:
-        slug (str): A unique identifier for the scorer
-        conversation (List[dict]): The conversation template with placeholders (e.g., {{actual_output}})
-        options (Mapping[str, float]): A mapping of classification options to their corresponding scores
     """
 
     slug: Optional[str] = None
     conversation: Optional[List[dict]] = None
     options: Optional[Mapping[str, float]] = None
-    verbose_mode: bool = False
-    strict_mode: bool = False
-    include_reason: bool = True
-    async_mode: bool = True
-    threshold: float = 0.5
     score_type: APIScorerType = APIScorerType.PROMPT_SCORER
-    judgment_api_key: Optional[str] = None
-    organization_id: Optional[str] = None
+    judgment_api_key: Optional[str] = os.getenv("JUDGMENT_API_KEY")
+    organization_id: Optional[str] = os.getenv("JUDGMENT_ORG_ID")
 
     # Constructor. Sets the variables and pushes the scorer to the DB.
     def __init__(
