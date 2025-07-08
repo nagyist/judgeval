@@ -20,7 +20,7 @@ from judgeval.data import (
 from judgeval.scorers import (
     APIScorerConfig,
     BaseScorer,
-    ClassifierScorer,
+    PromptScorer,
 )
 from judgeval.evaluation_run import EvaluationRun
 from judgeval.run_evaluation import (
@@ -352,7 +352,7 @@ class JudgmentClient(metaclass=SingletonMeta):
             raise ValueError(f"Error deleting project: {response.json()}")
         return response.json()
 
-    def fetch_classifier_scorer(self, slug: str) -> ClassifierScorer:
+    def fetch_prompt_scorer(self, slug: str) -> PromptScorer:
         """
         Fetches a classifier scorer configuration from the Judgment API.
 
@@ -360,7 +360,7 @@ class JudgmentClient(metaclass=SingletonMeta):
             slug (str): Slug identifier of the custom scorer to fetch
 
         Returns:
-            ClassifierScorer: The configured classifier scorer object
+            PromptScorer: The configured classifier scorer object
 
         Raises:
             JudgmentAPIError: If the scorer cannot be fetched or doesn't exist
@@ -394,21 +394,19 @@ class JudgmentClient(metaclass=SingletonMeta):
         scorer_config.pop("updated_at")
 
         try:
-            return ClassifierScorer(**scorer_config)
+            return PromptScorer(**scorer_config)
         except Exception as e:
             raise JudgmentAPIError(
                 f"Failed to create classifier scorer '{slug}' with config {scorer_config}: {str(e)}"
             )
 
-    def push_classifier_scorer(
-        self, scorer: ClassifierScorer, slug: str | None = None
-    ) -> str:
+    def push_prompt_scorer(self, scorer: PromptScorer, slug: str | None = None) -> str:
         """
         Pushes a classifier scorer configuration to the Judgment API.
 
         Args:
             slug (str): Slug identifier for the scorer. If it exists, the scorer will be updated.
-            scorer (ClassifierScorer): The classifier scorer to save
+            scorer (PromptScorer): The classifier scorer to save
 
         Returns:
             str: The slug identifier of the saved scorer

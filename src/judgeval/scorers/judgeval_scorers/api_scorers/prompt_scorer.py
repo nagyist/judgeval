@@ -10,7 +10,7 @@ import random
 import string
 
 
-class ClassifierScorer(APIScorerConfig):
+class PromptScorer(APIScorerConfig):
     """
     In the Judgment backend, this scorer is implemented as a PromptScorer that takes
     1. a system role that may involve the Example object
@@ -37,6 +37,8 @@ class ClassifierScorer(APIScorerConfig):
     async_mode: bool = True
     threshold: float = 0.5
     score_type: APIScorerType = APIScorerType.PROMPT_SCORER
+    judgment_api_key: Optional[str] = None
+    organization_id: Optional[str] = None
 
     # Constructor. Sets the variables and pushes the scorer to the DB.
     def __init__(
@@ -78,7 +80,7 @@ class ClassifierScorer(APIScorerConfig):
 
         if slug:
             self.slug = slug
-            scorer_config = self.fetch_classifier_scorer(slug)
+            scorer_config = self.fetch_prompt_scorer(slug)
             self.name = scorer_config["name"]
             self.conversation = scorer_config["conversation"]
             self.options = scorer_config["options"]
@@ -90,7 +92,7 @@ class ClassifierScorer(APIScorerConfig):
             self.slug = slugify(name) + "-" + self._generate_suffix()
             self.conversation = conversation
             self.options = options
-            self.push_classifier_scorer()
+            self.push_prompt_scorer()
         else:
             raise ValueError(
                 "You must provide the name, conversation, and options to create a new scorer. If you are fetching an existing scorer, pass in the slug. The conversation and options variables must be non-empty."
@@ -102,14 +104,14 @@ class ClassifierScorer(APIScorerConfig):
         Updates the name of the scorer.
         """
         self.name = name
-        self.push_classifier_scorer()
+        self.push_prompt_scorer()
 
     def update_threshold(self, threshold: float):
         """
         Updates the threshold of the scorer.
         """
         self.threshold = threshold
-        self.push_classifier_scorer()
+        self.push_prompt_scorer()
 
     def update_conversation(self, conversation: List[dict]):
         """
@@ -119,7 +121,7 @@ class ClassifierScorer(APIScorerConfig):
         [{'role': 'system', 'content': "Did the chatbot answer the user's question in a kind way?: {{actual_output}}."}]
         """
         self.conversation = conversation
-        self.push_classifier_scorer()
+        self.push_prompt_scorer()
 
     def update_options(self, options: Mapping[str, float]):
         """
@@ -129,7 +131,7 @@ class ClassifierScorer(APIScorerConfig):
         {"yes": 1, "no": 0}
         """
         self.options = options
-        self.push_classifier_scorer()
+        self.push_prompt_scorer()
 
     # Getters
     def get_conversation(self) -> List[dict] | None:
@@ -168,7 +170,7 @@ class ClassifierScorer(APIScorerConfig):
             "options": self.options,
         }
 
-    def push_classifier_scorer(self) -> str:
+    def push_prompt_scorer(self) -> str:
         """
         Pushes a classifier scorer configuration to the Judgment API.
 
@@ -209,7 +211,7 @@ class ClassifierScorer(APIScorerConfig):
 
         return response.json()["slug"]
 
-    def fetch_classifier_scorer(self, slug: str):
+    def fetch_prompt_scorer(self, slug: str):
         """
         Fetches a classifier scorer configuration from the Judgment API.
 
@@ -259,7 +261,7 @@ class ClassifierScorer(APIScorerConfig):
         return "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
 
     def __str__(self):
-        return f"ClassifierScorer(name={self.name}, slug={self.slug}, conversation={self.conversation}, threshold={self.threshold}, options={self.options})"
+        return f"PromptScorer(name={self.name}, slug={self.slug}, conversation={self.conversation}, threshold={self.threshold}, options={self.options})"
 
     def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
         base = super().model_dump(*args, **kwargs)

@@ -7,7 +7,7 @@ Toy example in this case to determine the sentiment
 from judgeval.judgment_client import JudgmentClient
 from judgeval.data import Example
 from judgeval.judges import TogetherJudge
-from judgeval.scorers import ClassifierScorer
+from judgeval.scorers import PromptScorer
 import random
 import string
 
@@ -31,7 +31,7 @@ def main():
         actual_output="That's not my problem. You should have read the instructions more carefully.",
     )
 
-    scorer = ClassifierScorer(
+    scorer = PromptScorer(
         slug=generate_random_slug(),  # Generate random 6-letter slug
         name="Sentiment Classifier",
         conversation=[

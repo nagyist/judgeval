@@ -1,14 +1,14 @@
 """
-ClassifierScorer implementation for basic Text-to-SQL evaluation.
+PromptScorer implementation for basic Text-to-SQL evaluation.
 
 Takes a natural language query, a corresponding LLM-generated SQL query, and a table schema + (optional) metadata.
 Determines if the LLM-generated SQL query is valid and works for the natural language query.
 """
 
-from judgeval.scorers import ClassifierScorer
+from judgeval.scorers import PromptScorer
 
 
-class Text2SQLScorer(ClassifierScorer):
+class Text2SQLScorer(PromptScorer):
     def __init__(self):
         super().__init__(
             name="Text to SQL",

@@ -9,7 +9,7 @@ from judgeval.scorers import (
     FaithfulnessScorer,
     InstructionAdherenceScorer,
     ExecutionOrderScorer,
-    ClassifierScorer,
+    PromptScorer,
 )
 
 from judgeval.data import Example
@@ -170,10 +170,10 @@ def test_execution_order_scorer(client: JudgmentClient):
     assert not res[0].success
 
 
-def test_classifier_scorer(client: JudgmentClient):
+def test_prompt_scorer(client: JudgmentClient):
     """Test classifier scorer functionality."""
     # Creating a classifier scorer from SDK
-    classifier_scorer = ClassifierScorer(
+    prompt_scorer = PromptScorer(
         name="Test Classifier Scorer",
         threshold=0.5,
         conversation=[
@@ -186,7 +186,7 @@ def test_classifier_scorer(client: JudgmentClient):
     )
 
     # Update the conversation with the helpfulness evaluation template
-    classifier_scorer.update_conversation(
+    prompt_scorer.update_conversation(
         [
             {
                 "role": "system",
@@ -200,7 +200,7 @@ def test_classifier_scorer(client: JudgmentClient):
     )
 
     # Update the options with helpfulness classification choices
-    classifier_scorer.update_options(
+    prompt_scorer.update_options(
         {
             "yes": 1.0,  # Helpful response
             "no": 0.0,  # Unhelpful response
@@ -221,7 +221,7 @@ def test_classifier_scorer(client: JudgmentClient):
     # Run evaluation
     res = client.run_evaluation(
         examples=[helpful_example, unhelpful_example],
-        scorers=[classifier_scorer],
+        scorers=[prompt_scorer],
         model="Qwen/Qwen2.5-72B-Instruct-Turbo",
         project_name="test-project",
         eval_run_name="test-run-helpfulness",
