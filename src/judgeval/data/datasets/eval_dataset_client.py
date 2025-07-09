@@ -349,11 +349,12 @@ class EvalDatasetClient:
 
 
 def remap_trace_and_spans(trace: Trace) -> Trace:
+    new_trace = trace.model_copy()
     new_trace_id = str(uuid4())
     id_map = {}
 
     # Assign new span IDs and update trace_id
-    for span in trace.trace_spans:
+    for span in new_trace.trace_spans:
         old_id = span.span_id
         new_id = str(uuid4())
         id_map[old_id] = new_id
@@ -361,11 +362,11 @@ def remap_trace_and_spans(trace: Trace) -> Trace:
         span.trace_id = new_trace_id
 
     # Update the trace itself
-    trace.trace_id = new_trace_id
+    new_trace.trace_id = new_trace_id
 
     # Remap parent relations
-    for span in trace.trace_spans:
+    for span in new_trace.trace_spans:
         if span.parent_span_id:
             span.parent_span_id = id_map.get(span.parent_span_id)
 
-    return trace
+    return new_trace
