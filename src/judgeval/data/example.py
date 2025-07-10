@@ -2,7 +2,6 @@
 Classes for representing examples in a dataset.
 """
 
-from uuid import uuid4
 from enum import Enum
 from datetime import datetime
 from judgeval.data.judgment_types import ExampleJudgmentType
@@ -21,13 +20,13 @@ class ExampleParams(str, Enum):
 
 
 class Example(ExampleJudgmentType):
+    example_id: str = ""
+
     def __init__(self, **data):
-        if "example_id" not in data:
-            data["example_id"] = str(uuid4())
-        # Set timestamp if not provided
         if "created_at" not in data:
             data["created_at"] = datetime.now().isoformat()
         super().__init__(**data)
+        self.example_id = None
 
     def to_dict(self):
         return {
