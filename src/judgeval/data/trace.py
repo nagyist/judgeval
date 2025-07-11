@@ -55,6 +55,20 @@ class TraceSpan(TraceSpanJudgmentType):
             self.update_id += 1
             return self.update_id
 
+    def set_update_id_to_ending_number(self, ending_number: int = 20) -> int:
+        """
+        Thread-safe method to set the update_id to a predetermined ending number.
+
+        Args:
+            ending_number (int): The number to set update_id to. Defaults to 20.
+
+        Returns:
+            int: The new update_id value after setting
+        """
+        with self._update_id_lock:
+            self.update_id = ending_number
+            return self.update_id
+
     def print_span(self):
         """Print the span with proper formatting and parent relationship information."""
         indent = "  " * self.depth
