@@ -175,7 +175,7 @@ def test_prompt_scorer(client: JudgmentClient, project_name: str):
     )
 
     # Update the options with helpfulness classification choices
-    prompt_scorer.update_options(
+    prompt_scorer.set_options(
         {
             "yes": 1.0,  # Helpful response
             "no": 0.0,  # Unhelpful response

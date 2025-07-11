@@ -190,21 +190,21 @@ class PromptScorer(APIScorerConfig):
             )
 
     # Setter functions. Each setter function pushes the scorer to the DB.
-    def update_name(self, name: str):
+    def set_name(self, name: str):
         """
         Updates the name of the scorer.
         """
         self.name = name
         self.push_prompt_scorer()
 
-    def update_threshold(self, threshold: float):
+    def set_threshold(self, threshold: float):
         """
         Updates the threshold of the scorer.
         """
         self.threshold = threshold
         self.push_prompt_scorer()
 
-    def update_prompt(self, prompt: str):
+    def set_prompt(self, prompt: str):
         """
         Updates the prompt with the new prompt.
 
@@ -214,7 +214,7 @@ class PromptScorer(APIScorerConfig):
         self.prompt = prompt
         self.push_prompt_scorer()
 
-    def update_options(self, options: Mapping[str, float]):
+    def set_options(self, options: Mapping[str, float]):
         """
         Updates the options with the new options.
 
@@ -222,6 +222,13 @@ class PromptScorer(APIScorerConfig):
         {"yes": 1, "no": 0}
         """
         self.options = options
+        self.push_prompt_scorer()
+
+    def append_to_prompt(self, prompt_addition: str):
+        """
+        Appends a string to the prompt.
+        """
+        self.prompt += prompt_addition
         self.push_prompt_scorer()
 
     # Getters
