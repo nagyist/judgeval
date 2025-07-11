@@ -17,9 +17,9 @@ A clear and concise description of what you want to happen.
 A clear and concise description of any alternative solutions or features you've considered.
 
 ## Which component(s) does this affect?
-- [ ] SDK
-- [ ] Website
-- [ ] Documentation
+- [ ] SDK (open for community contributions)
+- [ ] Website (internal development only)
+- [ ] Documentation (open for community contributions)
 - [ ] Not sure
 
 ## Use case and impact
