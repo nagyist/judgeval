@@ -12,9 +12,6 @@ from judgeval.scorers.judgeval_scorers.api_scorers import (
     PromptScorer,
     ToolDependencyScorer,
 )
-from judgeval.scorers.judgeval_scorers.classifiers import (
-    Text2SQLScorer,
-)
 
 __all__ = [
     "APIScorerConfig",
@@ -25,7 +22,6 @@ __all__ = [
     "FaithfulnessScorer",
     "AnswerRelevancyScorer",
     "AnswerCorrectnessScorer",
-    "Text2SQLScorer",
     "InstructionAdherenceScorer",
     "DerailmentScorer",
     "ToolOrderScorer",

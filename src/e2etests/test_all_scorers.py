@@ -170,28 +170,8 @@ def test_prompt_scorer(client: JudgmentClient, project_name: str):
     # Creating a prompt scorer from SDK
     prompt_scorer = PromptScorer.create(
         name=f"Test Prompt Scorer {uuid4()}",
-        threshold=0.5,
-        conversation=[
-            {
-                "role": "system",
-                "content": "You are a judge that evaluates whether the response is helpful to the user's question. Consider if the response is relevant, accurate, and provides useful information.",
-            },
-        ],
+        prompt="Question: {{input}}\nResponse: {{actual_output}}\n\nIs this response helpful?",
         options={"yes": 1.0, "no": 0.0},
-    )
-
-    # Update the conversation with the helpfulness evaluation template
-    prompt_scorer.update_conversation(
-        [
-            {
-                "role": "system",
-                "content": "You are a judge that evaluates whether the response is helpful to the user's question. Consider if the response is relevant, accurate, and provides useful information.",
-            },
-            {
-                "role": "user",
-                "content": "Question: {{input}}\nResponse: {{actual_output}}\n\nIs this response helpful?",
-            },
-        ]
     )
 
     # Update the options with helpfulness classification choices

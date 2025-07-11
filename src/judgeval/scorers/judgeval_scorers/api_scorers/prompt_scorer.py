@@ -1,6 +1,6 @@
 from judgeval.scorers.api_scorer import APIScorerConfig
 from judgeval.constants import APIScorerType
-from typing import List, Mapping, Optional, Dict, Any
+from typing import Mapping, Optional, Dict, Any
 import requests
 from judgeval.constants import ROOT_API
 from judgeval.common.exceptions import JudgmentAPIError
@@ -9,7 +9,7 @@ import os
 
 def push_prompt_scorer(
     name: str,
-    conversation: List[dict],
+    prompt: str,
     options: Mapping[str, float],
     judgment_api_key: Optional[str] = os.getenv("JUDGMENT_API_KEY"),
     organization_id: Optional[str] = os.getenv("JUDGMENT_ORG_ID"),
@@ -25,7 +25,7 @@ def push_prompt_scorer(
     """
     request_body = {
         "name": name,
-        "conversation": conversation,
+        "prompt": prompt,
         "options": options,
     }
 
@@ -142,14 +142,10 @@ class PromptScorer(APIScorerConfig):
     2. options for scores on the example
 
     and uses a judge to execute the evaluation from the system role and classify into one of the options
-
-    ex:
-    system_role = "You are a judge that evaluates whether the response is positive or negative. The response is: {example.actual_output}"
-    options = {"positive": 1, "negative": 0}
     """
 
-    conversation: Optional[List[dict]] = None
-    options: Optional[Mapping[str, float]] = None
+    prompt: str
+    options: Mapping[str, float]
     score_type: APIScorerType = APIScorerType.PROMPT_SCORER
     judgment_api_key: Optional[str] = os.getenv("JUDGMENT_API_KEY")
     organization_id: Optional[str] = os.getenv("JUDGMENT_ORG_ID")
@@ -164,24 +160,30 @@ class PromptScorer(APIScorerConfig):
         scorer_config = fetch_prompt_scorer(name, judgment_api_key, organization_id)
         return cls(
             name=name,
-            conversation=scorer_config["conversation"],
+            prompt=scorer_config["prompt"],
             options=scorer_config["options"],
+            judgment_api_key=judgment_api_key,
+            organization_id=organization_id,
         )
 
     @classmethod
     def create(
         cls,
         name: str,
-        conversation: List[dict],
+        prompt: str,
         options: Mapping[str, float],
         judgment_api_key: Optional[str] = os.getenv("JUDGMENT_API_KEY"),
         organization_id: Optional[str] = os.getenv("JUDGMENT_ORG_ID"),
     ):
         if not scorer_exists(name, judgment_api_key, organization_id):
-            push_prompt_scorer(
-                name, conversation, options, judgment_api_key, organization_id
+            push_prompt_scorer(name, prompt, options, judgment_api_key, organization_id)
+            return cls(
+                name=name,
+                prompt=prompt,
+                options=options,
+                judgment_api_key=judgment_api_key,
+                organization_id=organization_id,
             )
-            return cls(name=name, conversation=conversation, options=options)
         else:
             raise JudgmentAPIError(
                 f"Scorer with name {name} already exists. Either use the existing scorer with the get() method or use a new name."
@@ -202,14 +204,14 @@ class PromptScorer(APIScorerConfig):
         self.threshold = threshold
         self.push_prompt_scorer()
 
-    def update_conversation(self, conversation: List[dict]):
+    def update_prompt(self, prompt: str):
         """
-        Updates the conversation with the new conversation.
+        Updates the prompt with the new prompt.
 
-        Sample conversation:
-        [{'role': 'system', 'content': "Did the chatbot answer the user's question in a kind way?: {{actual_output}}."}]
+        Sample prompt:
+        "Did the chatbot answer the user's question in a kind way?"
         """
-        self.conversation = conversation
+        self.prompt = prompt
         self.push_prompt_scorer()
 
     def update_options(self, options: Mapping[str, float]):
@@ -223,11 +225,11 @@ class PromptScorer(APIScorerConfig):
         self.push_prompt_scorer()
 
     # Getters
-    def get_conversation(self) -> List[dict] | None:
+    def get_prompt(self) -> str | None:
         """
-        Returns the conversation of the scorer.
+        Returns the prompt of the scorer.
         """
-        return self.conversation
+        return self.prompt
 
     def get_options(self) -> Mapping[str, float] | None:
         """
@@ -247,7 +249,7 @@ class PromptScorer(APIScorerConfig):
         """
         return {
             "name": self.name,
-            "conversation": self.conversation,
+            "prompt": self.prompt,
             "options": self.options,
         }
 
@@ -257,14 +259,14 @@ class PromptScorer(APIScorerConfig):
         """
         push_prompt_scorer(
             self.name,
-            self.conversation,
+            self.prompt,
             self.options,
             self.judgment_api_key,
             self.organization_id,
         )
 
     def __str__(self):
-        return f"PromptScorer(name={self.name}, conversation={self.conversation}, options={self.options})"
+        return f"PromptScorer(name={self.name}, prompt={self.prompt}, options={self.options})"
 
     def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
         base = super().model_dump(*args, **kwargs)
