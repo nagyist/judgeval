@@ -35,7 +35,7 @@ If you have ideas about how this feature should be exposed (API methods, UI elem
 Add any other context, screenshots, code examples, or links to related issues/discussions about the feature request here.
 
 ## Are you interested in contributing this feature?
-The maintainers are happy to provide guidance and review for community contributions via [Discord](https://discord.com/invite/tGVFf8UBUY).
+The Judgment community is happy to provide guidance and review for contributions via [Discord](https://discord.com/invite/tGVFf8UBUY).
 
 - [ ] Yes, I'd like to implement this
 - [ ] Yes, I'd like to help with design/planning
