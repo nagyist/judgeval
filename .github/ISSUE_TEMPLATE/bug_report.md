@@ -35,7 +35,7 @@ If applicable, add screenshots to help explain your problem.
 Add any other context about the problem here.
 
 ## Are you interested to contribute a fix for this bug?
-If this is a confirmed bug, the maintainers are happy to support with guidance and review.
+If this is a confirmed bug, the maintainers are happy to support with guidance and review via [Discord](https://discord.com/invite/tGVFf8UBUY).
 
 - [ ] Yes
 - [ ] No
