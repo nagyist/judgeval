@@ -30,8 +30,6 @@ class ScorerData(ScorerDataJudgmentType):
             "strict_mode": self.strict_mode,
             "evaluation_model": self.evaluation_model,
             "error": self.error,
-            "evaluation_cost": self.evaluation_cost,
-            "verbose_logs": self.verbose_logs,
             "additional_metadata": self.additional_metadata,
         }
 
@@ -47,67 +45,32 @@ def create_scorer_data(scorer: BaseScorer) -> List[ScorerData]:
     the ScorerResult.
     """
     scorers_result = list()
-    if scorer.error is not None:  # error occurred during eval run
-        scorers_result.append(
-            ScorerData(
-                name=scorer.name,
-                threshold=scorer.threshold,
-                score=None,
-                reason=None,
-                success=False,
-                strict_mode=scorer.strict_mode,
-                evaluation_model=scorer.evaluation_model,
-                error=scorer.error,
-                evaluation_cost=scorer.evaluation_cost,
-                verbose_logs=scorer.verbose_logs,
-            )
+
+    scorers_result.append(
+        ScorerData(
+            name=scorer.name,
+            threshold=scorer.threshold,
+            score=scorer.score,
+            reason=scorer.reason,
+            success=scorer.success,
+            strict_mode=scorer.strict_mode,
+            evaluation_model=scorer.evaluation_model,
+            error=scorer.error,
+            additional_metadata=scorer.additional_metadata,
         )
-    else:  # standard execution, no error
-        scorers_result.append(
-            ScorerData(
-                name=scorer.name,
-                score=scorer.score,
-                threshold=scorer.threshold,
-                reason=scorer.reason,
-                success=scorer.success_check(),
-                strict_mode=scorer.strict_mode,
-                evaluation_model=scorer.evaluation_model,
-                error=None,
-                evaluation_cost=scorer.evaluation_cost,
-                verbose_logs=scorer.verbose_logs,
-                additional_metadata=scorer.additional_metadata,
-            )
-        )
+    )
     if hasattr(scorer, "internal_scorer") and scorer.internal_scorer is not None:
-        if scorer.internal_scorer.error is not None:
-            scorers_result.append(
-                ScorerData(
-                    name=scorer.internal_scorer.name,
-                    score=None,
-                    threshold=scorer.internal_scorer.threshold,
-                    reason=None,
-                    success=False,
-                    strict_mode=scorer.internal_scorer.strict_mode,
-                    evaluation_model=scorer.internal_scorer.evaluation_model,
-                    error=scorer.internal_scorer.error,
-                    evaluation_cost=scorer.internal_scorer.evaluation_cost,
-                    verbose_logs=scorer.internal_scorer.verbose_logs,
-                )
+        scorers_result.append(
+            ScorerData(
+                name=scorer.internal_scorer.name,
+                score=scorer.internal_scorer.score,
+                threshold=scorer.internal_scorer.threshold,
+                reason=scorer.internal_scorer.reason,
+                success=scorer.internal_scorer.success,
+                strict_mode=scorer.internal_scorer.strict_mode,
+                evaluation_model=scorer.internal_scorer.evaluation_model,
+                error=scorer.internal_scorer.error,
+                additional_metadata=scorer.internal_scorer.additional_metadata,
             )
-        else:
-            scorers_result.append(
-                ScorerData(
-                    name=scorer.internal_scorer.name,
-                    score=scorer.internal_scorer.score,
-                    threshold=scorer.internal_scorer.threshold,
-                    reason=scorer.internal_scorer.reason,
-                    success=scorer.internal_scorer.success_check(),
-                    strict_mode=scorer.internal_scorer.strict_mode,
-                    evaluation_model=scorer.internal_scorer.evaluation_model,
-                    error=None,
-                    evaluation_cost=scorer.internal_scorer.evaluation_cost,
-                    verbose_logs=scorer.internal_scorer.verbose_logs,
-                    additional_metadata=scorer.internal_scorer.additional_metadata,
-                )
-            )
+        )
     return scorers_result

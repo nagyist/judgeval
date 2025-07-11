@@ -1,5 +1,4 @@
 from typing import List, Union
-from judgeval.common.logger import debug
 from judgeval.data import ScorerData, Example
 from judgeval.data.trace import TraceSpan
 from judgeval.data.judgment_types import ScoringResultJudgmentType
@@ -14,7 +13,7 @@ class ScoringResult(ScoringResultJudgmentType):
         success (bool): Whether the evaluation was successful.
                         This means that all scorers applied to this example returned a success.
         scorer_data (List[ScorerData]): The scorers data for the evaluated example
-        data_object (Optional[Example]): The original example object that was used to create the ScoringResult, can be Example, CustomExample (future), WorkflowRun (future)
+        data_object (Optional[Example]): The original example object that was used to create the ScoringResult, can be Example, WorkflowRun (future)
 
     """
 
@@ -33,8 +32,7 @@ class ScoringResult(ScoringResultJudgmentType):
             success={self.success}, \
             scorer_data={self.scorers_data}, \
             data_object={self.data_object}, \
-            run_duration={self.run_duration}, \
-            evaluation_cost={self.evaluation_cost})"
+            run_duration={self.run_duration})"
 
 
 def generate_scoring_result(
@@ -53,14 +51,11 @@ def generate_scoring_result(
         name = data_object.name
     else:
         name = "Test Case Placeholder"
-        debug(f"No name provided for example, using default name: {name}")
-    debug(f"Creating ScoringResult for: {name}")
     scoring_result = ScoringResult(
         name=name,
         data_object=data_object,
         success=success,
         scorers_data=scorers_data,
         run_duration=run_duration,
-        evaluation_cost=None,
     )
     return scoring_result

@@ -13,7 +13,6 @@ from judgeval.data.datasets import EvalDataset, EvalDatasetClient
 from judgeval.data import (
     ScoringResult,
     Example,
-    CustomExample,
     Trace,
 )
 from judgeval.scorers import (
@@ -39,6 +38,7 @@ from judgeval.common.tracer import Tracer
 from judgeval.common.utils import validate_api_key
 from pydantic import BaseModel
 from judgeval.run_evaluation import SpinnerWrappedTask
+from judgeval.common.logger import judgeval_logger
 
 
 class EvalRunRequestBody(BaseModel):
@@ -89,7 +89,7 @@ class JudgmentClient(metaclass=SingletonMeta):
             # May be bad to output their invalid API key...
             raise JudgmentAPIError(f"Issue with passed in Judgment API key: {response}")
         else:
-            print("Successfully initialized JudgmentClient!")
+            judgeval_logger.info("Successfully initialized JudgmentClient!")
 
     def a_run_evaluation(
         self,
@@ -159,7 +159,7 @@ class JudgmentClient(metaclass=SingletonMeta):
 
     def run_evaluation(
         self,
-        examples: Union[List[Example], List[CustomExample]],
+        examples: List[Example],
         scorers: List[Union[APIScorerConfig, BaseScorer]],
         model: Optional[str] = "gpt-4.1",
         project_name: str = "default_project",
@@ -172,7 +172,7 @@ class JudgmentClient(metaclass=SingletonMeta):
         Executes an evaluation of `Example`s using one or more `Scorer`s
 
         Args:
-            examples (Union[List[Example], List[CustomExample]]): The examples to evaluate
+            examples (List[Example]): The examples to evaluate
             scorers (List[Union[APIScorerConfig, BaseScorer]]): A list of scorers to use for evaluation
             model (str): The model used as a judge when using LLM as a Judge
             project_name (str): The name of the project the evaluation results belong to

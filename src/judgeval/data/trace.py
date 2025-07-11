@@ -1,6 +1,7 @@
 from typing import Any
 import json
 import sys
+import threading
 from datetime import datetime, timezone
 from judgeval.data.judgment_types import (
     TraceUsageJudgmentType,
@@ -36,7 +37,23 @@ class TraceSpan(TraceSpanJudgmentType):
             "state_before": self.state_before,
             "state_after": self.state_after,
             "additional_metadata": self._serialize_value(self.additional_metadata),
+            "update_id": self.update_id,
         }
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        # Initialize thread lock for thread-safe update_id increment
+        self._update_id_lock = threading.Lock()
+
+    def increment_update_id(self) -> int:
+        """
+        Thread-safe method to increment the update_id counter.
+        Returns:
+            int: The new update_id value after incrementing
+        """
+        with self._update_id_lock:
+            self.update_id += 1
+            return self.update_id
 
     def print_span(self):
         """Print the span with proper formatting and parent relationship information."""

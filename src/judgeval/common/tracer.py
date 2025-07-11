@@ -13,7 +13,6 @@ import threading
 import time
 import traceback
 import uuid
-import warnings
 import contextvars
 import sys
 import json
@@ -64,7 +63,7 @@ from judgeval.data import Example, Trace, TraceSpan, TraceUsage
 from judgeval.scorers import APIScorerConfig, BaseScorer
 from judgeval.evaluation_run import EvaluationRun
 from judgeval.common.utils import ExcInfo, validate_api_key
-from judgeval.common.exceptions import JudgmentAPIError
+from judgeval.common.logger import judgeval_logger
 
 # Standard library imports needed for the new class
 import concurrent.futures
@@ -215,9 +214,9 @@ class TraceManagerClient:
                     trace_id=trace_data["trace_id"],
                     project_name=trace_data["project_name"],
                 )
-                print(f"Trace also saved to S3 at key: {s3_key}")
+                judgeval_logger.info(f"Trace also saved to S3 at key: {s3_key}")
             except Exception as e:
-                warnings.warn(f"Failed to save trace to S3: {str(e)}")
+                judgeval_logger.warning(f"Failed to save trace to S3: {str(e)}")
 
         if not offline_mode and show_link and "ui_results_url" in server_response:
             pretty_str = f"\n🔍 You can view your trace data here: [rgb(106,0,255)][link={server_response['ui_results_url']}]View Trace[/link]\n"
@@ -382,7 +381,9 @@ class TraceClient:
                 # Set start_time after first successful save
                 # Link will be shown by upsert_trace method
             except Exception as e:
-                warnings.warn(f"Failed to save initial trace for live tracking: {e}")
+                judgeval_logger.warning(
+                    f"Failed to save initial trace for live tracking: {e}"
+                )
         start_time = time.time()
 
         # Generate a unique ID for *this specific span invocation*
@@ -456,11 +457,11 @@ class TraceClient:
         try:
             # Load appropriate implementations for all scorers
             if not scorers:
-                warnings.warn("No valid scorers available for evaluation")
+                judgeval_logger.warning("No valid scorers available for evaluation")
                 return
 
         except Exception as e:
-            warnings.warn(f"Failed to load scorers: {str(e)}")
+            judgeval_logger.warning(f"Failed to load scorers: {str(e)}")
             return
 
         # If example is not provided, create one from the individual parameters
@@ -498,13 +499,7 @@ class TraceClient:
 
         # check_examples([example], scorers)
 
-        # --- Modification: Capture span_id immediately ---
-        # span_id_at_eval_call = current_span_var.get()
-        # print(f"[TraceClient.async_evaluate] Captured span ID at eval call: {span_id_at_eval_call}")
-        # Prioritize explicitly passed span_id, fallback to context var
         span_id_to_use = span_id if span_id is not None else self.get_current_span()
-        # print(f"[TraceClient.async_evaluate] Using span_id: {span_id_to_use}")
-        # --- End Modification ---
 
         eval_run = EvaluationRun(
             organization_id=self.tracer.organization_id,
@@ -560,7 +555,7 @@ class TraceClient:
                 if self.background_span_service:
                     self.background_span_service.queue_span(span, span_state="input")
             except Exception as e:
-                warnings.warn(f"Failed to queue span with input data: {e}")
+                judgeval_logger.warning(f"Failed to queue span with input data: {e}")
 
     def record_agent_name(self, agent_name: str):
         current_span_id = self.get_current_span()
@@ -959,7 +954,7 @@ class BackgroundSpanService:
                     last_flush_time = current_time
 
             except Exception as e:
-                warnings.warn(f"Error in span service worker loop: {e}")
+                judgeval_logger.warning(f"Error in span service worker loop: {e}")
                 # On error, still need to mark tasks as done to prevent hanging
                 for _ in range(pending_task_count):
                     self._span_queue.task_done()
@@ -1003,7 +998,7 @@ class BackgroundSpanService:
                 self._send_evaluation_runs_batch(evaluation_runs_to_send)
 
         except Exception as e:
-            warnings.warn(f"Failed to send batch: {e}")
+            judgeval_logger.warning(f"Failed to send batch: {e}")
 
     def _send_spans_batch(self, spans: List[Dict[str, Any]]):
         """Send a batch of spans to the spans endpoint."""
@@ -1036,14 +1031,14 @@ class BackgroundSpanService:
             )
 
             if response.status_code != HTTPStatus.OK:
-                warnings.warn(
+                judgeval_logger.warning(
                     f"Failed to send spans batch: HTTP {response.status_code} - {response.text}"
                 )
 
         except RequestException as e:
-            warnings.warn(f"Network error sending spans batch: {e}")
+            judgeval_logger.warning(f"Network error sending spans batch: {e}")
         except Exception as e:
-            warnings.warn(f"Failed to serialize or send spans batch: {e}")
+            judgeval_logger.warning(f"Failed to serialize or send spans batch: {e}")
 
     def _send_evaluation_runs_batch(self, evaluation_runs: List[Dict[str, Any]]):
         """Send a batch of evaluation runs with their associated span data to the endpoint."""
@@ -1098,14 +1093,14 @@ class BackgroundSpanService:
             )
 
             if response.status_code != HTTPStatus.OK:
-                warnings.warn(
+                judgeval_logger.warning(
                     f"Failed to send evaluation runs batch: HTTP {response.status_code} - {response.text}"
                 )
 
         except RequestException as e:
-            warnings.warn(f"Network error sending evaluation runs batch: {e}")
+            judgeval_logger.warning(f"Network error sending evaluation runs batch: {e}")
         except Exception as e:
-            warnings.warn(f"Failed to send evaluation runs batch: {e}")
+            judgeval_logger.warning(f"Failed to send evaluation runs batch: {e}")
 
     def queue_span(self, span: TraceSpan, span_state: str = "input"):
         """
@@ -1116,6 +1111,8 @@ class BackgroundSpanService:
             span_state: State of the span ("input", "output", "completed")
         """
         if not self._shutdown_event.is_set():
+            # Increment update_id when queueing the span
+            span.increment_update_id()
             span_data = {
                 "type": "span",
                 "data": {
@@ -1155,7 +1152,7 @@ class BackgroundSpanService:
             # Wait for the queue to be processed
             self._span_queue.join()
         except Exception as e:
-            warnings.warn(f"Error during flush: {e}")
+            judgeval_logger.warning(f"Error during flush: {e}")
 
     def shutdown(self):
         """Shutdown the background service and flush remaining spans."""
@@ -1170,9 +1167,9 @@ class BackgroundSpanService:
             try:
                 self.flush()
             except Exception as e:
-                warnings.warn(f"Error during final flush: {e}")
+                judgeval_logger.warning(f"Error during final flush: {e}")
         except Exception as e:
-            warnings.warn(f"Error during BackgroundSpanService shutdown: {e}")
+            judgeval_logger.warning(f"Error during BackgroundSpanService shutdown: {e}")
         finally:
             # Clear the worker threads list (daemon threads will be killed automatically)
             self._worker_threads.clear()
@@ -1523,73 +1520,84 @@ class Tracer:
         span_flush_interval: float = 1.0,  # Time in seconds between automatic flushes
         span_num_workers: int = 10,  # Number of worker threads for span processing
     ):
-        if not api_key:
-            raise ValueError(
-                "api_key parameter must be provided. Please provide a valid API key value or set the JUDGMENT_API_KEY environment variable."
-            )
-
-        if not organization_id:
-            raise ValueError(
-                "organization_id parameter must be provided. Please provide a valid organization ID value or set the JUDGMENT_ORG_ID environment variable."
-            )
-
         try:
-            result, response = validate_api_key(api_key)
-        except Exception as e:
-            print(f"Issue with verifying API key, disabling monitoring: {e}")
-            enable_monitoring = False
-            result = True
+            if not api_key:
+                raise ValueError(
+                    "api_key parameter must be provided. Please provide a valid API key value or set the JUDGMENT_API_KEY environment variable"
+                )
 
-        if not result:
-            raise JudgmentAPIError(f"Issue with passed in Judgment API key: {response}")
-
-        if use_s3 and not s3_bucket_name:
-            raise ValueError("S3 bucket name must be provided when use_s3 is True")
-
-        self.api_key: str = api_key
-        self.project_name: str = project_name or "default_project"
-        self.organization_id: str = organization_id
-        self.traces: List[Trace] = []
-        self.enable_monitoring: bool = enable_monitoring
-        self.enable_evaluations: bool = enable_evaluations
-        self.class_identifiers: Dict[
-            str, str
-        ] = {}  # Dictionary to store class identifiers
-        self.span_id_to_previous_span_id: Dict[str, str | None] = {}
-        self.trace_id_to_previous_trace: Dict[str, TraceClient | None] = {}
-        self.current_span_id: Optional[str] = None
-        self.current_trace: Optional[TraceClient] = None
-        self.trace_across_async_contexts: bool = trace_across_async_contexts
-        Tracer.trace_across_async_contexts = trace_across_async_contexts
-
-        # Initialize S3 storage if enabled
-        self.use_s3 = use_s3
-        if use_s3:
-            from judgeval.common.s3_storage import S3Storage
+            if not organization_id:
+                raise ValueError(
+                    "organization_id parameter must be provided. Please provide a valid organization ID value or set the JUDGMENT_ORG_ID environment variable"
+                )
 
             try:
-                self.s3_storage = S3Storage(
-                    bucket_name=s3_bucket_name,
-                    aws_access_key_id=s3_aws_access_key_id,
-                    aws_secret_access_key=s3_aws_secret_access_key,
-                    region_name=s3_region_name,
-                )
+                result, response = validate_api_key(api_key)
             except Exception as e:
-                print(f"Issue with initializing S3 storage, disabling S3: {e}")
-                self.use_s3 = False
+                judgeval_logger.error(
+                    f"Issue with verifying API key, disabling monitoring: {e}"
+                )
+                enable_monitoring = False
+                result = True
 
-        self.offline_mode = False  # This is used to differentiate traces between online and offline (IE experiments vs monitoring page)
-        self.deep_tracing: bool = deep_tracing  # NEW: Store deep tracing setting
+            if not result:
+                raise ValueError(f"Issue with passed in Judgment API key: {response}")
 
-        # Initialize background span service
-        self.background_span_service: Optional[BackgroundSpanService] = None
-        self.background_span_service = BackgroundSpanService(
-            judgment_api_key=api_key,
-            organization_id=organization_id,
-            batch_size=span_batch_size,
-            flush_interval=span_flush_interval,
-            num_workers=span_num_workers,
-        )
+            if use_s3 and not s3_bucket_name:
+                raise ValueError("S3 bucket name must be provided when use_s3 is True")
+
+            self.api_key: str = api_key
+            self.project_name: str = project_name or "default_project"
+            self.organization_id: str = organization_id
+            self.traces: List[Trace] = []
+            self.enable_monitoring: bool = enable_monitoring
+            self.enable_evaluations: bool = enable_evaluations
+            self.class_identifiers: Dict[
+                str, str
+            ] = {}  # Dictionary to store class identifiers
+            self.span_id_to_previous_span_id: Dict[str, str | None] = {}
+            self.trace_id_to_previous_trace: Dict[str, TraceClient | None] = {}
+            self.current_span_id: Optional[str] = None
+            self.current_trace: Optional[TraceClient] = None
+            self.trace_across_async_contexts: bool = trace_across_async_contexts
+            Tracer.trace_across_async_contexts = trace_across_async_contexts
+
+            # Initialize S3 storage if enabled
+            self.use_s3 = use_s3
+            if use_s3:
+                from judgeval.common.s3_storage import S3Storage
+
+                try:
+                    self.s3_storage = S3Storage(
+                        bucket_name=s3_bucket_name,
+                        aws_access_key_id=s3_aws_access_key_id,
+                        aws_secret_access_key=s3_aws_secret_access_key,
+                        region_name=s3_region_name,
+                    )
+                except Exception as e:
+                    judgeval_logger.error(
+                        f"Issue with initializing S3 storage, disabling S3: {e}"
+                    )
+                    self.use_s3 = False
+
+            self.offline_mode = False  # This is used to differentiate traces between online and offline (IE experiments vs monitoring page)
+            self.deep_tracing: bool = deep_tracing  # NEW: Store deep tracing setting
+
+            # Initialize background span service
+            self.background_span_service: Optional[BackgroundSpanService] = None
+            self.background_span_service = BackgroundSpanService(
+                judgment_api_key=api_key,
+                organization_id=organization_id,
+                batch_size=span_batch_size,
+                flush_interval=span_flush_interval,
+                num_workers=span_num_workers,
+            )
+        except Exception as e:
+            judgeval_logger.error(
+                f"Issue with initializing Tracer: {e}. Disabling monitoring and evaluations."
+            )
+            self.enable_monitoring = False
+            self.enable_evaluations = False
 
     def set_current_span(self, span_id: str) -> Optional[contextvars.Token[str | None]]:
         self.span_id_to_previous_span_id[span_id] = self.current_span_id
@@ -1972,7 +1980,7 @@ class Tracer:
                             # Reset trace context (span context resets automatically)
                             self.reset_current_trace(trace_token)
                         except Exception as e:
-                            warnings.warn(f"Issue with async_wrapper: {e}")
+                            judgeval_logger.warning(f"Issue with async_wrapper: {e}")
                             return
                 else:
                     with current_trace.span(span_name, span_type=span_type) as span:
@@ -2103,7 +2111,7 @@ class Tracer:
                             # Reset trace context (span context resets automatically)
                             self.reset_current_trace(trace_token)
                         except Exception as e:
-                            warnings.warn(f"Issue with save: {e}")
+                            judgeval_logger.warning(f"Issue with save: {e}")
                             return
                 else:
                     with current_trace.span(span_name, span_type=span_type) as span:
@@ -2179,8 +2187,8 @@ class Tracer:
                 if hasattr(method, "_judgment_span_name"):
                     skipped.append(name)
                     if warn_on_double_decoration:
-                        print(
-                            f"Warning: {cls.__name__}.{name} already decorated, skipping"
+                        judgeval_logger.info(
+                            f"{cls.__name__}.{name} already decorated, skipping"
                         )
                     continue
 
@@ -2190,7 +2198,9 @@ class Tracer:
                     decorated.append(name)
                 except Exception as e:
                     if warn_on_double_decoration:
-                        print(f"Warning: Failed to decorate {cls.__name__}.{name}: {e}")
+                        judgeval_logger.warning(
+                            f"Failed to decorate {cls.__name__}.{name}: {e}"
+                        )
 
             return cls
 
@@ -2217,11 +2227,11 @@ class Tracer:
                     )
                 current_trace.async_evaluate(*args, **kwargs)
             else:
-                warnings.warn(
+                judgeval_logger.warning(
                     "No trace found (context var or fallback), skipping evaluation"
                 )  # Modified warning
         except Exception as e:
-            warnings.warn(f"Issue with async_evaluate: {e}")
+            judgeval_logger.warning(f"Issue with async_evaluate: {e}")
 
     def update_metadata(self, metadata: dict):
         """
@@ -2234,7 +2244,7 @@ class Tracer:
         if current_trace:
             current_trace.update_metadata(metadata)
         else:
-            warnings.warn("No current trace found, cannot set metadata")
+            judgeval_logger.warning("No current trace found, cannot set metadata")
 
     def set_customer_id(self, customer_id: str):
         """
@@ -2247,7 +2257,7 @@ class Tracer:
         if current_trace:
             current_trace.set_customer_id(customer_id)
         else:
-            warnings.warn("No current trace found, cannot set customer ID")
+            judgeval_logger.warning("No current trace found, cannot set customer ID")
 
     def set_tags(self, tags: List[Union[str, set, tuple]]):
         """
@@ -2260,7 +2270,7 @@ class Tracer:
         if current_trace:
             current_trace.set_tags(tags)
         else:
-            warnings.warn("No current trace found, cannot set tags")
+            judgeval_logger.warning("No current trace found, cannot set tags")
 
     def get_background_span_service(self) -> Optional[BackgroundSpanService]:
         """Get the background span service instance."""
@@ -2317,7 +2327,7 @@ def wrap(
         # Warn about token counting limitations with streaming
         if isinstance(client, (AsyncOpenAI, OpenAI)) and is_streaming:
             if not kwargs.get("stream_options", {}).get("include_usage"):
-                warnings.warn(
+                judgeval_logger.warning(
                     "OpenAI streaming calls don't include token counts by default. "
                     "To enable token counting with streams, set stream_options={'include_usage': True} "
                     "in your API call arguments.",
@@ -2622,7 +2632,7 @@ def _format_response_output_data(client: ApiClient, response: Any) -> tuple:
         completion_tokens = response.usage.output_tokens
         message_content = response.output
     else:
-        warnings.warn(f"Unsupported client type: {type(client)}")
+        judgeval_logger.warning(f"Unsupported client type: {type(client)}")
         return None, None
 
     prompt_cost, completion_cost = cost_per_token(
@@ -2685,7 +2695,7 @@ def _format_output_data(
         completion_tokens = response.usage.output_tokens
         message_content = response.content[0].text
     else:
-        warnings.warn(f"Unsupported client type: {type(client)}")
+        judgeval_logger.warning(f"Unsupported client type: {type(client)}")
         return None, None
 
     prompt_cost, completion_cost = cost_per_token(
@@ -3033,7 +3043,7 @@ def cost_per_token(*args, **kwargs):
     try:
         return _original_cost_per_token(*args, **kwargs)
     except Exception as e:
-        warnings.warn(f"Error calculating cost per token: {e}")
+        judgeval_logger.warning(f"Error calculating cost per token: {e}")
         return None, None
 
 
