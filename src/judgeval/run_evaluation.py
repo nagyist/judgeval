@@ -721,7 +721,7 @@ async def _poll_evaluation_until_complete(
 
             # For other exceptions, log and continue polling
             judgeval_logger.error(f"Error checking evaluation status: {str(e)}")
-            if poll_count > 3:  # Only raise exception after many failed attempts
+            if poll_count > 20:  # Only raise exception after many failed attempts
                 raise JudgmentAPIError(
                     f"Error checking evaluation status after {poll_count} attempts: {str(e)}"
                 )
