@@ -118,9 +118,10 @@ class TestEvalOperations:
         assert results[0]["scorer_data"][0]["score"] == 1.0
         client.delete_project(project_name=PROJECT_NAME)
 
-    def test_run_append_without_existing(self, client: JudgmentClient):
+    def test_run_append_without_existing(
+        self, client: JudgmentClient, project_name: str
+    ):
         """Test evaluation append behavior when the eval run does not exist."""
-        PROJECT_NAME = "OutreachWorkflow"
         EVAL_RUN_NAME = "ColdEmailGenerator-Improve-BasePrompt"
 
         example1 = Example(
@@ -138,8 +139,8 @@ class TestEvalOperations:
             examples=[example1],
             scorers=[scorer],
             model="gpt-4o-mini",
-            project_name=PROJECT_NAME,
-            eval_run_name="test-run-append-without-existing",
+            project_name=project_name,
+            eval_run_name=EVAL_RUN_NAME,
             append=True,
         )
         assert results, f"No evaluation results found for {EVAL_RUN_NAME}"
