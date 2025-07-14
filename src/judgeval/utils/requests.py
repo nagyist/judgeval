@@ -10,7 +10,7 @@ class RetrySession(requests_original.Session):
         retries=3,
         backoff_factor=0.5,
         status_forcelist=[HTTPStatus.BAD_GATEWAY, HTTPStatus.SERVICE_UNAVAILABLE],
-        default_timeout=(10, 30),  # (connect_timeout, read_timeout)
+        default_timeout=(10, 60),  # (connect_timeout, read_timeout)
     ):
         super().__init__()
 
