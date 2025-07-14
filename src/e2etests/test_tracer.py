@@ -629,9 +629,6 @@ async def test_deep_tracing_with_custom_spans():
     return result
 
 
-# --- NEW COMPREHENSIVE TOKEN COUNTING TEST ---
-
-
 @pytest.mark.asyncio
 @judgment.observe(
     name="test_token_counting_trace",
@@ -721,11 +718,6 @@ async def test_token_counting():
 
     # Let the decorator handle the actual saving when the function returns
     print("Token Aggregation Test Passed!")
-
-
-# --- END NEW COMPREHENSIVE TOKEN COUNTING TEST ---
-
-# --- NEW PROVIDER-SPECIFIC STREAMING TESTS ---
 
 
 @pytest.mark.asyncio
