@@ -256,7 +256,12 @@ class TestRunEvaluation:
                 }
 
                 results = await _poll_evaluation_until_complete(
-                    MOCK_EVAL_NAME, MOCK_PROJECT_NAME, MOCK_API_KEY, MOCK_ORG_ID
+                    MOCK_EVAL_NAME,
+                    MOCK_PROJECT_NAME,
+                    MOCK_API_KEY,
+                    MOCK_ORG_ID,
+                    expected_scorer_count=1,
+                    original_examples=[Example(input="test", actual_output="test")],
                 )
 
                 # Verify that we got the expected results
