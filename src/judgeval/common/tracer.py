@@ -1120,8 +1120,12 @@ class BackgroundSpanService:
             span_state: State of the span ("input", "output", "completed")
         """
         if not self._shutdown_event.is_set():
-            # Increment update_id when queueing the span
-            span.increment_update_id()
+            # Set update_id to ending number when span is completed, otherwise increment
+            if span_state == "completed":
+                span.set_update_id_to_ending_number()
+            else:
+                span.increment_update_id()
+
             span_data = {
                 "type": "span",
                 "data": {
@@ -2648,11 +2652,15 @@ def _format_response_output_data(client: ApiClient, response: Any) -> tuple:
     prompt_tokens = 0
     completion_tokens = 0
     model_name = None
-    if isinstance(client, (OpenAI, Together, AsyncOpenAI, AsyncTogether)):
+    cache_read_input_tokens = 0
+    cache_creation_input_tokens = 0
+
+    if isinstance(client, (OpenAI, AsyncOpenAI)):
         model_name = response.model
         prompt_tokens = response.usage.input_tokens
         completion_tokens = response.usage.output_tokens
-        message_content = response.output
+        cache_read_input_tokens = response.usage.input_tokens_details.cached_tokens
+        message_content = "".join(seg.text for seg in response.output[0].content)
     else:
         judgeval_logger.warning(f"Unsupported client type: {type(client)}")
         return None, None
@@ -2661,6 +2669,8 @@ def _format_response_output_data(client: ApiClient, response: Any) -> tuple:
         model=model_name,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        cache_read_input_tokens=cache_read_input_tokens,
+        cache_creation_input_tokens=cache_creation_input_tokens,
     )
     total_cost_usd = (
         (prompt_cost + completion_cost) if prompt_cost and completion_cost else None
@@ -2669,6 +2679,8 @@ def _format_response_output_data(client: ApiClient, response: Any) -> tuple:
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         total_tokens=prompt_tokens + completion_tokens,
+        cache_read_input_tokens=cache_read_input_tokens,
+        cache_creation_input_tokens=cache_creation_input_tokens,
         prompt_tokens_cost_usd=prompt_cost,
         completion_tokens_cost_usd=completion_cost,
         total_cost_usd=total_cost_usd,
@@ -2692,11 +2704,26 @@ def _format_output_data(
     """
     prompt_tokens = 0
     completion_tokens = 0
+    cache_read_input_tokens = 0
+    cache_creation_input_tokens = 0
     model_name = None
     message_content = None
 
-    if isinstance(client, (OpenAI, Together, AsyncOpenAI, AsyncTogether)):
+    if isinstance(client, (OpenAI, AsyncOpenAI)):
         model_name = response.model
+        prompt_tokens = response.usage.prompt_tokens
+        completion_tokens = response.usage.completion_tokens
+        cache_read_input_tokens = response.usage.prompt_tokens_details.cached_tokens
+        if (
+            hasattr(response.choices[0].message, "parsed")
+            and response.choices[0].message.parsed
+        ):
+            message_content = response.choices[0].message.parsed
+        else:
+            message_content = response.choices[0].message.content
+
+    elif isinstance(client, (Together, AsyncTogether)):
+        model_name = "together_ai/" + response.model
         prompt_tokens = response.usage.prompt_tokens
         completion_tokens = response.usage.completion_tokens
         if (
@@ -2715,6 +2742,8 @@ def _format_output_data(
         model_name = response.model
         prompt_tokens = response.usage.input_tokens
         completion_tokens = response.usage.output_tokens
+        cache_read_input_tokens = response.usage.cache_read_input_tokens
+        cache_creation_input_tokens = response.usage.cache_creation_input_tokens
         message_content = response.content[0].text
     else:
         judgeval_logger.warning(f"Unsupported client type: {type(client)}")
@@ -2724,6 +2753,8 @@ def _format_output_data(
         model=model_name,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        cache_read_input_tokens=cache_read_input_tokens,
+        cache_creation_input_tokens=cache_creation_input_tokens,
     )
     total_cost_usd = (
         (prompt_cost + completion_cost) if prompt_cost and completion_cost else None
@@ -2732,6 +2763,8 @@ def _format_output_data(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         total_tokens=prompt_tokens + completion_tokens,
+        cache_read_input_tokens=cache_read_input_tokens,
+        cache_creation_input_tokens=cache_creation_input_tokens,
         prompt_tokens_cost_usd=prompt_cost,
         completion_tokens_cost_usd=completion_cost,
         total_cost_usd=total_cost_usd,
@@ -2871,8 +2904,11 @@ def _extract_usage_from_final_chunk(
                 prompt_tokens = chunk.choices[0].usage.prompt_tokens
                 completion_tokens = chunk.choices[0].usage.completion_tokens
 
+            if isinstance(client, (Together, AsyncTogether)):
+                model_name = "together_ai/" + chunk.model
+
             prompt_cost, completion_cost = cost_per_token(
-                model=chunk.model,
+                model=model_name,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
             )
@@ -3063,7 +3099,15 @@ async def _async_stream_wrapper(
 
 def cost_per_token(*args, **kwargs):
     try:
-        return _original_cost_per_token(*args, **kwargs)
+        prompt_tokens_cost_usd_dollar, completion_tokens_cost_usd_dollar = (
+            _original_cost_per_token(*args, **kwargs)
+        )
+        if (
+            prompt_tokens_cost_usd_dollar == 0
+            and completion_tokens_cost_usd_dollar == 0
+        ):
+            judgeval_logger.warning("LiteLLM returned a total of 0 for cost per token")
+        return prompt_tokens_cost_usd_dollar, completion_tokens_cost_usd_dollar
     except Exception as e:
         judgeval_logger.warning(f"Error calculating cost per token: {e}")
         return None, None
