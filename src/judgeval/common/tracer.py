@@ -2417,16 +2417,23 @@ def _format_output_data(
             completion_tokens = response.usage.output_tokens
             cache_read_input_tokens = response.usage.input_tokens_details.cached_tokens
             message_content = "".join(seg.text for seg in response.output[0].content)
+
+        # Note: LiteLLM seems to use cache_read_input_tokens to calculate the cost for OpenAI
     elif isinstance(client, (Together, AsyncTogether)):
         model_name = "together_ai/" + response.model
         prompt_tokens = response.usage.prompt_tokens
         completion_tokens = response.usage.completion_tokens
         message_content = response.choices[0].message.content
+
+        # As of 2025-07-14, Together does not do any input cache token tracking
     elif isinstance(client, (genai.Client, genai.client.AsyncClient)):
         model_name = response.model_version
         prompt_tokens = response.usage_metadata.prompt_token_count
         completion_tokens = response.usage_metadata.candidates_token_count
         message_content = response.candidates[0].content.parts[0].text
+
+        if hasattr(response.usage_metadata, "cached_content_token_count"):
+            cache_read_input_tokens = response.usage_metadata.cached_content_token_count
     elif isinstance(client, (Anthropic, AsyncAnthropic)):
         model_name = response.model
         prompt_tokens = response.usage.input_tokens
