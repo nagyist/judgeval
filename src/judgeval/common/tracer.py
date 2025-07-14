@@ -2632,6 +2632,8 @@ def _format_output_data(
         model_name = response.model
         prompt_tokens = response.usage.prompt_tokens
         completion_tokens = response.usage.completion_tokens
+
+        # OpenAI just stores input cache tokens and LiteLLM seems to use cache_read_input_tokens to calculate the cost
         cache_read_input_tokens = response.usage.prompt_tokens_details.cached_tokens
         if (
             hasattr(response.choices[0].message, "parsed")
@@ -2652,11 +2654,15 @@ def _format_output_data(
             message_content = response.choices[0].message.parsed
         else:
             message_content = response.choices[0].message.content
+
+        # As of 2025-07-14, Together does not do any input cache token tracking
     elif isinstance(client, (genai.Client, genai.client.AsyncClient)):
         model_name = response.model_version
         prompt_tokens = response.usage_metadata.prompt_token_count
         completion_tokens = response.usage_metadata.candidates_token_count
         message_content = response.candidates[0].content.parts[0].text
+
+        # As of 2025-07-14, Gemini does not do any input cache token tracking
     elif isinstance(client, (Anthropic, AsyncAnthropic)):
         model_name = response.model
         prompt_tokens = response.usage.input_tokens
