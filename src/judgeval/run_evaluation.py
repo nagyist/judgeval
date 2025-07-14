@@ -594,8 +594,9 @@ async def _poll_evaluation_until_complete(
     project_name: str,
     judgment_api_key: str,
     organization_id: str,
+    expected_scorer_count: int,
+    original_examples: List[Example],
     poll_interval_seconds: int = 5,
-    original_examples: Optional[List[Example]] = None,
 ) -> List[ScoringResult]:
     """
     Polls until the evaluation is complete and returns the results.
@@ -613,14 +614,7 @@ async def _poll_evaluation_until_complete(
         List[ScoringResult]: The evaluation results
     """
     poll_count = 0
-    # Create example_id to Example mapping if original examples are provided
-    original_example_map = {}
-    if original_examples:
-        for example in original_examples:
-            original_example_map[example.example_id] = example
 
-    # Remove the expected scorer names extraction and checking
-    # We'll instead verify all examples have consistent scorer data
     while True:
         poll_count += 1
         try:
@@ -676,112 +670,40 @@ async def _poll_evaluation_until_complete(
 
                 result_data = results_response.json()
 
-                if "examples" in result_data:
-                    examples_data = result_data.get("examples", [])
+                if result_data.get("examples") is None:
+                    continue
 
-                    # Check for result validity if original examples are provided
-                    if original_example_map:
-                        # Verify all returned examples have matching original examples
-                        has_invalid_results = False
-                        for example_data in examples_data:
-                            example_id = example_data.get("example_id")
+                examples_data = result_data.get("examples", [])
+                scoring_results = []
 
-                            if example_id not in original_example_map:
-                                judgeval_logger.warning(
-                                    f"Server returned example with ID {example_id} not found in original examples. "
-                                    + "This indicates stale or incorrect data. Continuing to poll..."
-                                )
-                                has_invalid_results = True
-                                break
+                for example_data in examples_data:
+                    # Create ScorerData objects
+                    scorer_data_list = []
+                    for raw_scorer_data in example_data.get("scorer_data", []):
+                        scorer_data_list.append(ScorerData(**raw_scorer_data))
 
-                        # If any invalid examples found, continue polling
-                        if has_invalid_results:
-                            await asyncio.sleep(poll_interval_seconds)
-                            continue
+                    if len(scorer_data_list) != expected_scorer_count:
+                        # This means that not all scorers were loading for a specific example
+                        continue
 
-                        # Check if we received the expected number of results
-                        if original_examples and len(original_examples) != len(
-                            examples_data
-                        ):
-                            judgeval_logger.warning(
-                                f"Expected {len(original_examples)} results but got {len(examples_data)} results. "
-                                + "This indicates incomplete data. Continuing to poll..."
-                            )
-                            await asyncio.sleep(poll_interval_seconds)
-                            continue
+                    example = Example(**example_data)
 
-                        # Collect all example IDs from scorer data
-                        scorer_example_ids = set()
-                        for example_data in examples_data:
-                            scorer_data_list = example_data.get("scorer_data", [])
-                            for scorer_data in scorer_data_list:
-                                if "example_id" in scorer_data:
-                                    scorer_example_ids.add(scorer_data["example_id"])
+                    # Calculate success based on whether all scorer_data entries were successful
+                    success = all(
+                        scorer_data.success for scorer_data in scorer_data_list
+                    )
+                    scoring_result = ScoringResult(
+                        success=success,  # Set based on all scorer data success values
+                        scorers_data=scorer_data_list,
+                        data_object=example,
+                    )
+                    scoring_results.append(scoring_result)
 
-                        # Get the set of original example IDs
-                        original_example_ids = set(original_example_map.keys())
+                    if len(scoring_results) != len(original_examples):
+                        # This means that not all examples were evaluated
+                        continue
 
-                        # Check if the sets are equal
-                        missing_in_scorer = original_example_ids - scorer_example_ids
-                        extra_in_scorer = scorer_example_ids - original_example_ids
-
-                        if missing_in_scorer or extra_in_scorer:
-                            if missing_in_scorer:
-                                judgeval_logger.warning(
-                                    f"Examples missing in scorer data: {missing_in_scorer}"
-                                )
-                            if extra_in_scorer:
-                                judgeval_logger.warning(
-                                    f"Extra examples in scorer data: {extra_in_scorer}"
-                                )
-                            await asyncio.sleep(poll_interval_seconds)
-                            continue
-
-                    # Create ScoringResult objects from the raw data
-                    scoring_results = []
-
-                    for example_data in examples_data:
-                        # Extract example_id from the server response
-                        example_id = example_data.get("example_id")
-
-                        # Create ScorerData objects
-                        scorer_data_list = []
-                        for raw_scorer_data in example_data.get("scorer_data", []):
-                            scorer_data_list.append(ScorerData(**raw_scorer_data))
-
-                        # Use the original Example object if we have it and the ID matches
-                        if original_example_map:
-                            example = original_example_map[example_id]
-                        else:
-                            # Create Example from example data (excluding scorer_data) if no original examples provided
-                            example_dict = {
-                                k: v
-                                for k, v in example_data.items()
-                                if k != "scorer_data"
-                            }
-                            example = Example(**example_dict)
-
-                        # Calculate success based on whether all scorer_data entries were successful
-                        success = (
-                            all(scorer_data.success for scorer_data in scorer_data_list)
-                            if scorer_data_list
-                            else False
-                        )
-
-                        # Create ScoringResult
-                        scoring_result = ScoringResult(
-                            success=success,  # Set based on all scorer data success values
-                            scorers_data=scorer_data_list,
-                            data_object=example,
-                        )
-                        scoring_results.append(scoring_result)
-
-                    # If we got here, all validation checks passed
-                    return scoring_results
-                else:
-                    # No examples found
-                    return []
-
+                return scoring_results
             elif status == "failed":
                 # Evaluation failed
                 error_message = status_data.get("error", "Unknown error")
@@ -972,6 +894,7 @@ def run_eval(
                 judgment_api_key=evaluation_run.judgment_api_key,
                 organization_id=evaluation_run.organization_id,
                 original_examples=evaluation_run.examples,  # Pass the original examples
+                expected_scorer_count=len(evaluation_run.scorers),
             )
 
             pretty_str_to_print = None
