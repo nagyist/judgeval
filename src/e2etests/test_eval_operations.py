@@ -213,7 +213,6 @@ def test_assert_test_merge_results(client: JudgmentClient, project_name: str):
             scorers=[scorer, AnswerRelevancyScorer()],
             model="gpt-4o-mini",
             project_name=project_name,
-            eval_run_name="test_eval",
         )
 
 
@@ -258,18 +257,20 @@ async def test_run_trace_eval_from_yaml(
 
     yaml_content = """
 examples:
-- input: "hello from yaml"
-expected_tools:
-    - tool_name: "simple_traced_function_for_yaml_eval"
-    agent_name: "Agent 1"
-    parameters:
-        text: "hello from yaml"
-retrieval_context: ["Context for hello from yaml"]
-- input: "another yaml test"
-expected_tools:
-    - tool_name: "simple_traced_function_for_yaml_eval"
-    agent_name: "Agent 1"
-retrieval_context: ["Context for another yaml test"]
+  - input: "hello from yaml"
+    expected_tools:
+      - tool_name: "simple_traced_function_for_yaml_eval"
+        agent_name: "Agent 1"
+        parameters:
+          text: "hello from yaml"
+    retrieval_context:
+      - "Context for hello from yaml"
+  - input: "another yaml test"
+    expected_tools:
+      - tool_name: "simple_traced_function_for_yaml_eval"
+        agent_name: "Agent 1"
+    retrieval_context:
+      - "Context for another yaml test"
 """
     tracer = Tracer(project_name=project_name)
 
