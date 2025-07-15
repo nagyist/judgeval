@@ -16,12 +16,10 @@ import traceback
 import uuid
 import contextvars
 import sys
-import json
 from contextlib import (
     contextmanager,
 )
 from datetime import datetime, timezone
-from http import HTTPStatus
 from typing import (
     Any,
     Callable,
@@ -33,11 +31,10 @@ from typing import (
     Union,
     TypeAlias,
 )
-from rich import print as rprint
 import types
 
-from requests import RequestException
-from judgeval.utils.requests import requests
+from judgeval.common.tracer.background_span import BackgroundSpanService
+from judgeval.common.tracer.trace_manager import TraceManagerClient
 from litellm import cost_per_token as _original_cost_per_token
 from openai import OpenAI, AsyncOpenAI
 from openai.types.chat.chat_completion import ChatCompletion
@@ -47,22 +44,12 @@ from together import Together, AsyncTogether
 from anthropic import Anthropic, AsyncAnthropic
 from google import genai
 
-from judgeval.constants import (
-    JUDGMENT_TRACES_UPSERT_API_URL,
-    JUDGMENT_TRACES_FETCH_API_URL,
-    JUDGMENT_TRACES_DELETE_API_URL,
-    JUDGMENT_PROJECT_DELETE_API_URL,
-    JUDGMENT_TRACES_SPANS_BATCH_API_URL,
-    JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL,
-)
 from judgeval.data import Example, Trace, TraceSpan, TraceUsage
 from judgeval.scorers import APIScorerConfig, BaseScorer
 from judgeval.evaluation_run import EvaluationRun
 from judgeval.common.utils import ExcInfo, validate_api_key
 from judgeval.common.logger import judgeval_logger
 
-import queue
-import atexit
 
 current_trace_var = contextvars.ContextVar[Optional["TraceClient"]](
     "current_trace", default=None
@@ -80,181 +67,6 @@ ApiClient: TypeAlias = Union[
     genai.client.AsyncClient,
 ]
 SpanType: TypeAlias = str
-
-
-class TraceManagerClient:
-    """
-    Client for handling trace endpoints with the Judgment API
-
-
-    Operations include:
-    - Fetching a trace by id
-    - Saving a trace
-    - Deleting a trace
-    """
-
-    def __init__(
-        self,
-        judgment_api_key: str,
-        organization_id: str,
-        tracer: Optional["Tracer"] = None,
-    ):
-        self.judgment_api_key = judgment_api_key
-        self.organization_id = organization_id
-        self.tracer = tracer
-
-    def fetch_trace(self, trace_id: str):
-        """
-        Fetch a trace by its id
-        """
-        response = requests.post(
-            JUDGMENT_TRACES_FETCH_API_URL,
-            json={
-                "trace_id": trace_id,
-            },
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.judgment_api_key}",
-                "X-Organization-Id": self.organization_id,
-            },
-            verify=True,
-        )
-
-        if response.status_code != HTTPStatus.OK:
-            raise ValueError(f"Failed to fetch traces: {response.text}")
-
-        return response.json()
-
-    def upsert_trace(
-        self,
-        trace_data: dict,
-        offline_mode: bool = False,
-        show_link: bool = True,
-        final_save: bool = True,
-    ):
-        """
-        Upserts a trace to the Judgment API (always overwrites if exists).
-
-        Args:
-            trace_data: The trace data to upsert
-            offline_mode: Whether running in offline mode
-            show_link: Whether to show the UI link (for live tracing)
-            final_save: Whether this is the final save (controls S3 saving)
-
-        Returns:
-            dict: Server response containing UI URL and other metadata
-        """
-
-        def fallback_encoder(obj):
-            """
-            Custom JSON encoder fallback.
-            Tries to use obj.__repr__(), then str(obj) if that fails or for a simpler string.
-            """
-            try:
-                return repr(obj)
-            except Exception:
-                try:
-                    return str(obj)
-                except Exception as e:
-                    return f"<Unserializable object of type {type(obj).__name__}: {e}>"
-
-        serialized_trace_data = json.dumps(trace_data, default=fallback_encoder)
-
-        response = requests.post(
-            JUDGMENT_TRACES_UPSERT_API_URL,
-            data=serialized_trace_data,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.judgment_api_key}",
-                "X-Organization-Id": self.organization_id,
-            },
-            verify=True,
-        )
-
-        if response.status_code != HTTPStatus.OK:
-            raise ValueError(f"Failed to upsert trace data: {response.text}")
-
-        server_response = response.json()
-
-        if self.tracer and self.tracer.use_s3 and final_save:
-            try:
-                s3_key = self.tracer.s3_storage.save_trace(
-                    trace_data=trace_data,
-                    trace_id=trace_data["trace_id"],
-                    project_name=trace_data["project_name"],
-                )
-                judgeval_logger.info(f"Trace also saved to S3 at key: {s3_key}")
-            except Exception as e:
-                judgeval_logger.warning(f"Failed to save trace to S3: {str(e)}")
-
-        if not offline_mode and show_link and "ui_results_url" in server_response:
-            pretty_str = f"\n🔍 You can view your trace data here: [rgb(106,0,255)][link={server_response['ui_results_url']}]View Trace[/link]\n"
-            rprint(pretty_str)
-
-        return server_response
-
-    def delete_trace(self, trace_id: str):
-        """
-        Delete a trace from the database.
-        """
-        response = requests.delete(
-            JUDGMENT_TRACES_DELETE_API_URL,
-            json={
-                "trace_ids": [trace_id],
-            },
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.judgment_api_key}",
-                "X-Organization-Id": self.organization_id,
-            },
-        )
-
-        if response.status_code != HTTPStatus.OK:
-            raise ValueError(f"Failed to delete trace: {response.text}")
-
-        return response.json()
-
-    def delete_traces(self, trace_ids: List[str]):
-        """
-        Delete a batch of traces from the database.
-        """
-        response = requests.delete(
-            JUDGMENT_TRACES_DELETE_API_URL,
-            json={
-                "trace_ids": trace_ids,
-            },
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.judgment_api_key}",
-                "X-Organization-Id": self.organization_id,
-            },
-        )
-
-        if response.status_code != HTTPStatus.OK:
-            raise ValueError(f"Failed to delete trace: {response.text}")
-
-        return response.json()
-
-    def delete_project(self, project_name: str):
-        """
-        Deletes a project from the server. Which also deletes all evaluations and traces associated with the project.
-        """
-        response = requests.delete(
-            JUDGMENT_PROJECT_DELETE_API_URL,
-            json={
-                "project_name": project_name,
-            },
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.judgment_api_key}",
-                "X-Organization-Id": self.organization_id,
-            },
-        )
-
-        if response.status_code != HTTPStatus.OK:
-            raise ValueError(f"Failed to delete traces: {response.text}")
-
-        return response.json()
 
 
 class TraceClient:
@@ -698,7 +510,7 @@ class TraceClient:
 
 
 def _capture_exception_for_trace(
-    current_trace: Optional["TraceClient"], exc_info: ExcInfo
+    current_trace: Optional[TraceClient], exc_info: ExcInfo
 ):
     if not current_trace:
         return
@@ -741,329 +553,6 @@ def _capture_exception_for_trace(
             current_trace.background_span_service.queue_span(
                 error_span, span_state="error"
             )
-
-
-class BackgroundSpanService:
-    """
-    Background service for queueing and batching trace spans for efficient saving.
-
-    This service:
-    - Queues spans as they complete
-    - Batches them for efficient network usage
-    - Sends spans periodically or when batches reach a certain size
-    - Handles automatic flushing when the main event terminates
-    """
-
-    def __init__(
-        self,
-        judgment_api_key: str,
-        organization_id: str,
-        batch_size: int = 10,
-        flush_interval: float = 5.0,
-        num_workers: int = 1,
-    ):
-        """
-        Initialize the background span service.
-
-        Args:
-            judgment_api_key: API key for Judgment service
-            organization_id: Organization ID
-            batch_size: Number of spans to batch before sending (default: 10)
-            flush_interval: Time in seconds between automatic flushes (default: 5.0)
-            num_workers: Number of worker threads to process the queue (default: 1)
-        """
-        self.judgment_api_key = judgment_api_key
-        self.organization_id = organization_id
-        self.batch_size = batch_size
-        self.flush_interval = flush_interval
-        self.num_workers = max(1, num_workers)
-
-        self._span_queue: queue.Queue[Dict[str, Any]] = queue.Queue()
-
-        self._worker_threads: List[threading.Thread] = []
-        self._shutdown_event = threading.Event()
-
-        atexit.register(self.shutdown)
-
-        self._start_workers()
-
-    def _start_workers(self):
-        """Start the background worker threads."""
-        for i in range(self.num_workers):
-            if len(self._worker_threads) < self.num_workers:
-                worker_thread = threading.Thread(
-                    target=self._worker_loop, daemon=True, name=f"SpanWorker-{i + 1}"
-                )
-                worker_thread.start()
-                self._worker_threads.append(worker_thread)
-
-    def _worker_loop(self):
-        """Main worker loop that processes spans in batches."""
-        batch = []
-        last_flush_time = time.time()
-        pending_task_count = 0
-
-        while not self._shutdown_event.is_set() or self._span_queue.qsize() > 0:
-            try:
-                # First, do a blocking get to wait for at least one item
-                if not batch:  # Only block if we don't have items already
-                    try:
-                        span_data = self._span_queue.get(timeout=1.0)
-                        batch.append(span_data)
-                        pending_task_count += 1
-                    except queue.Empty:
-                        # No new spans, continue to check for flush conditions
-                        pass
-
-                # Then, do non-blocking gets to drain any additional available items
-                # up to our batch size limit
-                while len(batch) < self.batch_size:
-                    try:
-                        span_data = self._span_queue.get_nowait()  # Non-blocking
-                        batch.append(span_data)
-                        pending_task_count += 1
-                    except queue.Empty:
-                        # No more items immediately available
-                        break
-
-                current_time = time.time()
-                should_flush = len(batch) >= self.batch_size or (
-                    batch and (current_time - last_flush_time) >= self.flush_interval
-                )
-
-                if should_flush and batch:
-                    self._send_batch(batch)
-
-                    # Only mark tasks as done after successful sending
-                    for _ in range(pending_task_count):
-                        self._span_queue.task_done()
-                    pending_task_count = 0
-
-                    batch.clear()
-                    last_flush_time = current_time
-
-            except Exception as e:
-                judgeval_logger.warning(f"Error in span service worker loop: {e}")
-                # On error, still need to mark tasks as done to prevent hanging
-                for _ in range(pending_task_count):
-                    self._span_queue.task_done()
-                pending_task_count = 0
-                batch.clear()
-
-        # Final flush on shutdown
-        if batch:
-            self._send_batch(batch)
-            # Mark remaining tasks as done
-            for _ in range(pending_task_count):
-                self._span_queue.task_done()
-
-    def _send_batch(self, batch: List[Dict[str, Any]]):
-        """
-        Send a batch of spans to the server.
-
-        Args:
-            batch: List of span dictionaries to send
-        """
-        if not batch:
-            return
-
-        try:
-            spans_to_send = []
-            evaluation_runs_to_send = []
-
-            for item in batch:
-                if item["type"] == "span":
-                    spans_to_send.append(item["data"])
-                elif item["type"] == "evaluation_run":
-                    evaluation_runs_to_send.append(item["data"])
-
-            if spans_to_send:
-                self._send_spans_batch(spans_to_send)
-
-            if evaluation_runs_to_send:
-                self._send_evaluation_runs_batch(evaluation_runs_to_send)
-
-        except Exception as e:
-            judgeval_logger.warning(f"Failed to send batch: {e}")
-
-    def _send_spans_batch(self, spans: List[Dict[str, Any]]):
-        """Send a batch of spans to the spans endpoint."""
-        payload = {"spans": spans, "organization_id": self.organization_id}
-
-        def fallback_encoder(obj):
-            try:
-                return repr(obj)
-            except Exception:
-                try:
-                    return str(obj)
-                except Exception as e:
-                    return f"<Unserializable object of type {type(obj).__name__}: {e}>"
-
-        try:
-            serialized_data = json.dumps(payload, default=fallback_encoder)
-
-            response = requests.post(
-                JUDGMENT_TRACES_SPANS_BATCH_API_URL,
-                data=serialized_data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.judgment_api_key}",
-                    "X-Organization-Id": self.organization_id,
-                },
-                verify=True,
-                timeout=30,
-            )
-
-            if response.status_code != HTTPStatus.OK:
-                judgeval_logger.warning(
-                    f"Failed to send spans batch: HTTP {response.status_code} - {response.text}"
-                )
-
-        except RequestException as e:
-            judgeval_logger.warning(f"Network error sending spans batch: {e}")
-        except Exception as e:
-            judgeval_logger.warning(f"Failed to serialize or send spans batch: {e}")
-
-    def _send_evaluation_runs_batch(self, evaluation_runs: List[Dict[str, Any]]):
-        """Send a batch of evaluation runs with their associated span data to the endpoint."""
-        # Structure payload to include both evaluation run data and span data
-        evaluation_entries = []
-        for eval_data in evaluation_runs:
-            # eval_data already contains the evaluation run data (no need to access ['data'])
-            entry = {
-                "evaluation_run": {
-                    # Extract evaluation run fields (excluding span-specific fields)
-                    key: value
-                    for key, value in eval_data.items()
-                    if key not in ["associated_span_id", "span_data", "queued_at"]
-                },
-                "associated_span": {
-                    "span_id": eval_data.get("associated_span_id"),
-                    "span_data": eval_data.get("span_data"),
-                },
-                "queued_at": eval_data.get("queued_at"),
-            }
-            evaluation_entries.append(entry)
-
-        payload = {
-            "organization_id": self.organization_id,
-            "evaluation_entries": evaluation_entries,  # Each entry contains both eval run + span data
-        }
-
-        # Serialize with fallback encoder
-        def fallback_encoder(obj):
-            try:
-                return repr(obj)
-            except Exception:
-                try:
-                    return str(obj)
-                except Exception as e:
-                    return f"<Unserializable object of type {type(obj).__name__}: {e}>"
-
-        try:
-            serialized_data = json.dumps(payload, default=fallback_encoder)
-
-            response = requests.post(
-                JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL,
-                data=serialized_data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.judgment_api_key}",
-                    "X-Organization-Id": self.organization_id,
-                },
-                verify=True,
-                timeout=30,
-            )
-
-            if response.status_code != HTTPStatus.OK:
-                judgeval_logger.warning(
-                    f"Failed to send evaluation runs batch: HTTP {response.status_code} - {response.text}"
-                )
-
-        except RequestException as e:
-            judgeval_logger.warning(f"Network error sending evaluation runs batch: {e}")
-        except Exception as e:
-            judgeval_logger.warning(f"Failed to send evaluation runs batch: {e}")
-
-    def queue_span(self, span: TraceSpan, span_state: str = "input"):
-        """
-        Queue a span for background sending.
-
-        Args:
-            span: The TraceSpan object to queue
-            span_state: State of the span ("input", "output", "completed")
-        """
-        if not self._shutdown_event.is_set():
-            # Set update_id to ending number when span is completed, otherwise increment
-            if span_state == "completed":
-                span.set_update_id_to_ending_number()
-            else:
-                span.increment_update_id()
-
-            span_data = {
-                "type": "span",
-                "data": {
-                    **span.model_dump(),
-                    "span_state": span_state,
-                    "queued_at": time.time(),
-                },
-            }
-            self._span_queue.put(span_data)
-
-    def queue_evaluation_run(
-        self, evaluation_run: EvaluationRun, span_id: str, span_data: TraceSpan
-    ):
-        """
-        Queue an evaluation run for background sending.
-
-        Args:
-            evaluation_run: The EvaluationRun object to queue
-            span_id: The span ID associated with this evaluation run
-            span_data: The span data at the time of evaluation (to avoid race conditions)
-        """
-        if not self._shutdown_event.is_set():
-            eval_data = {
-                "type": "evaluation_run",
-                "data": {
-                    **evaluation_run.model_dump(),
-                    "associated_span_id": span_id,
-                    "span_data": span_data.model_dump(),  # Include span data to avoid race conditions
-                    "queued_at": time.time(),
-                },
-            }
-            self._span_queue.put(eval_data)
-
-    def flush(self):
-        """Force immediate sending of all queued spans."""
-        try:
-            # Wait for the queue to be processed
-            self._span_queue.join()
-        except Exception as e:
-            judgeval_logger.warning(f"Error during flush: {e}")
-
-    def shutdown(self):
-        """Shutdown the background service and flush remaining spans."""
-        if self._shutdown_event.is_set():
-            return
-
-        try:
-            # Signal shutdown to stop new items from being queued
-            self._shutdown_event.set()
-
-            # Try to flush any remaining spans
-            try:
-                self.flush()
-            except Exception as e:
-                judgeval_logger.warning(f"Error during final flush: {e}")
-        except Exception as e:
-            judgeval_logger.warning(f"Error during BackgroundSpanService shutdown: {e}")
-        finally:
-            # Clear the worker threads list (daemon threads will be killed automatically)
-            self._worker_threads.clear()
-
-    def get_queue_size(self) -> int:
-        """Get the current size of the span queue."""
-        return self._span_queue.qsize()
 
 
 class _DeepTracer:
@@ -1440,7 +929,7 @@ class Tracer:
             # Initialize S3 storage if enabled
             self.use_s3 = use_s3
             if use_s3:
-                from judgeval.common.s3_storage import S3Storage
+                from judgeval.common.storage.s3_storage import S3Storage
 
                 try:
                     self.s3_storage = S3Storage(
