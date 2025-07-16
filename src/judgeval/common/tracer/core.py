@@ -1356,9 +1356,6 @@ class Tracer:
                                 "parent_name": current_trace.parent_name,
                             }
 
-                            # Flush background spans before saving the trace
-                            self.flush_background_spans()
-
                             trace_id, server_response = current_trace.save(
                                 final_save=True
                             )
@@ -1472,9 +1469,6 @@ class Tracer:
                     finally:
                         # Flush background spans before saving the trace
                         try:
-                            # Flush background spans before saving the trace
-                            self.flush_background_spans()
-
                             # Save the completed trace
                             trace_id, server_response = current_trace.save(
                                 final_save=True
