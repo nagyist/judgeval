@@ -302,7 +302,7 @@ def log_evaluation_results(
 
         api_client = JudgmentApiClient(run.judgment_api_key, run.organization_id)
         response = api_client.log_evaluation_results(
-            [result.to_dict() for result in scoring_results],
+            scoring_results,
             run.model_dump(warnings=False),
         )
 
