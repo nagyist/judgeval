@@ -5,34 +5,26 @@ ROOT_API = os.getenv("JUDGMENT_API_URL", "https://api.judgmentlabs.ai")
 
 # Traces API
 JUDGMENT_TRACES_FETCH_API_URL = f"{ROOT_API}/traces/fetch/"
+JUDGMENT_TRACES_SAVE_API_URL = f"{ROOT_API}/traces/save/"
+JUDGMENT_TRACES_UPSERT_API_URL = f"{ROOT_API}/traces/upsert/"
+JUDGMENT_TRACES_DELETE_API_URL = f"{ROOT_API}/traces/delete/"
+JUDGMENT_TRACES_SPANS_BATCH_API_URL = f"{ROOT_API}/traces/spans/batch/"
+JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL = (
+    f"{ROOT_API}/traces/evaluation_runs/batch/"
+)
 
 
 class TraceFetchPayload(TypedDict):
     trace_id: str
 
 
-JUDGMENT_TRACES_SAVE_API_URL = f"{ROOT_API}/traces/save/"
-JUDGMENT_TRACES_UPSERT_API_URL = f"{ROOT_API}/traces/upsert/"
-
-
-JUDGMENT_TRACES_DELETE_API_URL = f"{ROOT_API}/traces/delete/"
-
-
 class TraceDeletePayload(TypedDict):
     trace_ids: List[str]
-
-
-JUDGMENT_TRACES_SPANS_BATCH_API_URL = f"{ROOT_API}/traces/spans/batch/"
 
 
 class SpansBatchPayload(TypedDict):
     spans: List[Dict[str, Any]]
     organization_id: str
-
-
-JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL = (
-    f"{ROOT_API}/traces/evaluation_runs/batch/"
-)
 
 
 class EvaluationEntryResponse(TypedDict):
@@ -100,6 +92,12 @@ class EvalRunNameExistsPayload(TypedDict):
 
 # Datasets API
 JUDGMENT_DATASETS_PUSH_API_URL = f"{ROOT_API}/datasets/push/"
+JUDGMENT_DATASETS_APPEND_EXAMPLES_API_URL = f"{ROOT_API}/datasets/insert_examples/"
+JUDGMENT_DATASETS_PULL_API_URL = f"{ROOT_API}/datasets/pull_for_judgeval/"
+JUDGMENT_DATASETS_DELETE_API_URL = f"{ROOT_API}/datasets/delete/"
+JUDGMENT_DATASETS_EXPORT_JSONL_API_URL = f"{ROOT_API}/datasets/export_jsonl/"
+JUDGMENT_DATASETS_PROJECT_STATS_API_URL = f"{ROOT_API}/datasets/fetch_stats_by_project/"
+JUDGMENT_DATASETS_INSERT_API_URL = f"{ROOT_API}/datasets/insert_examples/"
 
 
 class DatasetPushPayload(TypedDict):
@@ -110,16 +108,10 @@ class DatasetPushPayload(TypedDict):
     overwrite: bool
 
 
-JUDGMENT_DATASETS_APPEND_EXAMPLES_API_URL = f"{ROOT_API}/datasets/insert_examples/"
-
-
 class DatasetAppendPayload(TypedDict):
     dataset_alias: str
     project_name: str
     examples: List[Dict[str, Any]]
-
-
-JUDGMENT_DATASETS_PULL_API_URL = f"{ROOT_API}/datasets/pull_for_judgeval/"
 
 
 class DatasetPullPayload(TypedDict):
@@ -127,15 +119,9 @@ class DatasetPullPayload(TypedDict):
     project_name: str
 
 
-JUDGMENT_DATASETS_DELETE_API_URL = f"{ROOT_API}/datasets/delete/"
-
-
 class DatasetDeletePayload(TypedDict):
     dataset_alias: str
     project_name: str
-
-
-JUDGMENT_DATASETS_EXPORT_JSONL_API_URL = f"{ROOT_API}/datasets/export_jsonl/"
 
 
 class DatasetExportPayload(TypedDict):
@@ -143,24 +129,17 @@ class DatasetExportPayload(TypedDict):
     project_name: str
 
 
-JUDGMENT_DATASETS_PROJECT_STATS_API_URL = f"{ROOT_API}/datasets/fetch_stats_by_project/"
-
-
 class DatasetStatsPayload(TypedDict):
     project_name: str
 
 
-JUDGMENT_DATASETS_INSERT_API_URL = f"{ROOT_API}/datasets/insert_examples/"
-
 # Projects API
 JUDGMENT_PROJECT_DELETE_API_URL = f"{ROOT_API}/projects/delete/"
+JUDGMENT_PROJECT_CREATE_API_URL = f"{ROOT_API}/projects/add/"
 
 
 class ProjectDeletePayload(TypedDict):
     project_name: str
-
-
-JUDGMENT_PROJECT_CREATE_API_URL = f"{ROOT_API}/projects/add/"
 
 
 class ProjectCreatePayload(TypedDict):
@@ -168,6 +147,8 @@ class ProjectCreatePayload(TypedDict):
 
 
 JUDGMENT_SCORER_SAVE_API_URL = f"{ROOT_API}/save_scorer/"
+JUDGMENT_SCORER_FETCH_API_URL = f"{ROOT_API}/fetch_scorer/"
+JUDGMENT_SCORER_EXISTS_API_URL = f"{ROOT_API}/scorer_exists/"
 
 
 class ScorerSavePayload(TypedDict):
@@ -176,14 +157,8 @@ class ScorerSavePayload(TypedDict):
     options: dict
 
 
-JUDGMENT_SCORER_FETCH_API_URL = f"{ROOT_API}/fetch_scorer/"
-
-
 class ScorerFetchPayload(TypedDict):
     name: str
-
-
-JUDGMENT_SCORER_EXISTS_API_URL = f"{ROOT_API}/scorer_exists/"
 
 
 class ScorerExistsPayload(TypedDict):
