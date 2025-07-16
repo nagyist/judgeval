@@ -7,11 +7,9 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Union
 
 from opentelemetry.sdk.trace import ReadableSpan
-from opentelemetry.trace import Status, StatusCode
 from pydantic import BaseModel
 
-from judgeval.data import TraceSpan, TraceUsage
-from judgeval.data.tool import Tool
+from judgeval.data import TraceSpan
 from judgeval.evaluation_run import EvaluationRun
 
 
@@ -197,72 +195,26 @@ class SpanTransformer:
             uuid.uuid4()
         )
 
+        # Use EvaluationRun model fields for iteration instead of hardcoding
+        eval_run_data = {}
+        if hasattr(EvaluationRun, "model_fields"):
+            model_fields = EvaluationRun.model_fields
+            for field_name in model_fields:
+                if field_name in judgment_data:
+                    eval_run_data[field_name] = judgment_data[field_name]
+        else:
+            # Fallback to the original approach if model_fields is not available
+            eval_run_data = {
+                key: value
+                for key, value in judgment_data.items()
+                if key not in ["associated_span_id", "span_data", "evaluation_run"]
+            }
+
+        eval_run_data["associated_span_id"] = associated_span_id
+        eval_run_data["span_data"] = judgment_data.get("span_data")
+        eval_run_data["queued_at"] = time.time()
+
         return {
             "type": "evaluation_run",
-            "data": {
-                **{
-                    key: value
-                    for key, value in judgment_data.items()
-                    if key not in ["associated_span_id", "span_data", "evaluation_run"]
-                },
-                "associated_span_id": associated_span_id,
-                "span_data": judgment_data.get("span_data"),
-                "queued_at": time.time(),
-            },
+            "data": eval_run_data,
         }
-
-    @staticmethod
-    def create_trace_span_from_otel_attributes(
-        attributes: Dict[str, Any], span_name: str
-    ) -> TraceSpan:
-        judgment_data = SpanTransformer.otel_attributes_to_judgment_data(attributes)
-
-        usage = None
-        if judgment_data.get("usage"):
-            usage_data = judgment_data["usage"]
-            if isinstance(usage_data, dict):
-                usage = TraceUsage(**usage_data)
-
-        expected_tools = []
-        if judgment_data.get("expected_tools"):
-            tools_data = judgment_data["expected_tools"]
-            if isinstance(tools_data, list):
-                for tool_data in tools_data:
-                    if isinstance(tool_data, dict):
-                        expected_tools.append(Tool(**tool_data))
-
-        created_at = judgment_data.get("created_at", time.time())
-        if isinstance(created_at, str):
-            try:
-                dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-                created_at = dt.timestamp()
-            except ValueError:
-                created_at = time.time()
-
-        return TraceSpan(
-            span_id=judgment_data.get("span_id", ""),
-            trace_id=judgment_data.get("trace_id", ""),
-            function=span_name,
-            depth=judgment_data.get("depth", 0),
-            created_at=created_at,
-            parent_span_id=judgment_data.get("parent_span_id"),
-            span_type=judgment_data.get("span_type", "span"),
-            inputs=judgment_data.get("inputs"),
-            error=judgment_data.get("error"),
-            output=judgment_data.get("output"),
-            usage=usage,
-            duration=judgment_data.get("duration"),
-            expected_tools=expected_tools,
-            additional_metadata=judgment_data.get("additional_metadata"),
-            has_evaluation=judgment_data.get("has_evaluation", False),
-            agent_name=judgment_data.get("agent_name"),
-            state_before=judgment_data.get("state_before"),
-            state_after=judgment_data.get("state_after"),
-            update_id=judgment_data.get("update_id", 1),
-        )
-
-    @staticmethod
-    def get_span_status_from_error(error: Optional[Dict[str, Any]]) -> Status:
-        if error:
-            return Status(StatusCode.ERROR, description=str(error))
-        return Status(StatusCode.OK)
