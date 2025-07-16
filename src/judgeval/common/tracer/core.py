@@ -107,8 +107,17 @@ class TraceClient:
         )
         self._span_depths: Dict[str, int] = {}
 
-        # Initialize OpenTelemetry span processor (replaces BackgroundSpanService)
-        self.otel_span_processor = tracer.get_otel_span_processor() if tracer else None
+        # Initialize OpenTelemetry span processor
+        self.otel_span_processor: Optional[JudgmentSpanProcessor] = None
+        if enable_monitoring:
+            self.otel_span_processor = JudgmentSpanProcessor(
+                judgment_api_key=tracer.api_key,
+                organization_id=tracer.organization_id,
+                batch_size=tracer.span_batch_size,
+                flush_interval=tracer.span_flush_interval,
+                max_queue_size=2048,
+                export_timeout=30000,
+            )
 
         if self.otel_span_processor:
             judgeval_logger.info(
@@ -167,7 +176,7 @@ class TraceClient:
         )
         self.add_span(span)
 
-        # Use OpenTelemetry span processor if available, otherwise fall back to BackgroundSpanService
+        # Use OpenTelemetry span processor for span updates
         if self.otel_span_processor:
             self.otel_span_processor.queue_span_update(span, span_state="input")
 
@@ -177,7 +186,7 @@ class TraceClient:
             duration = time.time() - start_time
             span.duration = duration
 
-            # Use OpenTelemetry span processor if available, otherwise fall back to BackgroundSpanService
+            # Use OpenTelemetry span processor for span completion
             if self.otel_span_processor:
                 self.otel_span_processor.queue_span_update(span, span_state="completed")
 
@@ -260,7 +269,7 @@ class TraceClient:
 
         self.add_eval_run(eval_run, start_time)
 
-        # Use OpenTelemetry span processor if available, otherwise fall back to BackgroundSpanService
+        # Use OpenTelemetry span processor for span updates
         if span_id_to_use:
             current_span = self.span_id_to_span.get(span_id_to_use)
             if current_span:
@@ -286,7 +295,7 @@ class TraceClient:
             span.inputs = inputs
 
             try:
-                # Use OpenTelemetry span processor if available, otherwise fall back to BackgroundSpanService
+                # Use OpenTelemetry span processor for span updates
                 if self.otel_span_processor:
                     self.otel_span_processor.queue_span_update(span, span_state="input")
             except Exception as e:
@@ -298,7 +307,7 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.agent_name = agent_name
 
-            # Use OpenTelemetry span processor if available, otherwise fall back to BackgroundSpanService
+            # Use OpenTelemetry span processor for span updates
             if self.otel_span_processor:
                 self.otel_span_processor.queue_span_update(
                     span, span_state="agent_name"
@@ -315,7 +324,7 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.state_before = state
 
-            # Use OpenTelemetry span processor if available, otherwise fall back to BackgroundSpanService
+            # Use OpenTelemetry span processor for span updates
             if self.otel_span_processor:
                 self.otel_span_processor.queue_span_update(
                     span, span_state="state_before"
@@ -332,7 +341,7 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.state_after = state
 
-            # Use OpenTelemetry span processor if available, otherwise fall back to BackgroundSpanService
+            # Use OpenTelemetry span processor for span updates
             if self.otel_span_processor:
                 self.otel_span_processor.queue_span_update(
                     span, span_state="state_after"
@@ -344,7 +353,7 @@ class TraceClient:
             result = await coroutine
             setattr(span, field, result)
 
-            # Use OpenTelemetry span processor if available, otherwise fall back to BackgroundSpanService
+            # Use OpenTelemetry span processor for span updates
             if field == "output":
                 if self.otel_span_processor:
                     self.otel_span_processor.queue_span_update(
@@ -355,7 +364,7 @@ class TraceClient:
         except Exception as e:
             setattr(span, field, f"Error: {str(e)}")
 
-            # Use OpenTelemetry span processor if available, otherwise fall back to BackgroundSpanService
+            # Use OpenTelemetry span processor for span updates
             if field == "output":
                 if self.otel_span_processor:
                     self.otel_span_processor.queue_span_update(
@@ -373,7 +382,7 @@ class TraceClient:
             if inspect.iscoroutine(output):
                 asyncio.create_task(self._update_coroutine(span, output, "output"))
 
-            # Use OpenTelemetry span processor if available, otherwise fall back to BackgroundSpanService
+            # Use OpenTelemetry span processor for span updates
             if not inspect.iscoroutine(output):
                 if self.otel_span_processor:
                     self.otel_span_processor.queue_span_update(
@@ -389,7 +398,7 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.usage = usage
 
-            # Use OpenTelemetry span processor if available, otherwise fall back to BackgroundSpanService
+            # Use OpenTelemetry span processor for span updates
             if self.otel_span_processor:
                 self.otel_span_processor.queue_span_update(span, span_state="usage")
 
@@ -402,7 +411,7 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.error = error
 
-            # Use OpenTelemetry span processor if available, otherwise fall back to BackgroundSpanService
+            # Use OpenTelemetry span processor for span updates
             if self.otel_span_processor:
                 self.otel_span_processor.queue_span_update(span, span_state="error")
 
@@ -977,7 +986,11 @@ class Tracer:
             self.offline_mode = False  # This is used to differentiate traces between online and offline (IE experiments vs monitoring page)
             self.deep_tracing: bool = deep_tracing
 
-            # Initialize OpenTelemetry span processor (replaces BackgroundSpanService)
+            # Store span configuration parameters as instance attributes
+            self.span_batch_size = span_batch_size
+            self.span_flush_interval = span_flush_interval
+
+            # Initialize OpenTelemetry span processor
             self.otel_span_processor: Optional[JudgmentSpanProcessor] = None
             if enable_monitoring:
                 self.otel_span_processor = JudgmentSpanProcessor(

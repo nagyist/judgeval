@@ -1,10 +1,3 @@
-from judgeval.common.tracer.constants import (
-    JUDGEVAL_TRACE_DISABLE_SPAN_CREATION,
-    JUDGEVAL_TRACE_INCLUDE_PARENT_SPAN,
-    JUDGEVAL_TRACE_OFFLINE_MODE,
-    JUDGEVAL_TRACE_SEND_TIMEOUT,
-    JUDGEVAL_TRACE_SYNC_SEND_TIMEOUT,
-)
 from judgeval.common.tracer.core import (
     DeepTracer,
     TraceClient,
@@ -35,9 +28,4 @@ __all__ = [
     "JudgevalOTLPSpanExporter",
     "JudgevalBatchSpanProcessor",
     "create_trace_span_from_otel_span",
-    "JUDGEVAL_TRACE_DISABLE_SPAN_CREATION",
-    "JUDGEVAL_TRACE_INCLUDE_PARENT_SPAN",
-    "JUDGEVAL_TRACE_OFFLINE_MODE",
-    "JUDGEVAL_TRACE_SEND_TIMEOUT",
-    "JUDGEVAL_TRACE_SYNC_SEND_TIMEOUT",
 ]

@@ -181,7 +181,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
 
         trace_client.add_span(new_span)
 
-        # Use OpenTelemetry span processor if available, otherwise fall back to BackgroundSpanService
+        # Use OpenTelemetry span processor for span updates
         if trace_client.otel_span_processor:
             trace_client.otel_span_processor.queue_span_update(
                 new_span, span_state="input"
@@ -245,7 +245,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                             **metadata,
                         }
 
-                # Use OpenTelemetry span processor if available, otherwise fall back to BackgroundSpanService
+                # Use OpenTelemetry span processor for span updates
                 span_state = "error" if error else "completed"
                 if trace_client.otel_span_processor:
                     trace_client.otel_span_processor.queue_span_update(
