@@ -1,7 +1,5 @@
 import asyncio
 import concurrent.futures
-from requests import exceptions
-from judgeval.utils.requests import requests
 import time
 import json
 import sys
@@ -16,10 +14,6 @@ from judgeval.scorers.score import a_execute_scoring
 from judgeval.common.api import JudgmentApiClient
 from judgeval.constants import (
     MAX_CONCURRENT_EVALUATIONS,
-)
-from judgeval.common.api.constants import (
-    JUDGMENT_GET_EVAL_STATUS_API_URL,
-    JUDGMENT_ADD_TO_RUN_EVAL_QUEUE_API_URL,
 )
 from judgeval.common.exceptions import JudgmentAPIError
 from judgeval.common.api.api import JudgmentAPIException
@@ -495,30 +489,13 @@ async def get_evaluation_status(
             - results: List of ScoringResult objects if completed
             - error: Error message if failed
     """
+    api_client = JudgmentApiClient(judgment_api_key, organization_id)
     try:
-        response = requests.get(
-            JUDGMENT_GET_EVAL_STATUS_API_URL,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {judgment_api_key}",
-                "X-Organization-Id": organization_id,
-            },
-            params={
-                "eval_name": eval_name,
-                "project_name": project_name,
-            },
-            verify=True,
+        return api_client.get_evaluation_status(eval_name, project_name)
+    except Exception as e:
+        raise JudgmentAPIError(
+            f"An error occurred while checking evaluation status: {str(e)}"
         )
-
-        if not response.ok:
-            error_message = response.json().get("detail", "An unknown error occurred.")
-            judgeval_logger.error(f"Error checking evaluation status: {error_message}")
-            raise JudgmentAPIError(error_message)
-
-        return response.json()
-    except exceptions.RequestException as e:
-        judgeval_logger.error(f"Failed to check evaluation status: {str(e)}")
-        raise JudgmentAPIError(f"Failed to check evaluation status: {str(e)}")
 
 
 async def _poll_evaluation_until_complete(
@@ -546,101 +523,57 @@ async def _poll_evaluation_until_complete(
         List[ScoringResult]: The evaluation results
     """
     poll_count = 0
-
+    api_client = JudgmentApiClient(judgment_api_key, organization_id)
     while True:
         poll_count += 1
         try:
-            # Check status
-            response = await asyncio.to_thread(
-                requests.get,
-                JUDGMENT_GET_EVAL_STATUS_API_URL,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {judgment_api_key}",
-                    "X-Organization-Id": organization_id,
-                },
-                params={"eval_name": eval_name, "project_name": project_name},
-                verify=True,
+            status_data = await asyncio.to_thread(
+                api_client.get_evaluation_status, eval_name, project_name
             )
-
-            if not response.ok:
-                error_message = response.json().get(
-                    "detail", "An unknown error occurred."
-                )
-                judgeval_logger.error(
-                    f"Error checking evaluation status: {error_message}"
-                )
-                # Don't raise exception immediately, just log and continue polling
-                await asyncio.sleep(poll_interval_seconds)
-                continue
-
-            status_data = response.json()
             status = status_data.get("status")
-
-            # If complete, get results and return
             if status == "completed" or status == "complete":
-                api_client = JudgmentApiClient(judgment_api_key, organization_id)
                 result_data = await asyncio.to_thread(
                     api_client.fetch_evaluation_results, project_name, eval_name
                 )
-
                 if result_data.get("examples") is None:
                     continue
-
                 examples_data = result_data.get("examples", [])
                 scoring_results = []
-
                 for example_data in examples_data:
-                    # Create ScorerData objects
-                    scorer_data_list = []
-                    for raw_scorer_data in example_data.get("scorer_data", []):
-                        scorer_data_list.append(ScorerData(**raw_scorer_data))
-
+                    scorer_data_list = [
+                        ScorerData(**raw_scorer_data)
+                        for raw_scorer_data in example_data.get("scorer_data", [])
+                    ]
                     if len(scorer_data_list) != expected_scorer_count:
-                        # This means that not all scorers were loading for a specific example
                         continue
-
                     example = Example(**example_data)
-
-                    # Calculate success based on whether all scorer_data entries were successful
                     success = all(
                         scorer_data.success for scorer_data in scorer_data_list
                     )
                     scoring_result = ScoringResult(
-                        success=success,  # Set based on all scorer data success values
+                        success=success,
                         scorers_data=scorer_data_list,
                         data_object=example,
                     )
                     scoring_results.append(scoring_result)
-
                     if len(scoring_results) != len(original_examples):
-                        # This means that not all examples were evaluated
                         continue
-
                 return scoring_results
             elif status == "failed":
-                # Evaluation failed
                 error_message = status_data.get("error", "Unknown error")
                 judgeval_logger.error(
                     f"Evaluation '{eval_name}' failed: {error_message}"
                 )
                 raise JudgmentAPIError(f"Evaluation failed: {error_message}")
-
-            # Wait before checking again
             await asyncio.sleep(poll_interval_seconds)
-
         except Exception as e:
             if isinstance(e, JudgmentAPIError):
                 raise
-
-            # For other exceptions, log and continue polling
             judgeval_logger.error(f"Error checking evaluation status: {str(e)}")
-            if poll_count > 20:  # Only raise exception after many failed attempts
+            if poll_count > 20:
                 raise JudgmentAPIError(
                     f"Error checking evaluation status after {poll_count} attempts: {str(e)}"
                 )
-
-            # Continue polling after a delay
             await asyncio.sleep(poll_interval_seconds)
 
 
@@ -776,29 +709,20 @@ def run_eval(
         check_examples(evaluation_run.examples, evaluation_run.scorers)
 
         async def _async_evaluation_workflow():
-            payload = evaluation_run.model_dump(warnings=False)
+            if (
+                not evaluation_run.judgment_api_key
+                or not evaluation_run.organization_id
+            ):
+                raise ValueError("API key and organization ID are required")
 
-            response = await asyncio.to_thread(
-                requests.post,
-                JUDGMENT_ADD_TO_RUN_EVAL_QUEUE_API_URL,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {evaluation_run.judgment_api_key}",
-                    "X-Organization-Id": evaluation_run.organization_id,
-                },
-                json=payload,
-                verify=True,
+            api_client = JudgmentApiClient(
+                evaluation_run.judgment_api_key, evaluation_run.organization_id
             )
-
-            if not response.ok:
-                error_message = response.json().get(
-                    "detail", "An unknown error occurred."
-                )
-                judgeval_logger.error(
-                    f"Error adding evaluation to queue: {error_message}"
-                )
-                raise JudgmentAPIError(error_message)
-
+            await asyncio.to_thread(
+                api_client.add_to_evaluation_queue,
+                evaluation_run.eval_name,
+                evaluation_run.project_name,
+            )
             results = await _poll_evaluation_until_complete(
                 eval_name=evaluation_run.eval_name,
                 project_name=evaluation_run.project_name,
@@ -807,7 +731,6 @@ def run_eval(
                 original_examples=evaluation_run.examples,
                 expected_scorer_count=len(evaluation_run.scorers),
             )
-
             pretty_str_to_print = None
             if results:
                 send_results = [
@@ -815,7 +738,6 @@ def run_eval(
                     for scoring_result in results
                 ]
                 try:
-                    # Run the blocking log_evaluation_results in a separate thread
                     pretty_str_to_print = await asyncio.to_thread(
                         log_evaluation_results, send_results, evaluation_run
                     )
@@ -823,7 +745,6 @@ def run_eval(
                     judgeval_logger.error(
                         f"Error logging results after async evaluation: {str(e)}"
                     )
-
             return results, pretty_str_to_print
 
         # Create a regular task
