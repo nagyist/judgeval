@@ -139,7 +139,7 @@ JUDGMENT_PROJECT_CREATE_API_URL = f"{ROOT_API}/projects/add/"
 
 
 class ProjectDeletePayload(TypedDict):
-    project_name: str
+    project_list: List[str]
 
 
 class ProjectCreatePayload(TypedDict):
