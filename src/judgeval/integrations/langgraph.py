@@ -181,10 +181,7 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
 
         trace_client.add_span(new_span)
 
-        if trace_client.otel_span_processor:
-            trace_client.otel_span_processor.queue_span_update(
-                new_span, span_state="input"
-            )
+        trace_client.otel_span_processor.queue_span_update(new_span, span_state="input")
 
         token = self.tracer.set_current_span(span_id)
         if token:
@@ -245,10 +242,9 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                         }
 
                 span_state = "error" if error else "completed"
-                if trace_client.otel_span_processor:
-                    trace_client.otel_span_processor.queue_span_update(
-                        trace_span, span_state=span_state
-                    )
+                trace_client.otel_span_processor.queue_span_update(
+                    trace_span, span_state=span_state
+                )
 
             # Clean up dictionaries for this specific span
             if span_id in self._span_id_to_start_time:
