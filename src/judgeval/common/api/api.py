@@ -88,19 +88,19 @@ class JudgmentApiClient:
     def _do_request(
         self, method: Literal["POST", "PATCH", "GET", "DELETE"], url: str, payload: Any
     ) -> Any:
-        if method in ("POST", "PATCH"):
-            r = requests.request(
-                method,
-                url,
-                data=self._serialize(payload),
-                headers=self._headers(),
-                **self._request_kwargs(),
-            )
-        else:  # GET or DELETE
+        if method == "GET":
             r = requests.request(
                 method,
                 url,
                 params=payload,
+                headers=self._headers(),
+                **self._request_kwargs(),
+            )
+        else:
+            r = requests.request(
+                method,
+                url,
+                data=self._serialize(payload),
                 headers=self._headers(),
                 **self._request_kwargs(),
             )
