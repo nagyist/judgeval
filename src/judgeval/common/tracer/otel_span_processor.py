@@ -7,7 +7,8 @@ of TraceSpan objects converted to OpenTelemetry format.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+import threading
+from typing import Any, Dict, Optional
 
 from opentelemetry.context import Context
 from opentelemetry.sdk.trace import ReadableSpan
@@ -154,6 +155,11 @@ class JudgmentSpanProcessor(SpanProcessor):
         self.judgment_api_key = judgment_api_key
         self.organization_id = organization_id
 
+        # Thread-safe cache for span updates
+        self._span_cache: Dict[str, TraceSpan] = {}
+        self._span_states: Dict[str, str] = {}
+        self._cache_lock = threading.RLock()
+
         # Use BatchSpanProcessor for all the heavy lifting
         self.batch_processor = BatchSpanProcessor(
             JudgmentAPISpanExporter(
@@ -188,8 +194,19 @@ class JudgmentSpanProcessor(SpanProcessor):
         else:
             span.increment_update_id()
 
-        # Send this update immediately
-        self._send_span_update(span, span_state)
+        with self._cache_lock:
+            span_id = span.span_id
+
+            # Update the cached span with the latest data
+            self._span_cache[span_id] = span
+            self._span_states[span_id] = span_state
+
+            self._send_span_update(span, span_state)
+
+            # If span is completed, remove from cache
+            if span_state == "completed" or span_state == "error":
+                self._span_cache.pop(span_id, None)
+                self._span_states.pop(span_id, None)
 
     def _send_span_update(self, span: TraceSpan, span_state: str) -> None:
         """
@@ -205,9 +222,14 @@ class JudgmentSpanProcessor(SpanProcessor):
     def flush_pending_spans(self) -> None:
         """
         Flush all pending span updates from the cache.
-        Since we send all updates immediately, this method is now a no-op.
         """
-        pass
+        with self._cache_lock:
+            if not self._span_cache:
+                return
+
+            for span_id, span in self._span_cache.items():
+                span_state = self._span_states.get(span_id, "input")
+                self._send_span_update(span, span_state)
 
     def queue_evaluation_run(
         self, evaluation_run: EvaluationRun, span_id: str, span_data: TraceSpan
