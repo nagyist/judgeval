@@ -165,3 +165,26 @@ JUDGMENT_PROJECT_CREATE_API_URL = f"{ROOT_API}/projects/add/"
 
 class ProjectCreatePayload(TypedDict):
     project_name: str
+
+
+JUDGMENT_SCORER_SAVE_API_URL = f"{ROOT_API}/save_scorer/"
+
+
+class ScorerSavePayload(TypedDict):
+    name: str
+    prompt: str
+    options: dict
+
+
+JUDGMENT_SCORER_FETCH_API_URL = f"{ROOT_API}/fetch_scorer/"
+
+
+class ScorerFetchPayload(TypedDict):
+    name: str
+
+
+JUDGMENT_SCORER_EXISTS_API_URL = f"{ROOT_API}/scorer_exists/"
+
+
+class ScorerExistsPayload(TypedDict):
+    name: str

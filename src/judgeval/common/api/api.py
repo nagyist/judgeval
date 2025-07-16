@@ -22,6 +22,9 @@ from judgeval.common.api.constants import (
     JUDGMENT_GET_EVAL_STATUS_API_URL,
     JUDGMENT_CHECK_EXPERIMENT_TYPE_API_URL,
     JUDGMENT_EVAL_RUN_NAME_EXISTS_API_URL,
+    JUDGMENT_SCORER_SAVE_API_URL,
+    JUDGMENT_SCORER_FETCH_API_URL,
+    JUDGMENT_SCORER_EXISTS_API_URL,
 )
 from judgeval.common.api.constants import (
     TraceFetchPayload,
@@ -42,6 +45,9 @@ from judgeval.common.api.constants import (
     EvalStatusPayload,
     CheckExperimentTypePayload,
     EvalRunNameExistsPayload,
+    ScorerSavePayload,
+    ScorerFetchPayload,
+    ScorerExistsPayload,
 )
 from judgeval.utils.requests import requests
 
@@ -217,6 +223,61 @@ class JudgmentApiClient:
             "judgment_api_key": self.api_key,
         }
         return self._do_request("POST", JUDGMENT_EVAL_RUN_NAME_EXISTS_API_URL, payload)
+
+    def save_scorer(self, name: str, prompt: str, options: dict):
+        payload: ScorerSavePayload = {
+            "name": name,
+            "prompt": prompt,
+            "options": options,
+        }
+        try:
+            return self._do_request("POST", JUDGMENT_SCORER_SAVE_API_URL, payload)
+        except JudgmentAPIException as e:
+            if e.status_code == 500:
+                raise JudgmentAPIException(
+                    f"The server is temporarily unavailable. Please try your request again in a few moments. Error details: {e.error_detail}",
+                    response=e.response,
+                    request=e.request,
+                )
+            raise JudgmentAPIException(
+                f"Failed to save classifier scorer: {e.error_detail}",
+                response=e.response,
+                request=e.request,
+            )
+
+    def fetch_scorer(self, name: str):
+        payload: ScorerFetchPayload = {"name": name}
+        try:
+            return self._do_request("POST", JUDGMENT_SCORER_FETCH_API_URL, payload)
+        except JudgmentAPIException as e:
+            if e.status_code == 500:
+                raise JudgmentAPIException(
+                    f"The server is temporarily unavailable. Please try your request again in a few moments. Error details: {e.error_detail}",
+                    response=e.response,
+                    request=e.request,
+                )
+            raise JudgmentAPIException(
+                f"Failed to fetch classifier scorer '{name}': {e.error_detail}",
+                response=e.response,
+                request=e.request,
+            )
+
+    def scorer_exists(self, name: str):
+        payload: ScorerExistsPayload = {"name": name}
+        try:
+            return self._do_request("POST", JUDGMENT_SCORER_EXISTS_API_URL, payload)
+        except JudgmentAPIException as e:
+            if e.status_code == 500:
+                raise JudgmentAPIException(
+                    f"The server is temporarily unavailable. Please try your request again in a few moments. Error details: {e.error_detail}",
+                    response=e.response,
+                    request=e.request,
+                )
+            raise JudgmentAPIException(
+                f"Failed to check if scorer exists: {e.error_detail}",
+                response=e.response,
+                request=e.request,
+            )
 
     def push_dataset(
         self,
