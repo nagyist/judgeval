@@ -71,12 +71,6 @@ class EvalLogPayload(TypedDict):
     run: Dict[str, Any]
 
 
-class EvalStatusPayload(TypedDict):
-    eval_name: str
-    project_name: str
-    judgment_api_key: str
-
-
 class CheckExperimentTypePayload(TypedDict):
     eval_name: str
     project_name: str

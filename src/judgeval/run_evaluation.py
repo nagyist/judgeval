@@ -720,8 +720,7 @@ def run_eval(
             )
             await asyncio.to_thread(
                 api_client.add_to_evaluation_queue,
-                evaluation_run.eval_name,
-                evaluation_run.project_name,
+                evaluation_run.model_dump(warnings=False),
             )
             results = await _poll_evaluation_until_complete(
                 eval_name=evaluation_run.eval_name,
