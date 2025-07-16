@@ -13,17 +13,16 @@ from rich import print as rprint
 from judgeval.data import ScorerData, ScoringResult, Example, Trace
 from judgeval.scorers import BaseScorer, APIScorerConfig
 from judgeval.scorers.score import a_execute_scoring
+from judgeval.common.api import JudgmentApiClient
 from judgeval.constants import (
-    ROOT_API,
-    JUDGMENT_EVAL_API_URL,
-    JUDGMENT_TRACE_EVAL_API_URL,
-    JUDGMENT_EVAL_LOG_API_URL,
     MAX_CONCURRENT_EVALUATIONS,
-    JUDGMENT_ADD_TO_RUN_EVAL_QUEUE_API_URL,
+)
+from judgeval.common.api.constants import (
     JUDGMENT_GET_EVAL_STATUS_API_URL,
-    JUDGMENT_EVAL_FETCH_API_URL,
+    JUDGMENT_ADD_TO_RUN_EVAL_QUEUE_API_URL,
 )
 from judgeval.common.exceptions import JudgmentAPIError
+from judgeval.common.api.api import JudgmentAPIException
 from judgeval.common.logger import judgeval_logger
 from judgeval.evaluation_run import EvaluationRun
 from judgeval.data.trace_run import TraceRun
@@ -54,22 +53,20 @@ def safe_run_async(coro):
         return asyncio.run(coro)
 
 
-def send_to_rabbitmq(evaluation_run: EvaluationRun) -> None:
+def send_to_rabbitmq(evaluation_run: EvaluationRun) -> Dict[str, Any]:
     """
     Sends an evaluation run to the RabbitMQ evaluation queue.
     """
-    payload = evaluation_run.model_dump(warnings=False)
-    response = requests.post(
-        JUDGMENT_ADD_TO_RUN_EVAL_QUEUE_API_URL,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {evaluation_run.judgment_api_key}",
-            "X-Organization-Id": evaluation_run.organization_id,
-        },
-        json=payload,
-        verify=True,
+    if not evaluation_run.judgment_api_key or not evaluation_run.organization_id:
+        raise ValueError("API key and organization ID are required")
+    if not evaluation_run.eval_name or not evaluation_run.project_name:
+        raise ValueError("Eval name and project name are required")
+    api_client = JudgmentApiClient(
+        evaluation_run.judgment_api_key, evaluation_run.organization_id
     )
-    return response.json()
+    return api_client.add_to_evaluation_queue(
+        evaluation_run.eval_name, evaluation_run.project_name
+    )
 
 
 def execute_api_eval(evaluation_run: EvaluationRun) -> Dict:
@@ -86,31 +83,22 @@ def execute_api_eval(evaluation_run: EvaluationRun) -> Dict:
 
     try:
         # submit API request to execute evals
-        payload = evaluation_run.model_dump()
-        response = requests.post(
-            JUDGMENT_EVAL_API_URL,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {evaluation_run.judgment_api_key}",
-                "X-Organization-Id": evaluation_run.organization_id,
-            },
-            json=payload,
-            verify=True,
+        if not evaluation_run.judgment_api_key or not evaluation_run.organization_id:
+            raise ValueError("API key and organization ID are required")
+        api_client = JudgmentApiClient(
+            evaluation_run.judgment_api_key, evaluation_run.organization_id
         )
-        response_data = response.json()
+        return api_client.run_evaluation(evaluation_run.model_dump())
     except Exception as e:
         judgeval_logger.error(f"Error: {e}")
-        details = response.json().get("detail", "No details provided")
+
+        details = "No details provided"
+        if isinstance(e, JudgmentAPIException):
+            details = e.response_json.get("detail", "No details provided")
+
         raise JudgmentAPIError(
             "An error occurred while executing the Judgment API request: " + details
         )
-    # Check if the response status code is not 2XX
-    # Add check for the duplicate eval run name
-    if not response.ok:
-        error_message = response_data.get("detail", "An unknown error occurred.")
-        judgeval_logger.error(f"Error: {error_message=}")
-        raise JudgmentAPIError(error_message)
-    return response_data
 
 
 def execute_api_trace_eval(trace_run: TraceRun) -> Dict:
@@ -120,31 +108,22 @@ def execute_api_trace_eval(trace_run: TraceRun) -> Dict:
 
     try:
         # submit API request to execute evals
-        payload = trace_run.model_dump(warnings=False)
-        response = requests.post(
-            JUDGMENT_TRACE_EVAL_API_URL,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {trace_run.judgment_api_key}",
-                "X-Organization-Id": trace_run.organization_id,
-            },
-            json=payload,
-            verify=True,
+        if not trace_run.judgment_api_key or not trace_run.organization_id:
+            raise ValueError("API key and organization ID are required")
+        api_client = JudgmentApiClient(
+            trace_run.judgment_api_key, trace_run.organization_id
         )
-        response_data = response.json()
+        return api_client.run_trace_evaluation(trace_run.model_dump(warnings=False))
     except Exception as e:
         judgeval_logger.error(f"Error: {e}")
-        details = response.json().get("detail", "No details provided")
+
+        details = "An unknown error occurred."
+        if isinstance(e, JudgmentAPIException):
+            details = e.response_json.get("detail", "An unknown error occurred.")
+
         raise JudgmentAPIError(
             "An error occurred while executing the Judgment API request: " + details
         )
-    # Check if the response status code is not 2XX
-    # Add check for the duplicate eval run name
-    if not response.ok:
-        error_message = response_data.get("detail", "An unknown error occurred.")
-        judgeval_logger.error(f"Error: {error_message=}")
-        raise JudgmentAPIError(error_message)
-    return response_data
 
 
 def merge_results(
@@ -257,34 +236,17 @@ def check_experiment_type(
     """
     Checks if the current experiment, if one exists, has the same type (examples of traces)
     """
+    api_client = JudgmentApiClient(judgment_api_key, organization_id)
+
     try:
-        response = requests.post(
-            f"{ROOT_API}/check_experiment_type/",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {judgment_api_key}",
-                "X-Organization-Id": organization_id,
-            },
-            json={
-                "eval_name": eval_name,
-                "project_name": project_name,
-                "judgment_api_key": judgment_api_key,
-                "is_trace": is_trace,
-            },
-            verify=True,
-        )
-
-        if response.status_code == 422:
-            judgeval_logger.error(f"{response.json()}")
-            raise ValueError(f"{response.json()}")
-
-        if not response.ok:
-            response_data = response.json()
-            error_message = response_data.get("detail", "An unknown error occurred.")
-            judgeval_logger.error(f"Error checking eval run name: {error_message}")
-            raise JudgmentAPIError(error_message)
-
-    except exceptions.RequestException as e:
+        api_client.check_experiment_type(eval_name, project_name, is_trace)
+    except JudgmentAPIException as e:
+        if e.response.status_code == 422:
+            judgeval_logger.error(f"{e.response_json}")
+            raise ValueError(f"{e.response_json}")
+        else:
+            raise e
+    except Exception as e:
         judgeval_logger.error(f"Failed to check if experiment type exists: {str(e)}")
         raise JudgmentAPIError(f"Failed to check if experiment type exists: {str(e)}")
 
@@ -304,34 +266,18 @@ def check_eval_run_name_exists(
         ValueError: If the evaluation run name already exists
         JudgmentAPIError: If there's an API error during the check
     """
+    api_client = JudgmentApiClient(judgment_api_key, organization_id)
     try:
-        response = requests.post(
-            f"{ROOT_API}/eval-run-name-exists/",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {judgment_api_key}",
-                "X-Organization-Id": organization_id,
-            },
-            json={
-                "eval_name": eval_name,
-                "project_name": project_name,
-                "judgment_api_key": judgment_api_key,
-            },
-            verify=True,
-        )
-
-        if response.status_code == 409:
+        api_client.check_eval_run_name_exists(eval_name, project_name)
+    except JudgmentAPIException as e:
+        if e.response.status_code == 409:
             error_str = f"Eval run name '{eval_name}' already exists for this project. Please choose a different name, set the `override` flag to true, or set the `append` flag to true. See https://docs.judgmentlabs.ai/sdk-reference/judgment-client#override for more information."
             judgeval_logger.error(error_str)
             raise ValueError(error_str)
+        else:
+            raise e
 
-        if not response.ok:
-            response_data = response.json()
-            error_message = response_data.get("detail", "An unknown error occurred.")
-            judgeval_logger.error(f"Error checking eval run name: {error_message}")
-            raise JudgmentAPIError(error_message)
-
-    except exceptions.RequestException as e:
+    except Exception as e:
         judgeval_logger.error(f"Failed to check if eval run name exists: {str(e)}")
         raise JudgmentAPIError(f"Failed to check if eval run name exists: {str(e)}")
 
@@ -351,40 +297,27 @@ def log_evaluation_results(
         ValueError: If there's a validation error with the results
     """
     try:
-        res = requests.post(
-            JUDGMENT_EVAL_LOG_API_URL,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {run.judgment_api_key}",
-                "X-Organization-Id": run.organization_id,
-            },
-            json={"results": scoring_results, "run": run.model_dump(warnings=False)},
-            verify=True,
+        if not run.judgment_api_key or not run.organization_id:
+            raise ValueError("API key and organization ID are required")
+
+        api_client = JudgmentApiClient(run.judgment_api_key, run.organization_id)
+        response = api_client.log_evaluation_results(
+            [result.model_dump() for result in scoring_results],
+            run.model_dump(warnings=False),
         )
 
-        if not res.ok:
-            response_data = res.json()
-            error_message = response_data.get("detail", "An unknown error occurred.")
-            judgeval_logger.error(f"Error {res.status_code}: {error_message}")
-            raise JudgmentAPIError(error_message)
-
-        if "ui_results_url" in res.json():
-            url = res.json()["ui_results_url"]
+        if "ui_results_url" in response:
+            url = response["ui_results_url"]
             pretty_str = f"\n🔍 You can view your evaluation results here: [rgb(106,0,255)][link={url}]View Results[/link]\n"
             return pretty_str
 
         return None
 
-    except exceptions.RequestException as e:
-        judgeval_logger.error(
-            f"Request failed while saving evaluation results to DB: {str(e)}"
-        )
+    except Exception as e:
+        judgeval_logger.error(f"Failed to save evaluation results to DB: {str(e)}")
         raise JudgmentAPIError(
             f"Request failed while saving evaluation results to DB: {str(e)}"
         )
-    except Exception as e:
-        judgeval_logger.error(f"Failed to save evaluation results to DB: {str(e)}")
-        raise ValueError(f"Failed to save evaluation results to DB: {str(e)}")
 
 
 def run_with_spinner(message: str, func, *args, **kwargs) -> Any:
@@ -646,28 +579,10 @@ async def _poll_evaluation_until_complete(
 
             # If complete, get results and return
             if status == "completed" or status == "complete":
-                results_response = await asyncio.to_thread(
-                    requests.post,
-                    JUDGMENT_EVAL_FETCH_API_URL,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {judgment_api_key}",
-                        "X-Organization-Id": organization_id,
-                    },
-                    json={"project_name": project_name, "eval_name": eval_name},
-                    verify=True,
+                api_client = JudgmentApiClient(judgment_api_key, organization_id)
+                result_data = await asyncio.to_thread(
+                    api_client.fetch_evaluation_results, project_name, eval_name
                 )
-
-                if not results_response.ok:
-                    error_message = results_response.json().get(
-                        "detail", "An unknown error occurred."
-                    )
-                    judgeval_logger.error(
-                        f"Error fetching evaluation results: {error_message}"
-                    )
-                    raise JudgmentAPIError(error_message)
-
-                result_data = results_response.json()
 
                 if result_data.get("examples") is None:
                     continue
@@ -967,15 +882,6 @@ def run_eval(
         merged_results: List[ScoringResult] = merge_results(api_results, local_results)
         merged_results = check_missing_scorer_data(merged_results)
 
-        # Evaluate rules against local scoring results if rules exist (this cant be done just yet)
-        # if evaluation_run.rules and merged_results:
-        #     run_rules(
-        #         local_results=merged_results,
-        #         rules=evaluation_run.rules,
-        #         judgment_api_key=evaluation_run.judgment_api_key,
-        #         organization_id=evaluation_run.organization_id
-        #     )
-        # print(merged_results)
         send_results = [
             scoring_result.model_dump(warnings=False)
             for scoring_result in merged_results
@@ -1021,15 +927,6 @@ def assert_test(scoring_results: List[ScoringResult]) -> None:
     if failed_cases:
         error_msg = "The following test cases failed: \n"
         for fail_case in failed_cases:
-            # error_msg += f"\nInput: {fail_case['input']}\n"
-            # error_msg += f"Actual Output: {fail_case['actual_output']}\n"
-            # error_msg += f"Expected Output: {fail_case['expected_output']}\n"
-            # error_msg += f"Context: {fail_case['context']}\n"
-            # error_msg += f"Retrieval Context: {fail_case['retrieval_context']}\n"
-            # error_msg += f"Additional Metadata: {fail_case['additional_metadata']}\n"
-            # error_msg += f"Tools Called: {fail_case['tools_called']}\n"
-            # error_msg += f"Expected Tools: {fail_case['expected_tools']}\n"
-
             for fail_scorer in fail_case["failed_scorers"]:
                 error_msg += (
                     f"\nScorer Name: {fail_scorer.name}\n"

@@ -1,25 +1,16 @@
 from __future__ import annotations
 
 from judgeval.common.logger import judgeval_logger
-from judgeval.constants import (
-    JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL,
-    JUDGMENT_TRACES_SPANS_BATCH_API_URL,
-)
+from judgeval.common.api import JudgmentApiClient, EvaluationEntryResponse
 from judgeval.data import TraceSpan
 from judgeval.evaluation_run import EvaluationRun
-from judgeval.utils.requests import requests
-
-
-from requests import RequestException
 
 
 import atexit
-import json
 import queue
 import threading
 import time
-from http import HTTPStatus
-from typing import Any, Dict, List
+from typing import Any, Dict, List, cast
 
 
 class BackgroundSpanService:
@@ -51,8 +42,7 @@ class BackgroundSpanService:
             flush_interval: Time in seconds between automatic flushes (default: 5.0)
             num_workers: Number of worker threads to process the queue (default: 1)
         """
-        self.judgment_api_key = judgment_api_key
-        self.organization_id = organization_id
+        self.api_client = JudgmentApiClient(judgment_api_key, organization_id)
         self.batch_size = batch_size
         self.flush_interval = flush_interval
         self.num_workers = max(1, num_workers)
@@ -167,51 +157,17 @@ class BackgroundSpanService:
 
     def _send_spans_batch(self, spans: List[Dict[str, Any]]):
         """Send a batch of spans to the spans endpoint."""
-        payload = {"spans": spans, "organization_id": self.organization_id}
-
-        def fallback_encoder(obj):
-            try:
-                return repr(obj)
-            except Exception:
-                try:
-                    return str(obj)
-                except Exception as e:
-                    return f"<Unserializable object of type {type(obj).__name__}: {e}>"
-
         try:
-            serialized_data = json.dumps(payload, default=fallback_encoder)
-
-            response = requests.post(
-                JUDGMENT_TRACES_SPANS_BATCH_API_URL,
-                data=serialized_data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.judgment_api_key}",
-                    "X-Organization-Id": self.organization_id,
-                },
-                verify=True,
-                timeout=30,
-            )
-
-            if response.status_code != HTTPStatus.OK:
-                judgeval_logger.warning(
-                    f"Failed to send spans batch: HTTP {response.status_code} - {response.text}"
-                )
-
-        except RequestException as e:
-            judgeval_logger.warning(f"Network error sending spans batch: {e}")
+            self.api_client.send_spans_batch(spans)
         except Exception as e:
-            judgeval_logger.warning(f"Failed to serialize or send spans batch: {e}")
+            judgeval_logger.warning(f"Failed to send spans batch: {e}")
 
     def _send_evaluation_runs_batch(self, evaluation_runs: List[Dict[str, Any]]):
         """Send a batch of evaluation runs with their associated span data to the endpoint."""
-        # Structure payload to include both evaluation run data and span data
-        evaluation_entries = []
+        evaluation_entries: List[EvaluationEntryResponse] = []
         for eval_data in evaluation_runs:
-            # eval_data already contains the evaluation run data (no need to access ['data'])
-            entry = {
+            entry: EvaluationEntryResponse = {
                 "evaluation_run": {
-                    # Extract evaluation run fields (excluding span-specific fields)
                     key: value
                     for key, value in eval_data.items()
                     if key not in ["associated_span_id", "span_data", "queued_at"]
@@ -220,47 +176,12 @@ class BackgroundSpanService:
                     "span_id": eval_data.get("associated_span_id"),
                     "span_data": eval_data.get("span_data"),
                 },
-                "queued_at": eval_data.get("queued_at"),
+                "queued_at": cast(float, eval_data.get("queued_at")),
             }
             evaluation_entries.append(entry)
 
-        payload = {
-            "organization_id": self.organization_id,
-            "evaluation_entries": evaluation_entries,  # Each entry contains both eval run + span data
-        }
-
-        # Serialize with fallback encoder
-        def fallback_encoder(obj):
-            try:
-                return repr(obj)
-            except Exception:
-                try:
-                    return str(obj)
-                except Exception as e:
-                    return f"<Unserializable object of type {type(obj).__name__}: {e}>"
-
         try:
-            serialized_data = json.dumps(payload, default=fallback_encoder)
-
-            response = requests.post(
-                JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL,
-                data=serialized_data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.judgment_api_key}",
-                    "X-Organization-Id": self.organization_id,
-                },
-                verify=True,
-                timeout=30,
-            )
-
-            if response.status_code != HTTPStatus.OK:
-                judgeval_logger.warning(
-                    f"Failed to send evaluation runs batch: HTTP {response.status_code} - {response.text}"
-                )
-
-        except RequestException as e:
-            judgeval_logger.warning(f"Network error sending evaluation runs batch: {e}")
+            self.api_client.send_evaluation_runs_batch(evaluation_entries)
         except Exception as e:
             judgeval_logger.warning(f"Failed to send evaluation runs batch: {e}")
 

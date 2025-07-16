@@ -8,8 +8,6 @@ import asyncio
 import functools
 import inspect
 import os
-import site
-import sysconfig
 import threading
 import time
 import traceback
@@ -34,6 +32,7 @@ from typing import (
 import types
 
 from judgeval.common.tracer.background_span import BackgroundSpanService
+from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
 from judgeval.common.tracer.trace_manager import TraceManagerClient
 from litellm import cost_per_token as _original_cost_per_token
 from openai import OpenAI, AsyncOpenAI
@@ -1893,25 +1892,6 @@ def combine_args_kwargs(func, args, kwargs):
     except Exception:
         # Fallback if signature inspection fails
         return {**{f"arg{i}": arg for i, arg in enumerate(args)}, **kwargs}
-
-
-# NOTE: This builds once, can be tweaked if we are missing / capturing other unncessary modules
-# @link https://docs.python.org/3.13/library/sysconfig.html
-_TRACE_FILEPATH_BLOCKLIST = tuple(
-    os.path.realpath(p) + os.sep
-    for p in {
-        sysconfig.get_paths()["stdlib"],
-        sysconfig.get_paths().get("platstdlib", ""),
-        *site.getsitepackages(),
-        site.getusersitepackages(),
-        *(
-            [os.path.join(os.path.dirname(__file__), "../../judgeval/")]
-            if os.environ.get("JUDGMENT_DEV")
-            else []
-        ),
-    }
-    if p
-)
 
 
 def cost_per_token(*args, **kwargs):
