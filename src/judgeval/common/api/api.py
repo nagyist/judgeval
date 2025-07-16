@@ -10,7 +10,6 @@ from judgeval.common.api.constants import (
     JUDGMENT_DATASETS_APPEND_EXAMPLES_API_URL,
     JUDGMENT_DATASETS_PULL_API_URL,
     JUDGMENT_DATASETS_DELETE_API_URL,
-    JUDGMENT_DATASETS_EXPORT_JSONL_API_URL,
     JUDGMENT_DATASETS_PROJECT_STATS_API_URL,
     JUDGMENT_PROJECT_DELETE_API_URL,
     JUDGMENT_PROJECT_CREATE_API_URL,
@@ -19,7 +18,6 @@ from judgeval.common.api.constants import (
     JUDGMENT_EVAL_LOG_API_URL,
     JUDGMENT_EVAL_FETCH_API_URL,
     JUDGMENT_EVAL_DELETE_API_URL,
-    JUDGMENT_EVAL_DELETE_PROJECT_API_URL,
     JUDGMENT_ADD_TO_RUN_EVAL_QUEUE_API_URL,
     JUDGMENT_GET_EVAL_STATUS_API_URL,
     JUDGMENT_CHECK_EXPERIMENT_TYPE_API_URL,
@@ -35,7 +33,6 @@ from judgeval.common.api.constants import (
     DatasetAppendPayload,
     DatasetPullPayload,
     DatasetDeletePayload,
-    DatasetExportPayload,
     DatasetStatsPayload,
     ProjectCreatePayload,
     ProjectDeletePayload,
@@ -86,7 +83,10 @@ class JudgmentApiClient:
         self.organization_id = organization_id
 
     def _do_request(
-        self, method: Literal["POST", "PATCH", "GET", "DELETE"], url: str, payload: Any
+        self,
+        method: Literal["POST", "PATCH", "GET", "DELETE"],
+        url: str,
+        payload: Any,
     ) -> Any:
         if method == "GET":
             r = requests.request(
@@ -185,10 +185,6 @@ class JudgmentApiClient:
         }
         return self._do_request("POST", JUDGMENT_EVAL_DELETE_API_URL, payload)
 
-    def delete_evaluation_project(self, project_name: str):
-        payload: ProjectDeletePayload = {"project_name": project_name}
-        return self._do_request("POST", JUDGMENT_EVAL_DELETE_PROJECT_API_URL, payload)
-
     def add_to_evaluation_queue(self, eval_name: str, project_name: str):
         payload: EvalStatusPayload = {
             "eval_name": eval_name,
@@ -264,20 +260,6 @@ class JudgmentApiClient:
             "project_name": project_name,
         }
         return self._do_request("POST", JUDGMENT_DATASETS_DELETE_API_URL, payload)
-
-    def export_dataset_jsonl(self, dataset_alias: str, project_name: str):
-        payload: DatasetExportPayload = {
-            "dataset_alias": dataset_alias,
-            "project_name": project_name,
-        }
-        r = requests.post(
-            JUDGMENT_DATASETS_EXPORT_JSONL_API_URL,
-            json=payload,
-            headers=self._headers(),
-            stream=True,
-            **self._request_kwargs(),
-        )
-        return r
 
     def get_project_dataset_stats(self, project_name: str):
         payload: DatasetStatsPayload = {"project_name": project_name}

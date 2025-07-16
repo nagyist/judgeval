@@ -1,5 +1,4 @@
 from typing import Optional, List
-from requests import Response, exceptions
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from judgeval.common.logger import judgeval_logger
 from judgeval.common.api import JudgmentApiClient
@@ -213,37 +212,3 @@ class EvalDatasetClient:
             )
 
             return payload
-
-    def export_jsonl(self, alias: str, project_name: str) -> Response:
-        """Export dataset in JSONL format from Judgment platform"""
-        with Progress(
-            SpinnerColumn(style="rgb(106,0,255)"),
-            TextColumn("[progress.description]{task.description}"),
-            transient=False,
-        ) as progress:
-            task_id = progress.add_task(
-                f"Exporting [rgb(106,0,255)]'{alias}'[/rgb(106,0,255)] as JSONL...",
-                total=100,
-            )
-            try:
-                response = self.api_client.export_dataset_jsonl(
-                    dataset_alias=alias,
-                    project_name=project_name,
-                )
-                response.raise_for_status()
-            except exceptions.HTTPError as err:
-                if err.response.status_code == 404:
-                    judgeval_logger.error(f"Dataset not found: {alias}")
-                else:
-                    judgeval_logger.error(f"HTTP error during export: {err}")
-                raise
-            except Exception as e:
-                judgeval_logger.error(f"Error during export: {str(e)}")
-                raise
-
-            progress.update(
-                task_id,
-                description=f"{progress.tasks[task_id].description} [rgb(25,227,160)]Done!)",
-            )
-
-            return response
