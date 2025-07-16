@@ -1316,7 +1316,7 @@ class Tracer:
                             self.reset_current_trace(trace_token)
                         except Exception as e:
                             judgeval_logger.warning(f"Issue with async_wrapper: {e}")
-                            return
+                            pass
                 else:
                     with current_trace.span(span_name, span_type=span_type) as span:
                         inputs = combine_args_kwargs(func, args, kwargs)
@@ -1447,7 +1447,7 @@ class Tracer:
                             self.reset_current_trace(trace_token)
                         except Exception as e:
                             judgeval_logger.warning(f"Issue with save: {e}")
-                            return
+                            pass
                 else:
                     with current_trace.span(span_name, span_type=span_type) as span:
                         inputs = combine_args_kwargs(func, args, kwargs)
