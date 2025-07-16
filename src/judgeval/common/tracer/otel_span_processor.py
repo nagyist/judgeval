@@ -19,6 +19,7 @@ from opentelemetry.util.types import Attributes
 
 from judgeval.common.logger import judgeval_logger
 from judgeval.common.tracer.otel_exporter import JudgmentAPISpanExporter
+from judgeval.common.tracer.span_processor import SpanProcessorBase
 from judgeval.common.tracer.span_transformer import SpanTransformer
 from judgeval.data import TraceSpan
 from judgeval.evaluation_run import EvaluationRun
@@ -137,7 +138,7 @@ class SimpleReadableSpan(ReadableSpan):
         return self._instrumentation_info
 
 
-class JudgmentSpanProcessor(SpanProcessor):
+class JudgmentSpanProcessor(SpanProcessor, SpanProcessorBase):
     """
     Span processor that converts TraceSpan objects to OpenTelemetry format
     and uses BatchSpanProcessor for export.

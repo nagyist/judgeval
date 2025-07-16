@@ -10,6 +10,7 @@ from judgeval.common.tracer.core import (
 )
 from judgeval.common.tracer.otel_exporter import JudgmentAPISpanExporter
 from judgeval.common.tracer.otel_span_processor import JudgmentSpanProcessor
+from judgeval.common.tracer.span_processor import SpanProcessorBase
 from judgeval.common.tracer.trace_manager import TraceManagerClient
 from judgeval.data import TraceSpan
 
@@ -23,6 +24,7 @@ __all__ = [
     "TraceManagerClient",
     "JudgmentAPISpanExporter",
     "JudgmentSpanProcessor",
+    "SpanProcessorBase",
     "SpanType",
     "cost_per_token",
     "TraceSpan",

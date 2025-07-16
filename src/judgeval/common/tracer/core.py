@@ -36,6 +36,7 @@ import types
 
 
 from judgeval.common.tracer.otel_span_processor import JudgmentSpanProcessor
+from judgeval.common.tracer.span_processor import SpanProcessorBase
 from judgeval.common.tracer.trace_manager import TraceManagerClient
 from litellm import cost_per_token as _original_cost_per_token
 from openai import OpenAI, AsyncOpenAI
@@ -107,17 +108,11 @@ class TraceClient:
         )
         self._span_depths: Dict[str, int] = {}
 
-        # Use shared OpenTelemetry span processor from the tracer
         self.otel_span_processor = tracer.otel_span_processor
 
-        if self.otel_span_processor:
-            judgeval_logger.info(
-                f"🎯 TraceClient using shared OpenTelemetry span processor for trace {self.trace_id}"
-            )
-        else:
-            judgeval_logger.info(
-                f"⚠️  TraceClient not using OpenTelemetry span processor for trace {self.trace_id}"
-            )
+        judgeval_logger.info(
+            f"🎯 TraceClient using span processor for trace {self.trace_id}"
+        )
 
     def get_current_span(self):
         """Get the current span from the context var"""
@@ -167,9 +162,7 @@ class TraceClient:
         )
         self.add_span(span)
 
-        # Use OpenTelemetry span processor for span updates
-        if self.otel_span_processor:
-            self.otel_span_processor.queue_span_update(span, span_state="input")
+        self.otel_span_processor.queue_span_update(span, span_state="input")
 
         try:
             yield self
@@ -178,8 +171,7 @@ class TraceClient:
             span.duration = duration
 
             # Use OpenTelemetry span processor for span completion
-            if self.otel_span_processor:
-                self.otel_span_processor.queue_span_update(span, span_state="completed")
+            self.otel_span_processor.queue_span_update(span, span_state="completed")
 
             if span_id in self._span_depths:
                 del self._span_depths[span_id]
@@ -264,10 +256,9 @@ class TraceClient:
         if span_id_to_use:
             current_span = self.span_id_to_span.get(span_id_to_use)
             if current_span:
-                if self.otel_span_processor:
-                    self.otel_span_processor.queue_evaluation_run(
-                        eval_run, span_id=span_id_to_use, span_data=current_span
-                    )
+                self.otel_span_processor.queue_evaluation_run(
+                    eval_run, span_id=span_id_to_use, span_data=current_span
+                )
 
     def add_eval_run(self, eval_run: EvaluationRun, start_time: float):
         current_span_id = eval_run.trace_span_id
@@ -287,8 +278,7 @@ class TraceClient:
 
             try:
                 # Use OpenTelemetry span processor for span updates
-                if self.otel_span_processor:
-                    self.otel_span_processor.queue_span_update(span, span_state="input")
+                self.otel_span_processor.queue_span_update(span, span_state="input")
             except Exception as e:
                 judgeval_logger.warning(f"Failed to queue span with input data: {e}")
 
@@ -299,10 +289,7 @@ class TraceClient:
             span.agent_name = agent_name
 
             # Use OpenTelemetry span processor for span updates
-            if self.otel_span_processor:
-                self.otel_span_processor.queue_span_update(
-                    span, span_state="agent_name"
-                )
+            self.otel_span_processor.queue_span_update(span, span_state="agent_name")
 
     def record_state_before(self, state: dict):
         """Records the agent's state before a tool execution on the current span.
@@ -316,10 +303,7 @@ class TraceClient:
             span.state_before = state
 
             # Use OpenTelemetry span processor for span updates
-            if self.otel_span_processor:
-                self.otel_span_processor.queue_span_update(
-                    span, span_state="state_before"
-                )
+            self.otel_span_processor.queue_span_update(span, span_state="state_before")
 
     def record_state_after(self, state: dict):
         """Records the agent's state after a tool execution on the current span.
@@ -333,10 +317,7 @@ class TraceClient:
             span.state_after = state
 
             # Use OpenTelemetry span processor for span updates
-            if self.otel_span_processor:
-                self.otel_span_processor.queue_span_update(
-                    span, span_state="state_after"
-                )
+            self.otel_span_processor.queue_span_update(span, span_state="state_after")
 
     async def _update_coroutine(self, span: TraceSpan, coroutine: Any, field: str):
         """Helper method to update the output of a trace entry once the coroutine completes"""
@@ -344,14 +325,14 @@ class TraceClient:
             result = await coroutine
             setattr(span, field, result)
 
-            if field == "output" and self.otel_span_processor:
+            if field == "output":
                 self.otel_span_processor.queue_span_update(span, span_state="output")
 
             return result
         except Exception as e:
             setattr(span, field, f"Error: {str(e)}")
 
-            if field == "output" and self.otel_span_processor:
+            if field == "output":
                 self.otel_span_processor.queue_span_update(span, span_state="output")
 
             raise
@@ -367,10 +348,7 @@ class TraceClient:
 
             # Use OpenTelemetry span processor for span updates
             if not inspect.iscoroutine(output):
-                if self.otel_span_processor:
-                    self.otel_span_processor.queue_span_update(
-                        span, span_state="output"
-                    )
+                self.otel_span_processor.queue_span_update(span, span_state="output")
 
             return span
         return None
@@ -382,8 +360,7 @@ class TraceClient:
             span.usage = usage
 
             # Use OpenTelemetry span processor for span updates
-            if self.otel_span_processor:
-                self.otel_span_processor.queue_span_update(span, span_state="usage")
+            self.otel_span_processor.queue_span_update(span, span_state="usage")
 
             return span
         return None
@@ -395,8 +372,7 @@ class TraceClient:
             span.error = error
 
             # Use OpenTelemetry span processor for span updates
-            if self.otel_span_processor:
-                self.otel_span_processor.queue_span_update(span, span_state="error")
+            self.otel_span_processor.queue_span_update(span, span_state="error")
 
             return span
         return None
@@ -431,7 +407,7 @@ class TraceClient:
         Returns a tuple of (trace_id, server_response) where server_response contains the UI URL and other metadata.
         """
         # If this is the final save, ensure all spans for this trace are flushed
-        if final_save and self.otel_span_processor:
+        if final_save:
             try:
                 # Flush any pending spans for this trace
                 self.otel_span_processor.flush_pending_spans()
@@ -984,9 +960,7 @@ class Tracer:
             self.span_flush_interval = span_flush_interval
             self.span_max_queue_size = span_max_queue_size
             self.span_export_timeout = span_export_timeout
-
-            # Initialize OpenTelemetry span processor
-            self.otel_span_processor: Optional[JudgmentSpanProcessor] = None
+            self.otel_span_processor: SpanProcessorBase
             if enable_monitoring:
                 self.otel_span_processor = JudgmentSpanProcessor(
                     judgment_api_key=api_key,
@@ -996,8 +970,9 @@ class Tracer:
                     max_queue_size=span_max_queue_size,
                     export_timeout=span_export_timeout,
                 )
+            else:
+                self.otel_span_processor = SpanProcessorBase()
 
-            # Register exit handler to ensure spans are flushed on application termination
             atexit.register(self._cleanup_on_exit)
         except Exception as e:
             judgeval_logger.error(
@@ -1653,22 +1628,18 @@ class Tracer:
         else:
             judgeval_logger.warning("No current trace found, cannot set reward score")
 
-    def get_otel_span_processor(self) -> Optional[JudgmentSpanProcessor]:
-        """Get the OpenTelemetry span processor instance."""
-        return getattr(self, "otel_span_processor", None)
+    def get_otel_span_processor(self) -> SpanProcessorBase:
+        """Get the span processor instance."""
+        return self.otel_span_processor
 
     def flush_background_spans(self, timeout_millis: int = 30000):
         """Flush all pending spans in the background service."""
-        otel_processor = getattr(self, "otel_span_processor", None)
-        if otel_processor:
-            otel_processor.force_flush(timeout_millis)
+        self.otel_span_processor.force_flush(timeout_millis)
 
     def shutdown_background_service(self):
         """Shutdown the background span service."""
-        otel_processor = getattr(self, "otel_span_processor", None)
-        if otel_processor:
-            otel_processor.shutdown()
-            self.otel_span_processor = None
+        self.otel_span_processor.shutdown()
+        self.otel_span_processor = SpanProcessorBase()
 
     def _cleanup_on_exit(self):
         """Cleanup handler called on application exit to ensure spans are flushed."""
