@@ -186,10 +186,6 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
             trace_client.otel_span_processor.queue_span_update(
                 new_span, span_state="input"
             )
-        elif trace_client.background_span_service:
-            trace_client.background_span_service.queue_span(
-                new_span, span_state="input"
-            )
 
         token = self.tracer.set_current_span(span_id)
         if token:
@@ -255,10 +251,6 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                     trace_client.otel_span_processor.queue_span_update(
                         trace_span, span_state=span_state
                     )
-                elif trace_client.background_span_service:
-                    trace_client.background_span_service.queue_span(
-                        trace_span, span_state=span_state
-                    )
 
             # Clean up dictionaries for this specific span
             if span_id in self._span_id_to_start_time:
@@ -288,6 +280,10 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                         "parent_trace_id": self._trace_client.parent_trace_id,
                         "parent_name": self._trace_client.parent_name,
                     }
+
+                    # Flush background spans before saving the final trace
+                    self.tracer.flush_background_spans()
+
                     trace_id, trace_data = self._trace_client.save(
                         final_save=True,  # Final save with usage counter updates
                     )
@@ -475,6 +471,9 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                     "parent_trace_id": trace_client.parent_trace_id,
                     "parent_name": trace_client.parent_name,
                 }
+
+                # Flush background spans before saving the final trace
+                self.tracer.flush_background_spans()
 
                 trace_client.save(
                     final_save=True,

@@ -1,32 +1,43 @@
-from judgeval.common.tracer.trace_manager import TraceManagerClient
-from judgeval.common.tracer.background_span import BackgroundSpanService
-from judgeval.common.tracer.otel_exporter import JudgmentAPISpanExporter
-from judgeval.common.tracer.otel_span_processor import JudgmentSpanProcessor
-from judgeval.common.tracer.span_transformer import SpanTransformer
-from judgeval.common.tracer.core import (
-    TraceClient,
-    Tracer,
-    wrap,
-    current_span_var,
-    current_trace_var,
-    TraceSpan,
-    SpanType,
-    cost_per_token,
+from judgeval.common.tracer.constants import (
+    JUDGEVAL_TRACE_DISABLE_SPAN_CREATION,
+    JUDGEVAL_TRACE_INCLUDE_PARENT_SPAN,
+    JUDGEVAL_TRACE_OFFLINE_MODE,
+    JUDGEVAL_TRACE_SEND_TIMEOUT,
+    JUDGEVAL_TRACE_SYNC_SEND_TIMEOUT,
 )
-
+from judgeval.common.tracer.core import (
+    DeepTracer,
+    TraceClient,
+    _DeepTracer,
+    trace_judgment_run,
+    trace_judgment_run_sync,
+    trace_score_run,
+    trace_score_run_sync,
+    transform_to_trace_span,
+    transform_to_trace_span_sync,
+)
+from judgeval.common.tracer.otel_exporter import JudgevalOTLPSpanExporter
+from judgeval.common.tracer.otel_span_processor import JudgevalBatchSpanProcessor
+from judgeval.common.tracer.span_transformer import create_trace_span_from_otel_span
+from judgeval.common.tracer.trace_manager import TraceManagerClient
 
 __all__ = [
-    "Tracer",
+    "DeepTracer",
+    "_DeepTracer",
     "TraceClient",
+    "trace_judgment_run",
+    "trace_judgment_run_sync",
+    "trace_score_run",
+    "trace_score_run_sync",
+    "transform_to_trace_span",
+    "transform_to_trace_span_sync",
     "TraceManagerClient",
-    "BackgroundSpanService",  # Deprecated
-    "JudgmentAPISpanExporter",
-    "JudgmentSpanProcessor",
-    "SpanTransformer",
-    "wrap",
-    "current_span_var",
-    "current_trace_var",
-    "TraceSpan",
-    "SpanType",
-    "cost_per_token",
+    "JudgevalOTLPSpanExporter",
+    "JudgevalBatchSpanProcessor",
+    "create_trace_span_from_otel_span",
+    "JUDGEVAL_TRACE_DISABLE_SPAN_CREATION",
+    "JUDGEVAL_TRACE_INCLUDE_PARENT_SPAN",
+    "JUDGEVAL_TRACE_OFFLINE_MODE",
+    "JUDGEVAL_TRACE_SEND_TIMEOUT",
+    "JUDGEVAL_TRACE_SYNC_SEND_TIMEOUT",
 ]

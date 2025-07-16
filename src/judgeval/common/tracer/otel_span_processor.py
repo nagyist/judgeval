@@ -1,17 +1,16 @@
 """
 Custom OpenTelemetry span processor for Judgment API.
 
-This processor converts TraceSpan objects to OpenTelemetry format and uses
-the standard BatchSpanProcessor for robust batching and export.
+This processor uses BatchSpanProcessor to handle batching and export
+of TraceSpan objects converted to OpenTelemetry format.
 """
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence
+from typing import Any, Optional
 
-from opentelemetry import trace
 from opentelemetry.context import Context
-from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
+from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanProcessor
 from opentelemetry.trace import Span, Status, StatusCode, SpanContext, TraceFlags
 from opentelemetry.trace.span import TraceState, INVALID_SPAN_CONTEXT
@@ -87,8 +86,8 @@ class SimpleReadableSpan(ReadableSpan):
 
         # Empty collections for compatibility
         self._parent: Optional[SpanContext] = None
-        self._events: List[Any] = []
-        self._links: List[Any] = []
+        self._events: list[Any] = []
+        self._links: list[Any] = []
         self._resource: Optional[Any] = None
         self._instrumentation_info: Optional[Any] = None
 
@@ -121,11 +120,11 @@ class SimpleReadableSpan(ReadableSpan):
         return self._attributes
 
     @property
-    def events(self) -> Sequence[Any]:
+    def events(self):
         return self._events
 
     @property
-    def links(self) -> Sequence[Any]:
+    def links(self):
         return self._links
 
     @property
@@ -139,8 +138,8 @@ class SimpleReadableSpan(ReadableSpan):
 
 class JudgmentSpanProcessor(SpanProcessor):
     """
-    Custom span processor that converts TraceSpan objects to OpenTelemetry format
-    and uses BatchSpanProcessor for robust batching and export.
+    Span processor that converts TraceSpan objects to OpenTelemetry format
+    and uses BatchSpanProcessor for export.
     """
 
     def __init__(
@@ -155,7 +154,7 @@ class JudgmentSpanProcessor(SpanProcessor):
         self.judgment_api_key = judgment_api_key
         self.organization_id = organization_id
 
-        # Use OpenTelemetry's BatchSpanProcessor for all the heavy lifting
+        # Use BatchSpanProcessor for all the heavy lifting
         self.batch_processor = BatchSpanProcessor(
             JudgmentAPISpanExporter(
                 judgment_api_key=judgment_api_key,
@@ -166,26 +165,6 @@ class JudgmentSpanProcessor(SpanProcessor):
             max_export_batch_size=batch_size,
             export_timeout_millis=export_timeout,
         )
-
-        self._setup_tracer_provider()
-
-    def _setup_tracer_provider(self) -> None:
-        """Set up OpenTelemetry TracerProvider with this processor."""
-        try:
-            provider = trace.get_tracer_provider()
-            if hasattr(provider, "add_span_processor"):
-                provider.add_span_processor(self)
-                judgeval_logger.debug("Added JudgmentSpanProcessor to TracerProvider")
-            else:
-                # Create new TracerProvider if needed
-                provider = TracerProvider()
-                provider.add_span_processor(self)
-                trace.set_tracer_provider(provider)
-                judgeval_logger.debug(
-                    "Created new TracerProvider with JudgmentSpanProcessor"
-                )
-        except Exception as e:
-            judgeval_logger.warning(f"Failed to set up TracerProvider: {e}")
 
     def on_start(self, span: Span, parent_context: Optional[Context] = None) -> None:
         """Called when a span starts - delegate to batch processor."""
@@ -209,7 +188,7 @@ class JudgmentSpanProcessor(SpanProcessor):
         else:
             span.increment_update_id()
 
-        # Create a simple ReadableSpan and let BatchSpanProcessor handle it
+        # Create ReadableSpan and send to BatchSpanProcessor
         readable_span = SimpleReadableSpan(span, span_state)
         self.batch_processor.on_end(readable_span)
 
@@ -229,11 +208,13 @@ class JudgmentSpanProcessor(SpanProcessor):
             evaluation_run, span_id, span_data
         )
 
-        # Create a simple ReadableSpan with evaluation run data
+        # Create ReadableSpan with evaluation run data
         readable_span = SimpleReadableSpan(span_data, "evaluation_run")
         readable_span._attributes.update(attributes)
 
-        # Let BatchSpanProcessor handle the export
+        judgeval_logger.debug(f"Queuing evaluation run for span {span_id}")
+
+        # Send to BatchSpanProcessor
         self.batch_processor.on_end(readable_span)
 
     def shutdown(self) -> None:
@@ -243,4 +224,8 @@ class JudgmentSpanProcessor(SpanProcessor):
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
         """Force flush all pending spans."""
-        return self.batch_processor.force_flush(timeout_millis)
+        success = self.batch_processor.force_flush(timeout_millis)
+        judgeval_logger.debug(
+            f"JudgmentSpanProcessor force_flush {'succeeded' if success else 'failed'}"
+        )
+        return success
