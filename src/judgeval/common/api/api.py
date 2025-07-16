@@ -37,6 +37,7 @@ from judgeval.common.api.constants import (
     DatasetDeletePayload,
     DatasetExportPayload,
     DatasetStatsPayload,
+    ProjectCreatePayload,
     ProjectDeletePayload,
     EvalRunRequestBody,
     DeleteEvalRunRequestBody,
@@ -153,7 +154,7 @@ class JudgmentApiClient:
         return self._do_request("DELETE", JUDGMENT_PROJECT_DELETE_API_URL, payload)
 
     def create_project(self, project_name: str):
-        payload: ProjectDeletePayload = {"project_name": project_name}
+        payload: ProjectCreatePayload = {"project_name": project_name}
         return self._do_request("POST", JUDGMENT_PROJECT_CREATE_API_URL, payload)
 
     def run_evaluation(self, evaluation_run: Dict[str, Any]):

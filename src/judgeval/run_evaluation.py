@@ -289,8 +289,8 @@ def log_evaluation_results(
     Logs evaluation results to the Judgment API database.
 
     Args:
-        merged_results (List[ScoringResult]): The results to log
-        evaluation_run (EvaluationRun): The evaluation run containing project info and API key
+        scoring_results (List[ScoringResult]): The results to log
+        run (Union[EvaluationRun, TraceRun]): The evaluation run containing project info and API key
 
     Raises:
         JudgmentAPIError: If there's an API error during logging
@@ -302,7 +302,7 @@ def log_evaluation_results(
 
         api_client = JudgmentApiClient(run.judgment_api_key, run.organization_id)
         response = api_client.log_evaluation_results(
-            [result.model_dump() for result in scoring_results],
+            [result.to_dict() for result in scoring_results],
             run.model_dump(warnings=False),
         )
 
