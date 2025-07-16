@@ -206,16 +206,25 @@ class JudgmentAPISpanExporter(SpanExporter):
         """
         Shutdown the exporter.
 
-        Nothing to do here since we don't have any background threads.
-        BatchSpanProcessor handles all the threading.
+        Since this exporter sends data synchronously and doesn't have any
+        background threads or resources, there's nothing to clean up.
+
+        Args:
+            timeout_millis: Timeout in milliseconds (ignored)
         """
         pass
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
         """
-        Force flush all pending requests.
+        Force flush any pending requests.
 
-        Nothing to do here since we don't have any background threads.
-        BatchSpanProcessor handles all the threading.
+        Since this exporter sends data synchronously in the export() method
+        and doesn't have any internal buffering, there's nothing to flush.
+
+        Args:
+            timeout_millis: Timeout in milliseconds (ignored)
+
+        Returns:
+            True indicating success (no-op)
         """
         return True
