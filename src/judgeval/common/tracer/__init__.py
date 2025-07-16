@@ -5,10 +5,13 @@ from judgeval.common.tracer.core import (
     wrap,
     current_span_var,
     current_trace_var,
+    SpanType,
+    cost_per_token,
 )
 from judgeval.common.tracer.otel_exporter import JudgmentAPISpanExporter
 from judgeval.common.tracer.otel_span_processor import JudgmentSpanProcessor
 from judgeval.common.tracer.trace_manager import TraceManagerClient
+from judgeval.data import TraceSpan
 
 __all__ = [
     "_DeepTracer",
@@ -20,4 +23,7 @@ __all__ = [
     "TraceManagerClient",
     "JudgmentAPISpanExporter",
     "JudgmentSpanProcessor",
+    "SpanType",
+    "cost_per_token",
+    "TraceSpan",
 ]
