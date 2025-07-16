@@ -114,21 +114,18 @@ class TraceSpan(TraceSpanJudgmentType):
             except Exception:
                 pass
 
-        # Handle objects with a dict() method
         if hasattr(output, "dict"):
             try:
                 return output.dict()
             except Exception:
                 pass
 
-        # Handle objects with a to_dict() method
         if hasattr(output, "to_dict"):
             try:
                 return output.to_dict()
             except Exception:
                 pass
 
-        # Handle dataclasses
         if hasattr(output, "__dataclass_fields__"):
             try:
                 import dataclasses
@@ -137,14 +134,12 @@ class TraceSpan(TraceSpanJudgmentType):
             except Exception:
                 pass
 
-        # Handle objects with __dict__ attribute
         if hasattr(output, "__dict__"):
             try:
                 return output.__dict__
             except Exception:
                 pass
 
-        # Fallback to string representation
         try:
             return str(output)
         except (TypeError, OverflowError, ValueError):

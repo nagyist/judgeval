@@ -181,7 +181,6 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
 
         trace_client.add_span(new_span)
 
-        # Use OpenTelemetry span processor for span updates
         if trace_client.otel_span_processor:
             trace_client.otel_span_processor.queue_span_update(
                 new_span, span_state="input"
@@ -245,7 +244,6 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                             **metadata,
                         }
 
-                # Use OpenTelemetry span processor for span updates
                 span_state = "error" if error else "completed"
                 if trace_client.otel_span_processor:
                     trace_client.otel_span_processor.queue_span_update(
@@ -265,7 +263,6 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                 if (
                     self._trace_client and not self._trace_saved
                 ):  # Check if not already saved
-                    # Flush background spans before saving the final trace
                     complete_trace_data = {
                         "trace_id": self._trace_client.trace_id,
                         "name": self._trace_client.name,
@@ -281,7 +278,6 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                         "parent_name": self._trace_client.parent_name,
                     }
 
-                    # Flush background spans before saving the final trace
                     self.tracer.flush_background_spans()
 
                     trace_id, trace_data = self._trace_client.save(
@@ -472,7 +468,6 @@ class JudgevalCallbackHandler(BaseCallbackHandler):
                     "parent_name": trace_client.parent_name,
                 }
 
-                # Flush background spans before saving the final trace
                 self.tracer.flush_background_spans()
 
                 trace_client.save(
