@@ -344,23 +344,15 @@ class TraceClient:
             result = await coroutine
             setattr(span, field, result)
 
-            # Use OpenTelemetry span processor for span updates
-            if field == "output":
-                if self.otel_span_processor:
-                    self.otel_span_processor.queue_span_update(
-                        span, span_state="output"
-                    )
+            if field == "output" and self.otel_span_processor:
+                self.otel_span_processor.queue_span_update(span, span_state="output")
 
             return result
         except Exception as e:
             setattr(span, field, f"Error: {str(e)}")
 
-            # Use OpenTelemetry span processor for span updates
-            if field == "output":
-                if self.otel_span_processor:
-                    self.otel_span_processor.queue_span_update(
-                        span, span_state="output"
-                    )
+            if field == "output" and self.otel_span_processor:
+                self.otel_span_processor.queue_span_update(span, span_state="output")
 
             raise
 
@@ -921,7 +913,6 @@ class Tracer:
         # Background span service configuration
         span_batch_size: int = 50,  # Number of spans to batch before sending
         span_flush_interval: float = 1.0,  # Time in seconds between automatic flushes
-        span_num_workers: int = 10,  # Number of worker threads for span processing (not used in current OpenTelemetry implementation)
         span_max_queue_size: int = 2048,  # Maximum number of spans in queue before blocking
         span_export_timeout: int = 30000,  # Timeout for span export in milliseconds
     ):
@@ -993,7 +984,6 @@ class Tracer:
             self.span_flush_interval = span_flush_interval
             self.span_max_queue_size = span_max_queue_size
             self.span_export_timeout = span_export_timeout
-            self.span_num_workers = span_num_workers  # Stored for potential future use
 
             # Initialize OpenTelemetry span processor
             self.otel_span_processor: Optional[JudgmentSpanProcessor] = None
