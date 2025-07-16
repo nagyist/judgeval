@@ -195,18 +195,11 @@ class SpanTransformer:
             uuid.uuid4()
         )
 
-        eval_run_data = {}
-        if hasattr(EvaluationRun, "model_fields"):
-            model_fields = EvaluationRun.model_fields
-            for field_name in model_fields:
-                if field_name in judgment_data:
-                    eval_run_data[field_name] = judgment_data[field_name]
-        else:
-            eval_run_data = {
-                key: value
-                for key, value in judgment_data.items()
-                if key not in ["associated_span_id", "span_data", "evaluation_run"]
-            }
+        eval_run_data = {
+            key: value
+            for key, value in judgment_data.items()
+            if key not in ["associated_span_id", "span_data", "evaluation_run"]
+        }
 
         eval_run_data["associated_span_id"] = associated_span_id
         eval_run_data["span_data"] = judgment_data.get("span_data")
