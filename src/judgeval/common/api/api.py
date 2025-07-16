@@ -111,6 +111,13 @@ class JudgmentApiClient:
                 **self._request_kwargs(),
             )
 
+        print("DEBUG")
+        print(f"Request URL: {url}")
+        print(f"Request Method: {method}")
+        print(f"Request Payload: {payload}")
+        print(f"Response Status Code: {r.status_code}")
+        print(f"Response Content: {r.text}")
+
         try:
             r.raise_for_status()
         except exceptions.HTTPError as e:
