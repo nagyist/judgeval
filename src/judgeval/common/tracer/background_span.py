@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from judgeval.common.logger import judgeval_logger
 from judgeval.constants import (
     JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL,
@@ -51,6 +52,12 @@ class BackgroundSpanService:
             flush_interval: Time in seconds between automatic flushes (default: 5.0)
             num_workers: Number of worker threads to process the queue (default: 1)
         """
+        warnings.warn(
+            "BackgroundSpanService is deprecated and will be removed in a future version. "
+            "Please use the new OpenTelemetry-based span processing system instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.judgment_api_key = judgment_api_key
         self.organization_id = organization_id
         self.batch_size = batch_size
