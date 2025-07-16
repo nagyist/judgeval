@@ -1005,7 +1005,6 @@ class Tracer:
                     flush_interval=span_flush_interval,
                     max_queue_size=span_max_queue_size,
                     export_timeout=span_export_timeout,
-                    send_intermediate_updates=True,
                 )
 
             # Register exit handler to ensure spans are flushed on application termination
