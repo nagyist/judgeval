@@ -111,13 +111,6 @@ class JudgmentApiClient:
                 **self._request_kwargs(),
             )
 
-        print("DEBUG")
-        print(f"Request URL: {url}")
-        print(f"Request Method: {method}")
-        print(f"Request Payload: {payload}")
-        print(f"Response Status Code: {r.status_code}")
-        print(f"Response Content: {r.text}")
-
         try:
             r.raise_for_status()
         except exceptions.HTTPError as e:
@@ -207,7 +200,7 @@ class JudgmentApiClient:
             "project_name": project_name,
             "judgment_api_key": self.api_key,
         }
-        return self._do_request("POST", JUDGMENT_GET_EVAL_STATUS_API_URL, payload)
+        return self._do_request("GET", JUDGMENT_GET_EVAL_STATUS_API_URL, payload)
 
     def check_experiment_type(self, eval_name: str, project_name: str, is_trace: bool):
         payload: CheckExperimentTypePayload = {
