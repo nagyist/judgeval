@@ -38,15 +38,6 @@ class JudgmentAPISpanExporter(SpanExporter):
         spans_endpoint: str = JUDGMENT_TRACES_SPANS_BATCH_API_URL,
         eval_runs_endpoint: str = JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL,
     ):
-        """
-        Initialize the Judgment API exporter.
-
-        Args:
-            judgment_api_key: API key for Judgment service
-            organization_id: Organization ID
-            spans_endpoint: API endpoint for spans batch
-            eval_runs_endpoint: API endpoint for evaluation runs batch
-        """
         self.judgment_api_key = judgment_api_key
         self.organization_id = organization_id
         self.spans_endpoint = spans_endpoint
@@ -63,35 +54,25 @@ class JudgmentAPISpanExporter(SpanExporter):
 
         This method is called by BatchSpanProcessor with a batch of spans.
         We send them synchronously since BatchSpanProcessor handles threading.
-
-        Args:
-            spans: Sequence of OpenTelemetry ReadableSpan objects
-
-        Returns:
-            SpanExportResult indicating success or failure
         """
         if not spans:
             return SpanExportResult.SUCCESS
 
         try:
-            # Separate spans and evaluation runs
             spans_data = []
             eval_runs_data = []
 
             for span in spans:
                 span_data = self._convert_span_to_judgment_format(span)
 
-                # Check if this span contains evaluation run data
                 if span.attributes.get("judgment.evaluation_run"):
                     eval_runs_data.append(span_data)
                 else:
                     spans_data.append(span_data)
 
-            # Send spans if we have any
             if spans_data:
                 self._send_spans_batch(spans_data)
 
-            # Send evaluation runs if we have any
             if eval_runs_data:
                 self._send_evaluation_runs_batch(eval_runs_data)
 
@@ -102,30 +83,14 @@ class JudgmentAPISpanExporter(SpanExporter):
             return SpanExportResult.FAILURE
 
     def _convert_span_to_judgment_format(self, span: ReadableSpan) -> Dict[str, Any]:
-        """
-        Convert OpenTelemetry span to existing Judgment API format.
-
-        Args:
-            span: OpenTelemetry ReadableSpan object
-
-        Returns:
-            Dictionary in existing Judgment API format
-        """
-        # Check if this is an evaluation run span
+        """Convert OpenTelemetry span to existing Judgment API format."""
         if span.attributes and span.attributes.get("judgment.evaluation_run"):
-            # Use the evaluation run formatter
             return SpanTransformer.otel_span_to_evaluation_run_format(span)
         else:
-            # Use the regular span formatter
             return SpanTransformer.otel_span_to_judgment_format(span)
 
     def _send_spans_batch(self, spans: List[Dict[str, Any]]):
-        """
-        Send a batch of spans to the spans endpoint.
-
-        Args:
-            spans: List of span dictionaries to send
-        """
+        """Send a batch of spans to the spans endpoint."""
         payload = {
             "spans": [span["data"] for span in spans],
             "organization_id": self.organization_id,
@@ -145,20 +110,12 @@ class JudgmentAPISpanExporter(SpanExporter):
             raise Exception(f"HTTP {response.status_code} - {response.text}")
 
     def _send_evaluation_runs_batch(self, eval_runs: List[Dict[str, Any]]):
-        """
-        Send a batch of evaluation runs to the evaluation runs endpoint.
-
-        Args:
-            eval_runs: List of evaluation run dictionaries to send
-        """
-        # Structure payload to match existing API format
+        """Send a batch of evaluation runs to the evaluation runs endpoint."""
         evaluation_entries = []
         for eval_run in eval_runs:
             eval_data = eval_run["data"]
-            # Structure entry to match existing API format
             entry = {
                 "evaluation_run": {
-                    # Extract evaluation run fields (excluding span-specific fields)
                     key: value
                     for key, value in eval_data.items()
                     if key not in ["associated_span_id", "span_data", "queued_at"]
@@ -190,43 +147,16 @@ class JudgmentAPISpanExporter(SpanExporter):
             raise Exception(f"HTTP {response.status_code} - {response.text}")
 
     def _fallback_encoder(self, obj: Any) -> str:
-        """
-        Fallback encoder for JSON serialization.
-
-        Args:
-            obj: Object to encode
-
-        Returns:
-            String representation of the object
-        """
+        """Fallback encoder for JSON serialization."""
         try:
             return str(obj)
         except Exception:
             return f"<{type(obj).__name__}>"
 
     def shutdown(self, timeout_millis: int = 30000) -> None:
-        """
-        Shutdown the exporter.
-
-        Since this exporter sends data synchronously and doesn't have any
-        background threads or resources, there's nothing to clean up.
-
-        Args:
-            timeout_millis: Timeout in milliseconds (ignored)
-        """
+        """Shutdown the exporter."""
         pass
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
-        """
-        Force flush any pending requests.
-
-        Since this exporter sends data synchronously in the export() method
-        and doesn't have any internal buffering, there's nothing to flush.
-
-        Args:
-            timeout_millis: Timeout in milliseconds (ignored)
-
-        Returns:
-            True indicating success (no-op)
-        """
+        """Force flush any pending requests."""
         return True

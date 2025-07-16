@@ -195,7 +195,6 @@ class SpanTransformer:
             uuid.uuid4()
         )
 
-        # Use EvaluationRun model fields for iteration instead of hardcoding
         eval_run_data = {}
         if hasattr(EvaluationRun, "model_fields"):
             model_fields = EvaluationRun.model_fields
@@ -203,7 +202,6 @@ class SpanTransformer:
                 if field_name in judgment_data:
                     eval_run_data[field_name] = judgment_data[field_name]
         else:
-            # Fallback to the original approach if model_fields is not available
             eval_run_data = {
                 key: value
                 for key, value in judgment_data.items()

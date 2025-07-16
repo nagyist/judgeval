@@ -26,16 +26,13 @@ from judgeval.evaluation_run import EvaluationRun
 
 
 class SimpleReadableSpan(ReadableSpan):
-    """
-    Simple ReadableSpan implementation that wraps TraceSpan data.
-    """
+    """Simple ReadableSpan implementation that wraps TraceSpan data."""
 
     def __init__(self, trace_span: TraceSpan, span_state: str = "completed"):
         self._name = trace_span.function
         self._span_id = trace_span.span_id
         self._trace_id = trace_span.trace_id
 
-        # Convert timestamps to nanoseconds for OpenTelemetry
         self._start_time = (
             int(trace_span.created_at * 1_000_000_000)
             if trace_span.created_at
@@ -43,7 +40,6 @@ class SimpleReadableSpan(ReadableSpan):
         )
         self._end_time: Optional[int] = None
 
-        # Calculate end time if completed and has duration
         if (
             span_state == "completed"
             and trace_span.duration is not None
@@ -51,19 +47,15 @@ class SimpleReadableSpan(ReadableSpan):
         ):
             self._end_time = self._start_time + int(trace_span.duration * 1_000_000_000)
 
-        # Set status based on errors
         self._status = (
             Status(StatusCode.ERROR) if trace_span.error else Status(StatusCode.OK)
         )
 
-        # Convert TraceSpan to OpenTelemetry attributes
         self._attributes = SpanTransformer.trace_span_to_otel_attributes(
             trace_span, span_state
         )
 
-        # Create proper OpenTelemetry SpanContext
         try:
-            # Convert string IDs to integers for OpenTelemetry
             trace_id_int = (
                 int(trace_span.trace_id.replace("-", ""), 16)
                 if trace_span.trace_id
@@ -79,14 +71,13 @@ class SimpleReadableSpan(ReadableSpan):
                 trace_id=trace_id_int,
                 span_id=span_id_int,
                 is_remote=False,
-                trace_flags=TraceFlags(0x01),  # SAMPLED
+                trace_flags=TraceFlags(0x01),
                 trace_state=TraceState(),
             )
         except (ValueError, TypeError) as e:
             judgeval_logger.warning(f"Failed to create proper SpanContext: {e}")
             self._context = INVALID_SPAN_CONTEXT
 
-        # Empty collections for compatibility
         self._parent: Optional[SpanContext] = None
         self._events: list[Any] = []
         self._links: list[Any] = []
@@ -156,12 +147,10 @@ class JudgmentSpanProcessor(SpanProcessor, SpanProcessorBase):
         self.judgment_api_key = judgment_api_key
         self.organization_id = organization_id
 
-        # Thread-safe cache for span updates
         self._span_cache: Dict[str, TraceSpan] = {}
         self._span_states: Dict[str, str] = {}
         self._cache_lock = threading.RLock()
 
-        # Use BatchSpanProcessor for all the heavy lifting
         self.batch_processor = BatchSpanProcessor(
             JudgmentAPISpanExporter(
                 judgment_api_key=judgment_api_key,
@@ -174,22 +163,12 @@ class JudgmentSpanProcessor(SpanProcessor, SpanProcessorBase):
         )
 
     def on_start(self, span: Span, parent_context: Optional[Context] = None) -> None:
-        """Called when a span starts - delegate to batch processor."""
         self.batch_processor.on_start(span, parent_context)
 
     def on_end(self, span: ReadableSpan) -> None:
-        """Called when a span ends - delegate to batch processor."""
         self.batch_processor.on_end(span)
 
     def queue_span_update(self, span: TraceSpan, span_state: str = "input") -> None:
-        """
-        Queue a span update for export.
-
-        Args:
-            span: The TraceSpan object to update
-            span_state: State of the span ("input", "output", "completed", etc.)
-        """
-        # Handle update_id logic based on span state
         if span_state == "completed":
             span.set_update_id_to_ending_number()
         else:
@@ -198,32 +177,20 @@ class JudgmentSpanProcessor(SpanProcessor, SpanProcessorBase):
         with self._cache_lock:
             span_id = span.span_id
 
-            # Update the cached span with the latest data
             self._span_cache[span_id] = span
             self._span_states[span_id] = span_state
 
             self._send_span_update(span, span_state)
 
-            # If span is completed, remove from cache
             if span_state == "completed" or span_state == "error":
                 self._span_cache.pop(span_id, None)
                 self._span_states.pop(span_id, None)
 
     def _send_span_update(self, span: TraceSpan, span_state: str) -> None:
-        """
-        Send a span update to the BatchSpanProcessor.
-
-        Args:
-            span: The TraceSpan object to send
-            span_state: State of the span
-        """
         readable_span = SimpleReadableSpan(span, span_state)
         self.batch_processor.on_end(readable_span)
 
     def flush_pending_spans(self) -> None:
-        """
-        Flush all pending span updates from the cache.
-        """
         with self._cache_lock:
             if not self._span_cache:
                 return
@@ -235,29 +202,16 @@ class JudgmentSpanProcessor(SpanProcessor, SpanProcessorBase):
     def queue_evaluation_run(
         self, evaluation_run: EvaluationRun, span_id: str, span_data: TraceSpan
     ) -> None:
-        """
-        Queue an evaluation run for export.
-
-        Args:
-            evaluation_run: The EvaluationRun object to queue
-            span_id: The span ID associated with this evaluation run
-            span_data: The span data at the time of evaluation
-        """
-        # Convert evaluation run to span attributes
         attributes = SpanTransformer.evaluation_run_to_otel_attributes(
             evaluation_run, span_id, span_data
         )
 
-        # Create ReadableSpan with evaluation run data
         readable_span = SimpleReadableSpan(span_data, "evaluation_run")
         readable_span._attributes.update(attributes)
 
-        # Send to BatchSpanProcessor
         self.batch_processor.on_end(readable_span)
 
     def shutdown(self) -> None:
-        """Shutdown the processor."""
-        # First, flush any pending spans
         try:
             self.flush_pending_spans()
         except Exception as e:
@@ -265,21 +219,16 @@ class JudgmentSpanProcessor(SpanProcessor, SpanProcessorBase):
                 f"Error flushing pending spans during shutdown: {e}"
             )
 
-        # Then shutdown the batch processor
         self.batch_processor.shutdown()
 
-        # Clear the cache
         with self._cache_lock:
             self._span_cache.clear()
             self._span_states.clear()
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
-        """Force flush all pending spans."""
-        # First, flush any pending spans from cache
         try:
             self.flush_pending_spans()
         except Exception as e:
             judgeval_logger.warning(f"Error flushing pending spans: {e}")
 
-        # Then force flush the batch processor
         return self.batch_processor.force_flush(timeout_millis)

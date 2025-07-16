@@ -170,7 +170,6 @@ class TraceClient:
             duration = time.time() - start_time
             span.duration = duration
 
-            # Use OpenTelemetry span processor for span completion
             self.otel_span_processor.queue_span_update(span, span_state="completed")
 
             if span_id in self._span_depths:
@@ -252,7 +251,6 @@ class TraceClient:
 
         self.add_eval_run(eval_run, start_time)
 
-        # Use OpenTelemetry span processor for span updates
         if span_id_to_use:
             current_span = self.span_id_to_span.get(span_id_to_use)
             if current_span:
@@ -277,7 +275,6 @@ class TraceClient:
             span.inputs = inputs
 
             try:
-                # Use OpenTelemetry span processor for span updates
                 self.otel_span_processor.queue_span_update(span, span_state="input")
             except Exception as e:
                 judgeval_logger.warning(f"Failed to queue span with input data: {e}")
@@ -288,7 +285,6 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.agent_name = agent_name
 
-            # Use OpenTelemetry span processor for span updates
             self.otel_span_processor.queue_span_update(span, span_state="agent_name")
 
     def record_state_before(self, state: dict):
@@ -302,7 +298,6 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.state_before = state
 
-            # Use OpenTelemetry span processor for span updates
             self.otel_span_processor.queue_span_update(span, span_state="state_before")
 
     def record_state_after(self, state: dict):
@@ -316,7 +311,6 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.state_after = state
 
-            # Use OpenTelemetry span processor for span updates
             self.otel_span_processor.queue_span_update(span, span_state="state_after")
 
     async def _update_coroutine(self, span: TraceSpan, coroutine: Any, field: str):
@@ -346,7 +340,6 @@ class TraceClient:
             if inspect.iscoroutine(output):
                 asyncio.create_task(self._update_coroutine(span, output, "output"))
 
-            # Use OpenTelemetry span processor for span updates
             if not inspect.iscoroutine(output):
                 self.otel_span_processor.queue_span_update(span, span_state="output")
 
@@ -359,7 +352,6 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.usage = usage
 
-            # Use OpenTelemetry span processor for span updates
             self.otel_span_processor.queue_span_update(span, span_state="usage")
 
             return span
@@ -371,7 +363,6 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.error = error
 
-            # Use OpenTelemetry span processor for span updates
             self.otel_span_processor.queue_span_update(span, span_state="error")
 
             return span
@@ -406,10 +397,8 @@ class TraceClient:
 
         Returns a tuple of (trace_id, server_response) where server_response contains the UI URL and other metadata.
         """
-        # If this is the final save, ensure all spans for this trace are flushed
         if final_save:
             try:
-                # Flush any pending spans for this trace
                 self.otel_span_processor.flush_pending_spans()
             except Exception as e:
                 judgeval_logger.warning(
@@ -640,14 +629,10 @@ class _DeepTracer:
             try:
                 original_result = self._original_sys_trace(frame, event, arg)
             except Exception:
-                # If the original tracer fails, continue with our tracing
                 pass
 
-        # Then do our own tracing
         our_result = self._trace(frame, event, arg, self._cooperative_sys_trace)
 
-        # Return our tracer to continue tracing, but respect the original's decision
-        # If the original tracer returned None (stop tracing), we should respect that
         if original_result is None and self._original_sys_trace:
             return None
 
@@ -657,20 +642,15 @@ class _DeepTracer:
         self, frame: types.FrameType, event: str, arg: Any
     ):
         """Cooperative trace function for threading.settrace that chains with existing tracers."""
-        # First, call the original threading trace function if it exists
         original_result = None
         if self._original_threading_trace:
             try:
                 original_result = self._original_threading_trace(frame, event, arg)
             except Exception:
-                # If the original tracer fails, continue with our tracing
                 pass
 
-        # Then do our own tracing
         our_result = self._trace(frame, event, arg, self._cooperative_threading_trace)
 
-        # Return our tracer to continue tracing, but respect the original's decision
-        # If the original tracer returned None (stop tracing), we should respect that
         if original_result is None and self._original_threading_trace:
             return None
 
@@ -886,11 +866,10 @@ class Tracer:
         s3_aws_secret_access_key: Optional[str] = None,
         s3_region_name: Optional[str] = None,
         trace_across_async_contexts: bool = False,  # BY default, we don't trace across async contexts
-        # Background span service configuration
-        span_batch_size: int = 50,  # Number of spans to batch before sending
-        span_flush_interval: float = 1.0,  # Time in seconds between automatic flushes
-        span_max_queue_size: int = 2048,  # Maximum number of spans in queue before blocking
-        span_export_timeout: int = 30000,  # Timeout for span export in milliseconds
+        span_batch_size: int = 50,
+        span_flush_interval: float = 1.0,
+        span_max_queue_size: int = 2048,
+        span_export_timeout: int = 30000,
     ):
         try:
             if not api_key:
@@ -955,7 +934,6 @@ class Tracer:
             self.offline_mode = False  # This is used to differentiate traces between online and offline (IE experiments vs monitoring page)
             self.deep_tracing: bool = deep_tracing
 
-            # Store span configuration parameters as instance attributes
             self.span_batch_size = span_batch_size
             self.span_flush_interval = span_flush_interval
             self.span_max_queue_size = span_max_queue_size
@@ -1098,7 +1076,6 @@ class Tracer:
         # Set the current trace in context variables
         token = self.set_current_trace(trace)
 
-        # Automatically create top-level span
         with trace.span(name or "unnamed_trace"):
             try:
                 # Save the trace to the database to handle Evaluations' trace_id referential integrity
@@ -1277,8 +1254,6 @@ class Tracer:
                     trace_token = self.set_current_trace(current_trace)
 
                     try:
-                        # Use span for the function execution within the root trace
-                        # This sets the current_span_var
                         with current_trace.span(span_name, span_type=span_type) as span:
                             inputs = combine_args_kwargs(func, args, kwargs)
                             span.record_input(inputs)
@@ -1392,7 +1367,7 @@ class Tracer:
                     current_trace = TraceClient(
                         self,
                         trace_id,
-                        span_name,  # MODIFIED: Use span_name directly
+                        span_name,
                         project_name=project,
                         enable_monitoring=self.enable_monitoring,
                         enable_evaluations=self.enable_evaluations,
@@ -1401,11 +1376,7 @@ class Tracer:
                     trace_token = self.set_current_trace(current_trace)
 
                     try:
-                        # Use span for the function execution within the root trace
-                        # This sets the current_span_var
-                        with current_trace.span(
-                            span_name, span_type=span_type
-                        ) as span:  # MODIFIED: Use span_name directly
+                        with current_trace.span(span_name, span_type=span_type) as span:
                             # Record inputs
                             inputs = combine_args_kwargs(func, args, kwargs)
                             span.record_input(inputs)
@@ -1437,14 +1408,11 @@ class Tracer:
                             span.record_output(result)
                         return result
                     finally:
-                        # Flush background spans before saving the trace
                         try:
-                            # Save the completed trace
                             trace_id, server_response = current_trace.save(
                                 final_save=True
                             )
 
-                            # Store the complete trace data instead of just server response
                             complete_trace_data = {
                                 "trace_id": current_trace.trace_id,
                                 "name": current_trace.name,
@@ -1462,7 +1430,6 @@ class Tracer:
                                 "parent_name": current_trace.parent_name,
                             }
                             self.traces.append(complete_trace_data)
-                            # Reset trace context (span context resets automatically)
                             self.reset_current_trace(trace_token)
                         except Exception as e:
                             judgeval_logger.warning(f"Issue with save: {e}")
