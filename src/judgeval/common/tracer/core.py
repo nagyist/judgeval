@@ -1629,7 +1629,7 @@ class Tracer:
             judgeval_logger.warning("No current trace found, cannot set reward score")
 
     def get_otel_span_processor(self) -> SpanProcessorBase:
-        """Get the span processor instance."""
+        """Get the OpenTelemetry span processor instance."""
         return self.otel_span_processor
 
     def flush_background_spans(self, timeout_millis: int = 30000):
