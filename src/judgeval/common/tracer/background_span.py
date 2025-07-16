@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from judgeval.common.logger import judgeval_logger
-from judgeval.common.api import JudgmentApiClient, EvaluationEntryResponse
+from judgeval.common.api import JudgmentApiClient
+from judgeval.common.api.constants import EvaluationEntryResponse
 from judgeval.data import TraceSpan
 from judgeval.evaluation_run import EvaluationRun
 
