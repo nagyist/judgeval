@@ -15,6 +15,7 @@ from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace import ReadableSpan
 
 from judgeval.common.tracer.span_transformer import SpanTransformer
+from judgeval.common.logger import judgeval_logger
 from judgeval.constants import (
     JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL,
     JUDGMENT_TRACES_SPANS_BATCH_API_URL,
@@ -96,7 +97,8 @@ class JudgmentAPISpanExporter(SpanExporter):
 
             return SpanExportResult.SUCCESS
 
-        except Exception:
+        except Exception as e:
+            judgeval_logger.error(f"Error in JudgmentAPISpanExporter.export: {e}")
             return SpanExportResult.FAILURE
 
     def _convert_span_to_judgment_format(self, span: ReadableSpan) -> Dict[str, Any]:
@@ -142,16 +144,16 @@ class JudgmentAPISpanExporter(SpanExporter):
         if response.status_code != HTTPStatus.OK:
             raise Exception(f"HTTP {response.status_code} - {response.text}")
 
-    def _send_evaluation_runs_batch(self, evaluation_runs: List[Dict[str, Any]]):
+    def _send_evaluation_runs_batch(self, eval_runs: List[Dict[str, Any]]):
         """
         Send a batch of evaluation runs to the evaluation runs endpoint.
 
         Args:
-            evaluation_runs: List of evaluation run dictionaries to send
+            eval_runs: List of evaluation run dictionaries to send
         """
         # Structure payload to match existing API format
         evaluation_entries = []
-        for eval_run in evaluation_runs:
+        for eval_run in eval_runs:
             eval_data = eval_run["data"]
             # Structure entry to match existing API format
             entry = {

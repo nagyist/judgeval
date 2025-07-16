@@ -188,9 +188,26 @@ class JudgmentSpanProcessor(SpanProcessor):
         else:
             span.increment_update_id()
 
-        # Create ReadableSpan and send to BatchSpanProcessor
+        # Send this update immediately
+        self._send_span_update(span, span_state)
+
+    def _send_span_update(self, span: TraceSpan, span_state: str) -> None:
+        """
+        Send a span update to the BatchSpanProcessor.
+
+        Args:
+            span: The TraceSpan object to send
+            span_state: State of the span
+        """
         readable_span = SimpleReadableSpan(span, span_state)
         self.batch_processor.on_end(readable_span)
+
+    def flush_pending_spans(self) -> None:
+        """
+        Flush all pending span updates from the cache.
+        Since we send all updates immediately, this method is now a no-op.
+        """
+        pass
 
     def queue_evaluation_run(
         self, evaluation_run: EvaluationRun, span_id: str, span_data: TraceSpan
@@ -212,20 +229,34 @@ class JudgmentSpanProcessor(SpanProcessor):
         readable_span = SimpleReadableSpan(span_data, "evaluation_run")
         readable_span._attributes.update(attributes)
 
-        judgeval_logger.debug(f"Queuing evaluation run for span {span_id}")
-
         # Send to BatchSpanProcessor
         self.batch_processor.on_end(readable_span)
 
     def shutdown(self) -> None:
         """Shutdown the processor."""
+        # First, flush any pending spans
+        try:
+            self.flush_pending_spans()
+        except Exception as e:
+            judgeval_logger.warning(
+                f"Error flushing pending spans during shutdown: {e}"
+            )
+
+        # Then shutdown the batch processor
         self.batch_processor.shutdown()
-        judgeval_logger.debug("JudgmentSpanProcessor shutdown complete")
+
+        # Clear the cache
+        with self._cache_lock:
+            self._span_cache.clear()
+            self._span_states.clear()
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
         """Force flush all pending spans."""
-        success = self.batch_processor.force_flush(timeout_millis)
-        judgeval_logger.debug(
-            f"JudgmentSpanProcessor force_flush {'succeeded' if success else 'failed'}"
-        )
-        return success
+        # First, flush any pending spans from cache
+        try:
+            self.flush_pending_spans()
+        except Exception as e:
+            judgeval_logger.warning(f"Error flushing pending spans: {e}")
+
+        # Then force flush the batch processor
+        return self.batch_processor.force_flush(timeout_millis)

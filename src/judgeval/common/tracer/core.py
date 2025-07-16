@@ -107,21 +107,12 @@ class TraceClient:
         )
         self._span_depths: Dict[str, int] = {}
 
-        # Initialize OpenTelemetry span processor
-        self.otel_span_processor: Optional[JudgmentSpanProcessor] = None
-        if enable_monitoring:
-            self.otel_span_processor = JudgmentSpanProcessor(
-                judgment_api_key=tracer.api_key,
-                organization_id=tracer.organization_id,
-                batch_size=tracer.span_batch_size,
-                flush_interval=tracer.span_flush_interval,
-                max_queue_size=2048,
-                export_timeout=30000,
-            )
+        # Use shared OpenTelemetry span processor from the tracer
+        self.otel_span_processor = tracer.otel_span_processor
 
         if self.otel_span_processor:
             judgeval_logger.info(
-                f"🎯 TraceClient using OpenTelemetry span processor for trace {self.trace_id}"
+                f"🎯 TraceClient using shared OpenTelemetry span processor for trace {self.trace_id}"
             )
         else:
             judgeval_logger.info(
@@ -447,6 +438,15 @@ class TraceClient:
 
         Returns a tuple of (trace_id, server_response) where server_response contains the UI URL and other metadata.
         """
+        # If this is the final save, ensure all spans for this trace are flushed
+        if final_save and self.otel_span_processor:
+            try:
+                # Flush any pending spans for this trace
+                self.otel_span_processor.flush_pending_spans()
+            except Exception as e:
+                judgeval_logger.warning(
+                    f"Error flushing spans for trace {self.trace_id}: {e}"
+                )
 
         total_duration = self.get_duration()
 
@@ -921,7 +921,9 @@ class Tracer:
         # Background span service configuration
         span_batch_size: int = 50,  # Number of spans to batch before sending
         span_flush_interval: float = 1.0,  # Time in seconds between automatic flushes
-        span_num_workers: int = 10,  # Number of worker threads for span processing
+        span_num_workers: int = 10,  # Number of worker threads for span processing (not used in current OpenTelemetry implementation)
+        span_max_queue_size: int = 2048,  # Maximum number of spans in queue before blocking
+        span_export_timeout: int = 30000,  # Timeout for span export in milliseconds
     ):
         try:
             if not api_key:
@@ -989,6 +991,9 @@ class Tracer:
             # Store span configuration parameters as instance attributes
             self.span_batch_size = span_batch_size
             self.span_flush_interval = span_flush_interval
+            self.span_max_queue_size = span_max_queue_size
+            self.span_export_timeout = span_export_timeout
+            self.span_num_workers = span_num_workers  # Stored for potential future use
 
             # Initialize OpenTelemetry span processor
             self.otel_span_processor: Optional[JudgmentSpanProcessor] = None
@@ -998,8 +1003,8 @@ class Tracer:
                     organization_id=organization_id,
                     batch_size=span_batch_size,
                     flush_interval=span_flush_interval,
-                    max_queue_size=2048,
-                    export_timeout=30000,
+                    max_queue_size=span_max_queue_size,
+                    export_timeout=span_export_timeout,
                 )
 
             # Register exit handler to ensure spans are flushed on application termination
@@ -1662,15 +1667,11 @@ class Tracer:
         """Get the OpenTelemetry span processor instance."""
         return getattr(self, "otel_span_processor", None)
 
-    def flush_background_spans(self, timeout_millis: int = 5000):
+    def flush_background_spans(self, timeout_millis: int = 30000):
         """Flush all pending spans in the background service."""
         otel_processor = getattr(self, "otel_span_processor", None)
         if otel_processor:
-            success = otel_processor.force_flush(timeout_millis)
-            if not success:
-                judgeval_logger.warning(
-                    "Failed to flush OpenTelemetry spans within timeout"
-                )
+            otel_processor.force_flush(timeout_millis)
 
     def shutdown_background_service(self):
         """Shutdown the background span service."""
@@ -1682,9 +1683,6 @@ class Tracer:
     def _cleanup_on_exit(self):
         """Cleanup handler called on application exit to ensure spans are flushed."""
         try:
-            judgeval_logger.debug(
-                "Tracer cleanup: Flushing spans before application exit..."
-            )
             self.flush_background_spans()
         except Exception as e:
             judgeval_logger.warning(f"Error during tracer cleanup: {e}")
