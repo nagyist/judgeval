@@ -2,43 +2,41 @@
 Tracing system for judgeval that allows for function tracing using decorators.
 """
 
-# Standard library imports
+from __future__ import annotations
+
 import asyncio
+import atexit
 import functools
 import inspect
 import os
-import site
-import sysconfig
 import threading
 import time
 import traceback
 import uuid
 import contextvars
 import sys
-import json
 from contextlib import (
     contextmanager,
-)  # Import context manager bases
+)
 from datetime import datetime, timezone
-from http import HTTPStatus
 from typing import (
     Any,
     Callable,
     Dict,
     Generator,
     List,
-    Literal,
     Optional,
     Tuple,
     Union,
     TypeAlias,
 )
-from rich import print as rprint
 import types
 
-# Third-party imports
-from requests import RequestException
-from judgeval.utils.requests import requests
+from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
+
+from judgeval.common.tracer.otel_span_processor import JudgmentSpanProcessor
+from judgeval.common.tracer.span_processor import SpanProcessorBase
+from judgeval.common.tracer.trace_manager import TraceManagerClient
 from litellm import cost_per_token as _original_cost_per_token
 from openai import OpenAI, AsyncOpenAI
 from openai.types.chat.chat_completion import ChatCompletion
@@ -48,34 +46,18 @@ from together import Together, AsyncTogether
 from anthropic import Anthropic, AsyncAnthropic
 from google import genai
 
-# Local application/library-specific imports
-from judgeval.constants import (
-    JUDGMENT_TRACES_UPSERT_API_URL,
-    JUDGMENT_TRACES_FETCH_API_URL,
-    JUDGMENT_TRACES_DELETE_API_URL,
-    JUDGMENT_PROJECT_DELETE_API_URL,
-    JUDGMENT_TRACES_SPANS_BATCH_API_URL,
-    JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL,
-)
 from judgeval.data import Example, Trace, TraceSpan, TraceUsage
 from judgeval.scorers import APIScorerConfig, BaseScorer
 from judgeval.evaluation_run import EvaluationRun
 from judgeval.common.utils import ExcInfo, validate_api_key
 from judgeval.common.logger import judgeval_logger
 
-# Standard library imports needed for the new class
-import queue
-import atexit
 
-# Define context variables for tracking the current trace and the current span within a trace
 current_trace_var = contextvars.ContextVar[Optional["TraceClient"]](
     "current_trace", default=None
 )
-current_span_var = contextvars.ContextVar[Optional[str]](
-    "current_span", default=None
-)  # ContextVar for the active span id
+current_span_var = contextvars.ContextVar[Optional[str]]("current_span", default=None)
 
-# Define type aliases for better code readability and maintainability
 ApiClient: TypeAlias = Union[
     OpenAI,
     Together,
@@ -85,185 +67,8 @@ ApiClient: TypeAlias = Union[
     AsyncTogether,
     genai.Client,
     genai.client.AsyncClient,
-]  # Supported API clients
-SpanType = Literal["span", "tool", "llm", "evaluation", "chain"]
-
-
-class TraceManagerClient:
-    """
-    Client for handling trace endpoints with the Judgment API
-
-
-    Operations include:
-    - Fetching a trace by id
-    - Saving a trace
-    - Deleting a trace
-    """
-
-    def __init__(
-        self,
-        judgment_api_key: str,
-        organization_id: str,
-        tracer: Optional["Tracer"] = None,
-    ):
-        self.judgment_api_key = judgment_api_key
-        self.organization_id = organization_id
-        self.tracer = tracer
-
-    def fetch_trace(self, trace_id: str):
-        """
-        Fetch a trace by its id
-        """
-        response = requests.post(
-            JUDGMENT_TRACES_FETCH_API_URL,
-            json={
-                "trace_id": trace_id,
-            },
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.judgment_api_key}",
-                "X-Organization-Id": self.organization_id,
-            },
-            verify=True,
-        )
-
-        if response.status_code != HTTPStatus.OK:
-            raise ValueError(f"Failed to fetch traces: {response.text}")
-
-        return response.json()
-
-    def upsert_trace(
-        self,
-        trace_data: dict,
-        offline_mode: bool = False,
-        show_link: bool = True,
-        final_save: bool = True,
-    ):
-        """
-        Upserts a trace to the Judgment API (always overwrites if exists).
-
-        Args:
-            trace_data: The trace data to upsert
-            offline_mode: Whether running in offline mode
-            show_link: Whether to show the UI link (for live tracing)
-            final_save: Whether this is the final save (controls S3 saving)
-
-        Returns:
-            dict: Server response containing UI URL and other metadata
-        """
-
-        def fallback_encoder(obj):
-            """
-            Custom JSON encoder fallback.
-            Tries to use obj.__repr__(), then str(obj) if that fails or for a simpler string.
-            """
-            try:
-                return repr(obj)
-            except Exception:
-                try:
-                    return str(obj)
-                except Exception as e:
-                    return f"<Unserializable object of type {type(obj).__name__}: {e}>"
-
-        serialized_trace_data = json.dumps(trace_data, default=fallback_encoder)
-
-        response = requests.post(
-            JUDGMENT_TRACES_UPSERT_API_URL,
-            data=serialized_trace_data,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.judgment_api_key}",
-                "X-Organization-Id": self.organization_id,
-            },
-            verify=True,
-        )
-
-        if response.status_code != HTTPStatus.OK:
-            raise ValueError(f"Failed to upsert trace data: {response.text}")
-
-        # Parse server response
-        server_response = response.json()
-
-        # If S3 storage is enabled, save to S3 only on final save
-        if self.tracer and self.tracer.use_s3 and final_save:
-            try:
-                s3_key = self.tracer.s3_storage.save_trace(
-                    trace_data=trace_data,
-                    trace_id=trace_data["trace_id"],
-                    project_name=trace_data["project_name"],
-                )
-                judgeval_logger.info(f"Trace also saved to S3 at key: {s3_key}")
-            except Exception as e:
-                judgeval_logger.warning(f"Failed to save trace to S3: {str(e)}")
-
-        if not offline_mode and show_link and "ui_results_url" in server_response:
-            pretty_str = f"\n🔍 You can view your trace data here: [rgb(106,0,255)][link={server_response['ui_results_url']}]View Trace[/link]\n"
-            rprint(pretty_str)
-
-        return server_response
-
-    def delete_trace(self, trace_id: str):
-        """
-        Delete a trace from the database.
-        """
-        response = requests.delete(
-            JUDGMENT_TRACES_DELETE_API_URL,
-            json={
-                "trace_ids": [trace_id],
-            },
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.judgment_api_key}",
-                "X-Organization-Id": self.organization_id,
-            },
-        )
-
-        if response.status_code != HTTPStatus.OK:
-            raise ValueError(f"Failed to delete trace: {response.text}")
-
-        return response.json()
-
-    def delete_traces(self, trace_ids: List[str]):
-        """
-        Delete a batch of traces from the database.
-        """
-        response = requests.delete(
-            JUDGMENT_TRACES_DELETE_API_URL,
-            json={
-                "trace_ids": trace_ids,
-            },
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.judgment_api_key}",
-                "X-Organization-Id": self.organization_id,
-            },
-        )
-
-        if response.status_code != HTTPStatus.OK:
-            raise ValueError(f"Failed to delete trace: {response.text}")
-
-        return response.json()
-
-    def delete_project(self, project_name: str):
-        """
-        Deletes a project from the server. Which also deletes all evaluations and traces associated with the project.
-        """
-        response = requests.delete(
-            JUDGMENT_PROJECT_DELETE_API_URL,
-            json={
-                "project_name": project_name,
-            },
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.judgment_api_key}",
-                "X-Organization-Id": self.organization_id,
-            },
-        )
-
-        if response.status_code != HTTPStatus.OK:
-            raise ValueError(f"Failed to delete traces: {response.text}")
-
-        return response.json()
+]
+SpanType: TypeAlias = str
 
 
 class TraceClient:
@@ -271,7 +76,7 @@ class TraceClient:
 
     def __init__(
         self,
-        tracer: "Tracer",
+        tracer: Tracer,
         trace_id: Optional[str] = None,
         name: str = "default",
         project_name: str | None = None,
@@ -288,25 +93,24 @@ class TraceClient:
         self.enable_evaluations = enable_evaluations
         self.parent_trace_id = parent_trace_id
         self.parent_name = parent_name
-        self.customer_id: Optional[str] = None  # Added customer_id attribute
-        self.tags: List[Union[str, set, tuple]] = []  # Added tags attribute
+        self.customer_id: Optional[str] = None
+        self.tags: List[Union[str, set, tuple]] = []
         self.metadata: Dict[str, Any] = {}
-        self.has_notification: Optional[bool] = False  # Initialize has_notification
-        self.update_id: int = 1  # Initialize update_id to 1, increments with each save
+        self.has_notification: Optional[bool] = False
+        self.update_id: int = 1
         self.trace_spans: List[TraceSpan] = []
         self.span_id_to_span: Dict[str, TraceSpan] = {}
         self.evaluation_runs: List[EvaluationRun] = []
-        self.start_time: Optional[float] = (
-            None  # Will be set after first successful save
-        )
+        self.start_time: Optional[float] = None
         self.trace_manager_client = TraceManagerClient(
             tracer.api_key, tracer.organization_id, tracer
         )
-        self._span_depths: Dict[str, int] = {}  # NEW: To track depth of active spans
+        self._span_depths: Dict[str, int] = {}
 
-        # Get background span service from tracer
-        self.background_span_service = (
-            tracer.get_background_span_service() if tracer else None
+        self.otel_span_processor = tracer.otel_span_processor
+
+        judgeval_logger.info(
+            f"🎯 TraceClient using span processor for trace {self.trace_id}"
         )
 
     def get_current_span(self):
@@ -327,30 +131,23 @@ class TraceClient:
         is_first_span = len(self.trace_spans) == 0
         if is_first_span:
             try:
-                trace_id, server_response = self.save(final_save=False)
-                # Set start_time after first successful save
-                # Link will be shown by upsert_trace method
+                self.save(final_save=False)
             except Exception as e:
                 judgeval_logger.warning(
                     f"Failed to save initial trace for live tracking: {e}"
                 )
         start_time = time.time()
 
-        # Generate a unique ID for *this specific span invocation*
         span_id = str(uuid.uuid4())
 
-        parent_span_id = (
-            self.get_current_span()
-        )  # Get ID of the parent span from context var
-        token = self.set_current_span(
-            span_id
-        )  # Set *this* span's ID as the current one
+        parent_span_id = self.get_current_span()
+        token = self.set_current_span(span_id)
 
         current_depth = 0
         if parent_span_id and parent_span_id in self._span_depths:
             current_depth = self._span_depths[parent_span_id] + 1
 
-        self._span_depths[span_id] = current_depth  # Store depth by span_id
+        self._span_depths[span_id] = current_depth
 
         span = TraceSpan(
             span_id=span_id,
@@ -364,9 +161,7 @@ class TraceClient:
         )
         self.add_span(span)
 
-        # Queue span with initial state (input phase)
-        if self.background_span_service:
-            self.background_span_service.queue_span(span, span_state="input")
+        self.otel_span_processor.queue_span_update(span, span_state="input")
 
         try:
             yield self
@@ -374,14 +169,10 @@ class TraceClient:
             duration = time.time() - start_time
             span.duration = duration
 
-            # Queue span with completed state (output phase)
-            if self.background_span_service:
-                self.background_span_service.queue_span(span, span_state="completed")
+            self.otel_span_processor.queue_span_update(span, span_state="completed")
 
-            # Clean up depth tracking for this span_id
             if span_id in self._span_depths:
                 del self._span_depths[span_id]
-            # Reset context var
             self.reset_current_span(token)
 
     def async_evaluate(
@@ -397,15 +188,14 @@ class TraceClient:
         expected_tools: Optional[List[str]] = None,
         additional_metadata: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
-        span_id: Optional[str] = None,  # <<< ADDED optional span_id parameter
+        span_id: Optional[str] = None,
     ):
         if not self.enable_evaluations:
             return
 
-        start_time = time.time()  # Record start time
+        start_time = time.time()
 
         try:
-            # Load appropriate implementations for all scorers
             if not scorers:
                 judgeval_logger.warning("No valid scorers available for evaluation")
                 return
@@ -414,9 +204,7 @@ class TraceClient:
             judgeval_logger.warning(f"Failed to load scorers: {str(e)}")
             return
 
-        # If example is not provided, create one from the individual parameters
         if example is None:
-            # Check if any of the individual parameters are provided
             if any(
                 param is not None
                 for param in [
@@ -445,17 +233,13 @@ class TraceClient:
                     "Either 'example' or at least one of the individual parameters (input, actual_output, etc.) must be provided"
                 )
 
-        # Check examples before creating evaluation run
-
-        # check_examples([example], scorers)
-
         span_id_to_use = span_id if span_id is not None else self.get_current_span()
 
         eval_run = EvaluationRun(
             organization_id=self.tracer.organization_id,
             project_name=self.project_name,
             eval_name=f"{self.name.capitalize()}-"
-            f"{span_id_to_use}-"  # Keep original eval name format using context var if available
+            f"{span_id_to_use}-"
             f"[{','.join(scorer.score_type.capitalize() for scorer in scorers)}]",
             examples=[example],
             scorers=scorers,
@@ -464,41 +248,33 @@ class TraceClient:
             trace_span_id=span_id_to_use,
         )
 
-        self.add_eval_run(eval_run, start_time)  # Pass start_time to record_evaluation
+        self.add_eval_run(eval_run, start_time)
 
-        # Queue evaluation run through background service
-        if self.background_span_service and span_id_to_use:
-            # Get the current span data to avoid race conditions
+        if span_id_to_use:
             current_span = self.span_id_to_span.get(span_id_to_use)
             if current_span:
-                self.background_span_service.queue_evaluation_run(
+                self.otel_span_processor.queue_evaluation_run(
                     eval_run, span_id=span_id_to_use, span_data=current_span
                 )
 
     def add_eval_run(self, eval_run: EvaluationRun, start_time: float):
-        # --- Modification: Use span_id from eval_run ---
-        current_span_id = eval_run.trace_span_id  # Get ID from the eval_run object
-        # print(f"[TraceClient.add_eval_run] Using span_id from eval_run: {current_span_id}")
-        # --- End Modification ---
+        current_span_id = eval_run.trace_span_id
 
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
-            span.has_evaluation = True  # Set the has_evaluation flag
+            span.has_evaluation = True
         self.evaluation_runs.append(eval_run)
 
     def record_input(self, inputs: dict):
         current_span_id = self.get_current_span()
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
-            # Ignore self parameter
             if "self" in inputs:
                 del inputs["self"]
             span.inputs = inputs
 
-            # Queue span with input data
             try:
-                if self.background_span_service:
-                    self.background_span_service.queue_span(span, span_state="input")
+                self.otel_span_processor.queue_span_update(span, span_state="input")
             except Exception as e:
                 judgeval_logger.warning(f"Failed to queue span with input data: {e}")
 
@@ -508,9 +284,7 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.agent_name = agent_name
 
-            # Queue span with agent_name data
-            if self.background_span_service:
-                self.background_span_service.queue_span(span, span_state="agent_name")
+            self.otel_span_processor.queue_span_update(span, span_state="agent_name")
 
     def record_state_before(self, state: dict):
         """Records the agent's state before a tool execution on the current span.
@@ -523,9 +297,7 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.state_before = state
 
-            # Queue span with state_before data
-            if self.background_span_service:
-                self.background_span_service.queue_span(span, span_state="state_before")
+            self.otel_span_processor.queue_span_update(span, span_state="state_before")
 
     def record_state_after(self, state: dict):
         """Records the agent's state after a tool execution on the current span.
@@ -538,9 +310,7 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.state_after = state
 
-            # Queue span with state_after data
-            if self.background_span_service:
-                self.background_span_service.queue_span(span, span_state="state_after")
+            self.otel_span_processor.queue_span_update(span, span_state="state_after")
 
     async def _update_coroutine(self, span: TraceSpan, coroutine: Any, field: str):
         """Helper method to update the output of a trace entry once the coroutine completes"""
@@ -548,17 +318,15 @@ class TraceClient:
             result = await coroutine
             setattr(span, field, result)
 
-            # Queue span with output data now that coroutine is complete
-            if self.background_span_service and field == "output":
-                self.background_span_service.queue_span(span, span_state="output")
+            if field == "output":
+                self.otel_span_processor.queue_span_update(span, span_state="output")
 
             return result
         except Exception as e:
             setattr(span, field, f"Error: {str(e)}")
 
-            # Queue span even if there was an error
-            if self.background_span_service and field == "output":
-                self.background_span_service.queue_span(span, span_state="output")
+            if field == "output":
+                self.otel_span_processor.queue_span_update(span, span_state="output")
 
             raise
 
@@ -571,13 +339,11 @@ class TraceClient:
             if inspect.iscoroutine(output):
                 asyncio.create_task(self._update_coroutine(span, output, "output"))
 
-            # # Queue span with output data (unless it's pending)
-            if self.background_span_service and not inspect.iscoroutine(output):
-                self.background_span_service.queue_span(span, span_state="output")
+            if not inspect.iscoroutine(output):
+                self.otel_span_processor.queue_span_update(span, span_state="output")
 
-            return span  # Return the created entry
-        # Removed else block - original didn't have one
-        return None  # Return None if no span_id found
+            return span
+        return None
 
     def record_usage(self, usage: TraceUsage):
         current_span_id = self.get_current_span()
@@ -585,13 +351,10 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.usage = usage
 
-            # Queue span with usage data
-            if self.background_span_service:
-                self.background_span_service.queue_span(span, span_state="usage")
+            self.otel_span_processor.queue_span_update(span, span_state="usage")
 
-            return span  # Return the created entry
-        # Removed else block - original didn't have one
-        return None  # Return None if no span_id found
+            return span
+        return None
 
     def record_error(self, error: Dict[str, Any]):
         current_span_id = self.get_current_span()
@@ -599,9 +362,7 @@ class TraceClient:
             span = self.span_id_to_span[current_span_id]
             span.error = error
 
-            # Queue span with error data
-            if self.background_span_service:
-                self.background_span_service.queue_span(span, span_state="error")
+            self.otel_span_processor.queue_span_update(span, span_state="error")
 
             return span
         return None
@@ -622,7 +383,7 @@ class TraceClient:
         Get the total duration of this trace
         """
         if self.start_time is None:
-            return 0.0  # No duration if trace hasn't been saved yet
+            return 0.0
         return time.time() - self.start_time
 
     def save(self, final_save: bool = False) -> Tuple[str, dict]:
@@ -635,11 +396,16 @@ class TraceClient:
 
         Returns a tuple of (trace_id, server_response) where server_response contains the UI URL and other metadata.
         """
+        if final_save:
+            try:
+                self.otel_span_processor.flush_pending_spans()
+            except Exception as e:
+                judgeval_logger.warning(
+                    f"Error flushing spans for trace {self.trace_id}: {e}"
+                )
 
-        # Calculate total elapsed time
         total_duration = self.get_duration()
 
-        # Create trace document
         trace_data = {
             "trace_id": self.trace_id,
             "name": self.name,
@@ -659,12 +425,11 @@ class TraceClient:
             "update_id": self.update_id,
         }
 
-        # If usage check passes, upsert the trace
         server_response = self.trace_manager_client.upsert_trace(
             trace_data,
             offline_mode=self.tracer.offline_mode,
-            show_link=not final_save,  # Show link only on initial save, not final save
-            final_save=final_save,  # Pass final_save to control S3 saving
+            show_link=not final_save,
+            final_save=final_save,
         )
 
         if self.start_time is None:
@@ -698,7 +463,6 @@ class TraceClient:
                     self.customer_id = None
             elif k == "tags":
                 if isinstance(v, list):
-                    # Validate that all items in the list are of the expected types
                     for item in v:
                         if not isinstance(item, (str, set, tuple)):
                             raise ValueError(
@@ -749,7 +513,7 @@ class TraceClient:
 
 
 def _capture_exception_for_trace(
-    current_trace: Optional["TraceClient"], exc_info: ExcInfo
+    current_trace: Optional[TraceClient], exc_info: ExcInfo
 ):
     if not current_trace:
         return
@@ -758,9 +522,9 @@ def _capture_exception_for_trace(
     formatted_exception = {
         "type": exc_type.__name__ if exc_type else "UnknownExceptionType",
         "message": str(exc_value) if exc_value else "No exception message",
-        "traceback": traceback.format_tb(exc_traceback_obj)
-        if exc_traceback_obj
-        else [],
+        "traceback": (
+            traceback.format_tb(exc_traceback_obj) if exc_traceback_obj else []
+        ),
     }
 
     # This is where we specially handle exceptions that we might want to collect additional data for.
@@ -784,353 +548,6 @@ def _capture_exception_for_trace(
         pass
 
     current_trace.record_error(formatted_exception)
-
-    # Queue the span with error state through background service
-    if current_trace.background_span_service:
-        current_span_id = current_trace.get_current_span()
-        if current_span_id and current_span_id in current_trace.span_id_to_span:
-            error_span = current_trace.span_id_to_span[current_span_id]
-            current_trace.background_span_service.queue_span(
-                error_span, span_state="error"
-            )
-
-
-class BackgroundSpanService:
-    """
-    Background service for queueing and batching trace spans for efficient saving.
-
-    This service:
-    - Queues spans as they complete
-    - Batches them for efficient network usage
-    - Sends spans periodically or when batches reach a certain size
-    - Handles automatic flushing when the main event terminates
-    """
-
-    def __init__(
-        self,
-        judgment_api_key: str,
-        organization_id: str,
-        batch_size: int = 10,
-        flush_interval: float = 5.0,
-        num_workers: int = 1,
-    ):
-        """
-        Initialize the background span service.
-
-        Args:
-            judgment_api_key: API key for Judgment service
-            organization_id: Organization ID
-            batch_size: Number of spans to batch before sending (default: 10)
-            flush_interval: Time in seconds between automatic flushes (default: 5.0)
-            num_workers: Number of worker threads to process the queue (default: 1)
-        """
-        self.judgment_api_key = judgment_api_key
-        self.organization_id = organization_id
-        self.batch_size = batch_size
-        self.flush_interval = flush_interval
-        self.num_workers = max(1, num_workers)  # Ensure at least 1 worker
-
-        # Queue for pending spans
-        self._span_queue: queue.Queue[Dict[str, Any]] = queue.Queue()
-
-        # Background threads for processing spans
-        self._worker_threads: List[threading.Thread] = []
-        self._shutdown_event = threading.Event()
-
-        # Track spans that have been sent
-        # self._sent_spans = set()
-
-        # Register cleanup on exit
-        atexit.register(self.shutdown)
-
-        # Start the background workers
-        self._start_workers()
-
-    def _start_workers(self):
-        """Start the background worker threads."""
-        for i in range(self.num_workers):
-            if len(self._worker_threads) < self.num_workers:
-                worker_thread = threading.Thread(
-                    target=self._worker_loop, daemon=True, name=f"SpanWorker-{i + 1}"
-                )
-                worker_thread.start()
-                self._worker_threads.append(worker_thread)
-
-    def _worker_loop(self):
-        """Main worker loop that processes spans in batches."""
-        batch = []
-        last_flush_time = time.time()
-        pending_task_count = (
-            0  # Track how many tasks we've taken from queue but not marked done
-        )
-
-        while not self._shutdown_event.is_set() or self._span_queue.qsize() > 0:
-            try:
-                # First, do a blocking get to wait for at least one item
-                if not batch:  # Only block if we don't have items already
-                    try:
-                        span_data = self._span_queue.get(timeout=1.0)
-                        batch.append(span_data)
-                        pending_task_count += 1
-                    except queue.Empty:
-                        # No new spans, continue to check for flush conditions
-                        pass
-
-                # Then, do non-blocking gets to drain any additional available items
-                # up to our batch size limit
-                while len(batch) < self.batch_size:
-                    try:
-                        span_data = self._span_queue.get_nowait()  # Non-blocking
-                        batch.append(span_data)
-                        pending_task_count += 1
-                    except queue.Empty:
-                        # No more items immediately available
-                        break
-
-                current_time = time.time()
-                should_flush = len(batch) >= self.batch_size or (
-                    batch and (current_time - last_flush_time) >= self.flush_interval
-                )
-
-                if should_flush and batch:
-                    self._send_batch(batch)
-
-                    # Only mark tasks as done after successful sending
-                    for _ in range(pending_task_count):
-                        self._span_queue.task_done()
-                    pending_task_count = 0  # Reset counter
-
-                    batch.clear()
-                    last_flush_time = current_time
-
-            except Exception as e:
-                judgeval_logger.warning(f"Error in span service worker loop: {e}")
-                # On error, still need to mark tasks as done to prevent hanging
-                for _ in range(pending_task_count):
-                    self._span_queue.task_done()
-                pending_task_count = 0
-                batch.clear()
-
-        # Final flush on shutdown
-        if batch:
-            self._send_batch(batch)
-            # Mark remaining tasks as done
-            for _ in range(pending_task_count):
-                self._span_queue.task_done()
-
-    def _send_batch(self, batch: List[Dict[str, Any]]):
-        """
-        Send a batch of spans to the server.
-
-        Args:
-            batch: List of span dictionaries to send
-        """
-        if not batch:
-            return
-
-        try:
-            # Group items by type for different endpoints
-            spans_to_send = []
-            evaluation_runs_to_send = []
-
-            for item in batch:
-                if item["type"] == "span":
-                    spans_to_send.append(item["data"])
-                elif item["type"] == "evaluation_run":
-                    evaluation_runs_to_send.append(item["data"])
-
-            # Send spans if any
-            if spans_to_send:
-                self._send_spans_batch(spans_to_send)
-
-            # Send evaluation runs if any
-            if evaluation_runs_to_send:
-                self._send_evaluation_runs_batch(evaluation_runs_to_send)
-
-        except Exception as e:
-            judgeval_logger.warning(f"Failed to send batch: {e}")
-
-    def _send_spans_batch(self, spans: List[Dict[str, Any]]):
-        """Send a batch of spans to the spans endpoint."""
-        payload = {"spans": spans, "organization_id": self.organization_id}
-
-        # Serialize with fallback encoder
-        def fallback_encoder(obj):
-            try:
-                return repr(obj)
-            except Exception:
-                try:
-                    return str(obj)
-                except Exception as e:
-                    return f"<Unserializable object of type {type(obj).__name__}: {e}>"
-
-        try:
-            serialized_data = json.dumps(payload, default=fallback_encoder)
-
-            # Send the actual HTTP request to the batch endpoint
-            response = requests.post(
-                JUDGMENT_TRACES_SPANS_BATCH_API_URL,
-                data=serialized_data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.judgment_api_key}",
-                    "X-Organization-Id": self.organization_id,
-                },
-                verify=True,
-                timeout=30,  # Add timeout to prevent hanging
-            )
-
-            if response.status_code != HTTPStatus.OK:
-                judgeval_logger.warning(
-                    f"Failed to send spans batch: HTTP {response.status_code} - {response.text}"
-                )
-
-        except RequestException as e:
-            judgeval_logger.warning(f"Network error sending spans batch: {e}")
-        except Exception as e:
-            judgeval_logger.warning(f"Failed to serialize or send spans batch: {e}")
-
-    def _send_evaluation_runs_batch(self, evaluation_runs: List[Dict[str, Any]]):
-        """Send a batch of evaluation runs with their associated span data to the endpoint."""
-        # Structure payload to include both evaluation run data and span data
-        evaluation_entries = []
-        for eval_data in evaluation_runs:
-            # eval_data already contains the evaluation run data (no need to access ['data'])
-            entry = {
-                "evaluation_run": {
-                    # Extract evaluation run fields (excluding span-specific fields)
-                    key: value
-                    for key, value in eval_data.items()
-                    if key not in ["associated_span_id", "span_data", "queued_at"]
-                },
-                "associated_span": {
-                    "span_id": eval_data.get("associated_span_id"),
-                    "span_data": eval_data.get("span_data"),
-                },
-                "queued_at": eval_data.get("queued_at"),
-            }
-            evaluation_entries.append(entry)
-
-        payload = {
-            "organization_id": self.organization_id,
-            "evaluation_entries": evaluation_entries,  # Each entry contains both eval run + span data
-        }
-
-        # Serialize with fallback encoder
-        def fallback_encoder(obj):
-            try:
-                return repr(obj)
-            except Exception:
-                try:
-                    return str(obj)
-                except Exception as e:
-                    return f"<Unserializable object of type {type(obj).__name__}: {e}>"
-
-        try:
-            serialized_data = json.dumps(payload, default=fallback_encoder)
-
-            # Send the actual HTTP request to the batch endpoint
-            response = requests.post(
-                JUDGMENT_TRACES_EVALUATION_RUNS_BATCH_API_URL,
-                data=serialized_data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.judgment_api_key}",
-                    "X-Organization-Id": self.organization_id,
-                },
-                verify=True,
-                timeout=30,  # Add timeout to prevent hanging
-            )
-
-            if response.status_code != HTTPStatus.OK:
-                judgeval_logger.warning(
-                    f"Failed to send evaluation runs batch: HTTP {response.status_code} - {response.text}"
-                )
-
-        except RequestException as e:
-            judgeval_logger.warning(f"Network error sending evaluation runs batch: {e}")
-        except Exception as e:
-            judgeval_logger.warning(f"Failed to send evaluation runs batch: {e}")
-
-    def queue_span(self, span: TraceSpan, span_state: str = "input"):
-        """
-        Queue a span for background sending.
-
-        Args:
-            span: The TraceSpan object to queue
-            span_state: State of the span ("input", "output", "completed")
-        """
-        if not self._shutdown_event.is_set():
-            # Set update_id to ending number when span is completed, otherwise increment
-            if span_state == "completed":
-                span.set_update_id_to_ending_number()
-            else:
-                span.increment_update_id()
-
-            span_data = {
-                "type": "span",
-                "data": {
-                    **span.model_dump(),
-                    "span_state": span_state,
-                    "queued_at": time.time(),
-                },
-            }
-            self._span_queue.put(span_data)
-
-    def queue_evaluation_run(
-        self, evaluation_run: EvaluationRun, span_id: str, span_data: TraceSpan
-    ):
-        """
-        Queue an evaluation run for background sending.
-
-        Args:
-            evaluation_run: The EvaluationRun object to queue
-            span_id: The span ID associated with this evaluation run
-            span_data: The span data at the time of evaluation (to avoid race conditions)
-        """
-        if not self._shutdown_event.is_set():
-            eval_data = {
-                "type": "evaluation_run",
-                "data": {
-                    **evaluation_run.model_dump(),
-                    "associated_span_id": span_id,
-                    "span_data": span_data.model_dump(),  # Include span data to avoid race conditions
-                    "queued_at": time.time(),
-                },
-            }
-            self._span_queue.put(eval_data)
-
-    def flush(self):
-        """Force immediate sending of all queued spans."""
-        try:
-            # Wait for the queue to be processed
-            self._span_queue.join()
-        except Exception as e:
-            judgeval_logger.warning(f"Error during flush: {e}")
-
-    def shutdown(self):
-        """Shutdown the background service and flush remaining spans."""
-        if self._shutdown_event.is_set():
-            return
-
-        try:
-            # Signal shutdown to stop new items from being queued
-            self._shutdown_event.set()
-
-            # Try to flush any remaining spans
-            try:
-                self.flush()
-            except Exception as e:
-                judgeval_logger.warning(f"Error during final flush: {e}")
-        except Exception as e:
-            judgeval_logger.warning(f"Error during BackgroundSpanService shutdown: {e}")
-        finally:
-            # Clear the worker threads list (daemon threads will be killed automatically)
-            self._worker_threads.clear()
-
-    def get_queue_size(self) -> int:
-        """Get the current size of the span queue."""
-        return self._span_queue.qsize()
 
 
 class _DeepTracer:
@@ -1211,14 +628,10 @@ class _DeepTracer:
             try:
                 original_result = self._original_sys_trace(frame, event, arg)
             except Exception:
-                # If the original tracer fails, continue with our tracing
                 pass
 
-        # Then do our own tracing
         our_result = self._trace(frame, event, arg, self._cooperative_sys_trace)
 
-        # Return our tracer to continue tracing, but respect the original's decision
-        # If the original tracer returned None (stop tracing), we should respect that
         if original_result is None and self._original_sys_trace:
             return None
 
@@ -1228,20 +641,15 @@ class _DeepTracer:
         self, frame: types.FrameType, event: str, arg: Any
     ):
         """Cooperative trace function for threading.settrace that chains with existing tracers."""
-        # First, call the original threading trace function if it exists
         original_result = None
         if self._original_threading_trace:
             try:
                 original_result = self._original_threading_trace(frame, event, arg)
             except Exception:
-                # If the original tracer fails, continue with our tracing
                 pass
 
-        # Then do our own tracing
         our_result = self._trace(frame, event, arg, self._cooperative_threading_trace)
 
-        # Return our tracer to continue tracing, but respect the original's decision
-        # If the original tracer returned None (stop tracing), we should respect that
         if original_result is None and self._original_threading_trace:
             return None
 
@@ -1457,10 +865,10 @@ class Tracer:
         s3_aws_secret_access_key: Optional[str] = None,
         s3_region_name: Optional[str] = None,
         trace_across_async_contexts: bool = False,  # BY default, we don't trace across async contexts
-        # Background span service configuration
-        span_batch_size: int = 50,  # Number of spans to batch before sending
-        span_flush_interval: float = 1.0,  # Time in seconds between automatic flushes
-        span_num_workers: int = 10,  # Number of worker threads for span processing
+        span_batch_size: int = 50,
+        span_flush_interval: float = 1.0,
+        span_max_queue_size: int = 2048,
+        span_export_timeout: int = 30000,
     ):
         try:
             if not api_key:
@@ -1507,7 +915,7 @@ class Tracer:
             # Initialize S3 storage if enabled
             self.use_s3 = use_s3
             if use_s3:
-                from judgeval.common.s3_storage import S3Storage
+                from judgeval.common.storage.s3_storage import S3Storage
 
                 try:
                     self.s3_storage = S3Storage(
@@ -1523,17 +931,26 @@ class Tracer:
                     self.use_s3 = False
 
             self.offline_mode = False  # This is used to differentiate traces between online and offline (IE experiments vs monitoring page)
-            self.deep_tracing: bool = deep_tracing  # NEW: Store deep tracing setting
+            self.deep_tracing: bool = deep_tracing
 
-            # Initialize background span service
-            self.background_span_service: Optional[BackgroundSpanService] = None
-            self.background_span_service = BackgroundSpanService(
-                judgment_api_key=api_key,
-                organization_id=organization_id,
-                batch_size=span_batch_size,
-                flush_interval=span_flush_interval,
-                num_workers=span_num_workers,
-            )
+            self.span_batch_size = span_batch_size
+            self.span_flush_interval = span_flush_interval
+            self.span_max_queue_size = span_max_queue_size
+            self.span_export_timeout = span_export_timeout
+            self.otel_span_processor: SpanProcessorBase
+            if enable_monitoring:
+                self.otel_span_processor = JudgmentSpanProcessor(
+                    judgment_api_key=api_key,
+                    organization_id=organization_id,
+                    batch_size=span_batch_size,
+                    flush_interval=span_flush_interval,
+                    max_queue_size=span_max_queue_size,
+                    export_timeout=span_export_timeout,
+                )
+            else:
+                self.otel_span_processor = SpanProcessorBase()
+
+            atexit.register(self._cleanup_on_exit)
         except Exception as e:
             judgeval_logger.error(
                 f"Issue with initializing Tracer: {e}. Disabling monitoring and evaluations."
@@ -1658,7 +1075,6 @@ class Tracer:
         # Set the current trace in context variables
         token = self.set_current_trace(trace)
 
-        # Automatically create top-level span
         with trace.span(name or "unnamed_trace"):
             try:
                 # Save the trace to the database to handle Evaluations' trace_id referential integrity
@@ -1819,19 +1235,16 @@ class Tracer:
                         args[0], class_name, self.class_identifiers
                     )
 
-                # Get current trace from context
                 current_trace = self.get_current_trace()
 
-                # If there's no current trace, create a root trace
                 if not current_trace:
                     trace_id = str(uuid.uuid4())
                     project = self.project_name
 
-                    # Create a new trace client to serve as the root
                     current_trace = TraceClient(
                         self,
                         trace_id,
-                        span_name,  # MODIFIED: Use span_name directly
+                        span_name,
                         project_name=project,
                         enable_monitoring=self.enable_monitoring,
                         enable_evaluations=self.enable_evaluations,
@@ -1840,18 +1253,12 @@ class Tracer:
                     trace_token = self.set_current_trace(current_trace)
 
                     try:
-                        # Use span for the function execution within the root trace
-                        # This sets the current_span_var
-                        with current_trace.span(
-                            span_name, span_type=span_type
-                        ) as span:  # MODIFIED: Use span_name directly
-                            # Record inputs
+                        with current_trace.span(span_name, span_type=span_type) as span:
                             inputs = combine_args_kwargs(func, args, kwargs)
                             span.record_input(inputs)
                             if agent_name:
                                 span.record_agent_name(agent_name)
 
-                            # Capture state before execution
                             self._conditionally_capture_and_record_state(
                                 span, args, is_before=True
                             )
@@ -1868,16 +1275,13 @@ class Tracer:
                                 )
                                 raise e
 
-                            # Capture state after execution
                             self._conditionally_capture_and_record_state(
                                 span, args, is_before=False
                             )
 
-                            # Record output
                             span.record_output(result)
                         return result
                     finally:
-                        # Flush background spans before saving the trace
                         try:
                             complete_trace_data = {
                                 "trace_id": current_trace.trace_id,
@@ -1895,23 +1299,17 @@ class Tracer:
                                 "parent_trace_id": current_trace.parent_trace_id,
                                 "parent_name": current_trace.parent_name,
                             }
-                            # Save the completed trace
+
                             trace_id, server_response = current_trace.save(
                                 final_save=True
                             )
 
-                            # Store the complete trace data instead of just server response
-
                             self.traces.append(complete_trace_data)
 
-                            # if self.background_span_service:
-                            #     self.background_span_service.flush()
-
-                            # Reset trace context (span context resets automatically)
                             self.reset_current_trace(trace_token)
                         except Exception as e:
                             judgeval_logger.warning(f"Issue with async_wrapper: {e}")
-                            return
+                            pass
                 else:
                     with current_trace.span(span_name, span_type=span_type) as span:
                         inputs = combine_args_kwargs(func, args, kwargs)
@@ -1968,7 +1366,7 @@ class Tracer:
                     current_trace = TraceClient(
                         self,
                         trace_id,
-                        span_name,  # MODIFIED: Use span_name directly
+                        span_name,
                         project_name=project,
                         enable_monitoring=self.enable_monitoring,
                         enable_evaluations=self.enable_evaluations,
@@ -1977,11 +1375,7 @@ class Tracer:
                     trace_token = self.set_current_trace(current_trace)
 
                     try:
-                        # Use span for the function execution within the root trace
-                        # This sets the current_span_var
-                        with current_trace.span(
-                            span_name, span_type=span_type
-                        ) as span:  # MODIFIED: Use span_name directly
+                        with current_trace.span(span_name, span_type=span_type) as span:
                             # Record inputs
                             inputs = combine_args_kwargs(func, args, kwargs)
                             span.record_input(inputs)
@@ -2013,14 +1407,11 @@ class Tracer:
                             span.record_output(result)
                         return result
                     finally:
-                        # Flush background spans before saving the trace
                         try:
-                            # Save the completed trace
                             trace_id, server_response = current_trace.save(
                                 final_save=True
                             )
 
-                            # Store the complete trace data instead of just server response
                             complete_trace_data = {
                                 "trace_id": current_trace.trace_id,
                                 "name": current_trace.name,
@@ -2038,11 +1429,10 @@ class Tracer:
                                 "parent_name": current_trace.parent_name,
                             }
                             self.traces.append(complete_trace_data)
-                            # Reset trace context (span context resets automatically)
                             self.reset_current_trace(trace_token)
                         except Exception as e:
                             judgeval_logger.warning(f"Issue with save: {e}")
-                            return
+                            pass
                 else:
                     with current_trace.span(span_name, span_type=span_type) as span:
                         inputs = combine_args_kwargs(func, args, kwargs)
@@ -2141,25 +1531,14 @@ class Tracer:
             if not self.enable_monitoring or not self.enable_evaluations:
                 return
 
-            # --- Get trace_id passed explicitly (if any) ---
-            passed_trace_id = kwargs.pop(
-                "trace_id", None
-            )  # Get and remove trace_id from kwargs
-
             current_trace = self.get_current_trace()
 
             if current_trace:
-                # Pass the explicitly provided trace_id if it exists, otherwise let async_evaluate handle it
-                # (Note: TraceClient.async_evaluate doesn't currently use an explicit trace_id, but this is for future proofing/consistency)
-                if passed_trace_id:
-                    kwargs["trace_id"] = (
-                        passed_trace_id  # Re-add if needed by TraceClient.async_evaluate
-                    )
                 current_trace.async_evaluate(*args, **kwargs)
             else:
                 judgeval_logger.warning(
                     "No trace found (context var or fallback), skipping evaluation"
-                )  # Modified warning
+                )
         except Exception as e:
             judgeval_logger.warning(f"Issue with async_evaluate: {e}")
 
@@ -2215,20 +1594,32 @@ class Tracer:
         else:
             judgeval_logger.warning("No current trace found, cannot set reward score")
 
-    def get_background_span_service(self) -> Optional[BackgroundSpanService]:
-        """Get the background span service instance."""
-        return self.background_span_service
+    def get_otel_span_processor(self) -> SpanProcessorBase:
+        """Get the OpenTelemetry span processor instance."""
+        return self.otel_span_processor
 
-    def flush_background_spans(self):
+    def flush_background_spans(self, timeout_millis: int = 30000):
         """Flush all pending spans in the background service."""
-        if self.background_span_service:
-            self.background_span_service.flush()
+        self.otel_span_processor.force_flush(timeout_millis)
 
     def shutdown_background_service(self):
         """Shutdown the background span service."""
-        if self.background_span_service:
-            self.background_span_service.shutdown()
-            self.background_span_service = None
+        self.otel_span_processor.shutdown()
+        self.otel_span_processor = SpanProcessorBase()
+
+    def _cleanup_on_exit(self):
+        """Cleanup handler called on application exit to ensure spans are flushed."""
+        try:
+            self.flush_background_spans()
+        except Exception as e:
+            judgeval_logger.warning(f"Error during tracer cleanup: {e}")
+        finally:
+            try:
+                self.shutdown_background_service()
+            except Exception as e:
+                judgeval_logger.warning(
+                    f"Error during background service shutdown: {e}"
+                )
 
 
 def _get_current_trace(
@@ -2261,17 +1652,6 @@ def wrap(
         output, usage = _format_output_data(client, response)
         span.record_output(output)
         span.record_usage(usage)
-
-        # Queue the completed LLM span now that it has all data (input, output, usage)
-        current_trace = _get_current_trace(trace_across_async_contexts)
-        if current_trace and current_trace.background_span_service:
-            # Get the current span from the trace client
-            current_span_id = current_trace.get_current_span()
-            if current_span_id and current_span_id in current_trace.span_id_to_span:
-                completed_span = current_trace.span_id_to_span[current_span_id]
-                current_trace.background_span_service.queue_span(
-                    completed_span, span_state="completed"
-                )
 
         return response
 
@@ -2498,25 +1878,6 @@ def combine_args_kwargs(func, args, kwargs):
     except Exception:
         # Fallback if signature inspection fails
         return {**{f"arg{i}": arg for i, arg in enumerate(args)}, **kwargs}
-
-
-# NOTE: This builds once, can be tweaked if we are missing / capturing other unncessary modules
-# @link https://docs.python.org/3.13/library/sysconfig.html
-_TRACE_FILEPATH_BLOCKLIST = tuple(
-    os.path.realpath(p) + os.sep
-    for p in {
-        sysconfig.get_paths()["stdlib"],
-        sysconfig.get_paths().get("platstdlib", ""),
-        *site.getsitepackages(),
-        site.getusersitepackages(),
-        *(
-            [os.path.join(os.path.dirname(__file__), "../../judgeval/")]
-            if os.environ.get("JUDGMENT_DEV")
-            else []
-        ),
-    }
-    if p
-)
 
 
 def cost_per_token(*args, **kwargs):
