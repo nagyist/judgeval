@@ -45,11 +45,11 @@ from openai.types.chat import ParsedChatCompletion
 from together import Together, AsyncTogether
 from anthropic import Anthropic, AsyncAnthropic
 from google import genai
-
+from judgeval.common.tracer.utils import combine_args_kwargs, get_instance_prefixed_name
 from judgeval.data import Example, Trace, TraceSpan, TraceUsage
 from judgeval.scorers import APIScorerConfig, BaseScorer
 from judgeval.evaluation_run import EvaluationRun
-from judgeval.common.utils import ExcInfo, validate_api_key
+from judgeval.common.utils import ExcInfo, OptExcInfo, validate_api_key
 from judgeval.common.logger import judgeval_logger
 
 
@@ -513,8 +513,11 @@ class TraceClient:
 
 
 def _capture_exception_for_trace(
-    current_trace: Optional[TraceClient], exc_info: ExcInfo
+    current_trace: Optional[TraceClient], exc_info: OptExcInfo
 ):
+    if not exc_info[0]:
+        return
+
     if not current_trace:
         return
 
@@ -902,9 +905,9 @@ class Tracer:
             self.traces: List[Trace] = []
             self.enable_monitoring: bool = enable_monitoring
             self.enable_evaluations: bool = enable_evaluations
-            self.class_identifiers: Dict[
-                str, str
-            ] = {}  # Dictionary to store class identifiers
+            self.class_identifiers: Dict[str, str] = (
+                {}
+            )  # Dictionary to store class identifiers
             self.span_id_to_previous_span_id: Dict[str, str | None] = {}
             self.trace_id_to_previous_trace: Dict[str, TraceClient | None] = {}
             self.current_span_id: Optional[str] = None
@@ -1620,297 +1623,3 @@ class Tracer:
                 judgeval_logger.warning(
                     f"Error during background service shutdown: {e}"
                 )
-
-
-def _get_current_trace(
-    trace_across_async_contexts: bool = Tracer.trace_across_async_contexts,
-):
-    if trace_across_async_contexts:
-        return Tracer.current_trace
-    else:
-        return current_trace_var.get()
-
-
-def wrap(
-    client: Any, trace_across_async_contexts: bool = Tracer.trace_across_async_contexts
-) -> Any:
-    """
-    Wraps an API client to add tracing capabilities.
-    Supports OpenAI, Together, Anthropic, and Google GenAI clients.
-    Patches both '.create' and Anthropic's '.stream' methods using a wrapper class.
-    """
-    (
-        span_name,
-        original_create,
-        original_responses_create,
-        original_stream,
-        original_beta_parse,
-    ) = _get_client_config(client)
-
-    def process_span(span, response):
-        """Format and record the output in the span"""
-        output, usage = _format_output_data(client, response)
-        span.record_output(output)
-        span.record_usage(usage)
-
-        return response
-
-    def wrapped(function):
-        def wrapper(*args, **kwargs):
-            current_trace = _get_current_trace(trace_across_async_contexts)
-            if not current_trace:
-                return function(*args, **kwargs)
-
-            with current_trace.span(span_name, span_type="llm") as span:
-                span.record_input(kwargs)
-
-                try:
-                    response = function(*args, **kwargs)
-                    return process_span(span, response)
-                except Exception as e:
-                    _capture_exception_for_trace(span, sys.exc_info())
-                    raise e
-
-        return wrapper
-
-    def wrapped_async(function):
-        async def wrapper(*args, **kwargs):
-            current_trace = _get_current_trace(trace_across_async_contexts)
-            if not current_trace:
-                return await function(*args, **kwargs)
-
-            with current_trace.span(span_name, span_type="llm") as span:
-                span.record_input(kwargs)
-
-                try:
-                    response = await function(*args, **kwargs)
-                    return process_span(span, response)
-                except Exception as e:
-                    _capture_exception_for_trace(span, sys.exc_info())
-                    raise e
-
-        return wrapper
-
-    if isinstance(client, (OpenAI)):
-        client.chat.completions.create = wrapped(original_create)
-        client.responses.create = wrapped(original_responses_create)
-        client.beta.chat.completions.parse = wrapped(original_beta_parse)
-    elif isinstance(client, (AsyncOpenAI)):
-        client.chat.completions.create = wrapped_async(original_create)
-        client.responses.create = wrapped_async(original_responses_create)
-        client.beta.chat.completions.parse = wrapped_async(original_beta_parse)
-    elif isinstance(client, (Together)):
-        client.chat.completions.create = wrapped(original_create)
-    elif isinstance(client, (AsyncTogether)):
-        client.chat.completions.create = wrapped_async(original_create)
-    elif isinstance(client, (Anthropic)):
-        client.messages.create = wrapped(original_create)
-    elif isinstance(client, (AsyncAnthropic)):
-        client.messages.create = wrapped_async(original_create)
-    elif isinstance(client, (genai.Client)):
-        client.models.generate_content = wrapped(original_create)
-    elif isinstance(client, (genai.client.AsyncClient)):
-        client.models.generate_content = wrapped_async(original_create)
-
-    return client
-
-
-# Helper functions for client-specific operations
-
-
-def _get_client_config(
-    client: ApiClient,
-) -> tuple[str, Callable, Optional[Callable], Optional[Callable], Optional[Callable]]:
-    """Returns configuration tuple for the given API client.
-
-    Args:
-        client: An instance of OpenAI, Together, or Anthropic client
-
-    Returns:
-        tuple: (span_name, create_method, responses_method, stream_method, beta_parse_method)
-            - span_name: String identifier for tracing
-            - create_method: Reference to the client's creation method
-            - responses_method: Reference to the client's responses method (if applicable)
-            - stream_method: Reference to the client's stream method (if applicable)
-            - beta_parse_method: Reference to the client's beta parse method (if applicable)
-
-    Raises:
-        ValueError: If client type is not supported
-    """
-    if isinstance(client, (OpenAI, AsyncOpenAI)):
-        return (
-            "OPENAI_API_CALL",
-            client.chat.completions.create,
-            client.responses.create,
-            None,
-            client.beta.chat.completions.parse,
-        )
-    elif isinstance(client, (Together, AsyncTogether)):
-        return "TOGETHER_API_CALL", client.chat.completions.create, None, None, None
-    elif isinstance(client, (Anthropic, AsyncAnthropic)):
-        return (
-            "ANTHROPIC_API_CALL",
-            client.messages.create,
-            None,
-            client.messages.stream,
-            None,
-        )
-    elif isinstance(client, (genai.Client, genai.client.AsyncClient)):
-        return "GOOGLE_API_CALL", client.models.generate_content, None, None, None
-    raise ValueError(f"Unsupported client type: {type(client)}")
-
-
-def _format_output_data(
-    client: ApiClient, response: Any
-) -> tuple[Optional[str], Optional[TraceUsage]]:
-    """Format API response data based on client type.
-
-    Normalizes different response formats into a consistent structure
-    for tracing purposes.
-
-    Returns:
-        dict containing:
-            - content: The generated text
-            - usage: Token usage statistics
-    """
-    prompt_tokens = 0
-    completion_tokens = 0
-    cache_read_input_tokens = 0
-    cache_creation_input_tokens = 0
-    model_name = None
-    message_content = None
-
-    if isinstance(client, (OpenAI, AsyncOpenAI)):
-        if isinstance(response, ChatCompletion):
-            model_name = response.model
-            prompt_tokens = response.usage.prompt_tokens
-            completion_tokens = response.usage.completion_tokens
-            cache_read_input_tokens = response.usage.prompt_tokens_details.cached_tokens
-
-            if isinstance(response, ParsedChatCompletion):
-                message_content = response.choices[0].message.parsed
-            else:
-                message_content = response.choices[0].message.content
-        elif isinstance(response, Response):
-            model_name = response.model
-            prompt_tokens = response.usage.input_tokens
-            completion_tokens = response.usage.output_tokens
-            cache_read_input_tokens = response.usage.input_tokens_details.cached_tokens
-            message_content = "".join(seg.text for seg in response.output[0].content)
-
-        # Note: LiteLLM seems to use cache_read_input_tokens to calculate the cost for OpenAI
-    elif isinstance(client, (Together, AsyncTogether)):
-        model_name = "together_ai/" + response.model
-        prompt_tokens = response.usage.prompt_tokens
-        completion_tokens = response.usage.completion_tokens
-        message_content = response.choices[0].message.content
-
-        # As of 2025-07-14, Together does not do any input cache token tracking
-    elif isinstance(client, (genai.Client, genai.client.AsyncClient)):
-        model_name = response.model_version
-        prompt_tokens = response.usage_metadata.prompt_token_count
-        completion_tokens = response.usage_metadata.candidates_token_count
-        message_content = response.candidates[0].content.parts[0].text
-
-        if hasattr(response.usage_metadata, "cached_content_token_count"):
-            cache_read_input_tokens = response.usage_metadata.cached_content_token_count
-    elif isinstance(client, (Anthropic, AsyncAnthropic)):
-        model_name = response.model
-        prompt_tokens = response.usage.input_tokens
-        completion_tokens = response.usage.output_tokens
-        cache_read_input_tokens = response.usage.cache_read_input_tokens
-        cache_creation_input_tokens = response.usage.cache_creation_input_tokens
-        message_content = response.content[0].text
-    else:
-        judgeval_logger.warning(f"Unsupported client type: {type(client)}")
-        return None, None
-
-    prompt_cost, completion_cost = cost_per_token(
-        model=model_name,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-        cache_read_input_tokens=cache_read_input_tokens,
-        cache_creation_input_tokens=cache_creation_input_tokens,
-    )
-    total_cost_usd = (
-        (prompt_cost + completion_cost) if prompt_cost and completion_cost else None
-    )
-    usage = TraceUsage(
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-        total_tokens=prompt_tokens + completion_tokens,
-        cache_read_input_tokens=cache_read_input_tokens,
-        cache_creation_input_tokens=cache_creation_input_tokens,
-        prompt_tokens_cost_usd=prompt_cost,
-        completion_tokens_cost_usd=completion_cost,
-        total_cost_usd=total_cost_usd,
-        model_name=model_name,
-    )
-    return message_content, usage
-
-
-def combine_args_kwargs(func, args, kwargs):
-    """
-    Combine positional arguments and keyword arguments into a single dictionary.
-
-    Args:
-        func: The function being called
-        args: Tuple of positional arguments
-        kwargs: Dictionary of keyword arguments
-
-    Returns:
-        A dictionary combining both args and kwargs
-    """
-    try:
-        import inspect
-
-        sig = inspect.signature(func)
-        param_names = list(sig.parameters.keys())
-
-        args_dict = {}
-        for i, arg in enumerate(args):
-            if i < len(param_names):
-                args_dict[param_names[i]] = arg
-            else:
-                args_dict[f"arg{i}"] = arg
-
-        return {**args_dict, **kwargs}
-    except Exception:
-        # Fallback if signature inspection fails
-        return {**{f"arg{i}": arg for i, arg in enumerate(args)}, **kwargs}
-
-
-def cost_per_token(*args, **kwargs):
-    try:
-        prompt_tokens_cost_usd_dollar, completion_tokens_cost_usd_dollar = (
-            _original_cost_per_token(*args, **kwargs)
-        )
-        if (
-            prompt_tokens_cost_usd_dollar == 0
-            and completion_tokens_cost_usd_dollar == 0
-        ):
-            judgeval_logger.warning("LiteLLM returned a total of 0 for cost per token")
-        return prompt_tokens_cost_usd_dollar, completion_tokens_cost_usd_dollar
-    except Exception as e:
-        judgeval_logger.warning(f"Error calculating cost per token: {e}")
-        return None, None
-
-
-# --- Helper function for instance-prefixed qual_name ---
-def get_instance_prefixed_name(instance, class_name, class_identifiers):
-    """
-    Returns the agent name (prefix) if the class and attribute are found in class_identifiers.
-    Otherwise, returns None.
-    """
-    if class_name in class_identifiers:
-        class_config = class_identifiers[class_name]
-        attr = class_config["identifier"]
-
-        if hasattr(instance, attr):
-            instance_name = getattr(instance, attr)
-            return instance_name
-        else:
-            raise Exception(
-                f"Attribute {attr} does not exist for {class_name}. Check your identify() decorator."
-            )
-    return None
