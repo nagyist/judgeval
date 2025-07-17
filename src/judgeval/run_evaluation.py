@@ -4,7 +4,7 @@ import time
 import json
 import sys
 import threading
-from typing import List, Dict, Union, Optional, Callable, Tuple
+from typing import List, Dict, Union, Optional, Callable, Tuple, Any
 from rich import print as rprint
 
 from judgeval.data import ScorerData, ScoringResult, Example, Trace
@@ -103,9 +103,7 @@ def execute_api_trace_eval(trace_run: TraceRun, judgment_api_key: str) -> Dict:
         # submit API request to execute evals
         if not judgment_api_key or not trace_run.organization_id:
             raise ValueError("API key and organization ID are required")
-        api_client = JudgmentApiClient(
-            judgment_api_key, trace_run.organization_id
-        )
+        api_client = JudgmentApiClient(judgment_api_key, trace_run.organization_id)
         return api_client.run_trace_evaluation(trace_run.model_dump(warnings=False))
     except Exception as e:
         judgeval_logger.error(f"Error: {e}")
@@ -211,22 +209,15 @@ def log_evaluation_results(
         ValueError: If there's a validation error with the results
     """
     try:
-        if not run.judgment_api_key or not run.organization_id:
+        if not judgment_api_key or not run.organization_id:
             raise ValueError("API key and organization ID are required")
 
-        api_client = JudgmentApiClient(run.judgment_api_key, run.organization_id)
+        api_client = JudgmentApiClient(judgment_api_key, run.organization_id)
         response = api_client.log_evaluation_results(
             scoring_results,
             run.model_dump(warnings=False),
         )
-
-        if not response.ok:
-            response_data = response.json()
-            error_message = response_data.get("detail", "An unknown error occurred.")
-            judgeval_logger.error(f"Error {response.status_code}: {error_message}")
-            raise JudgmentAPIError(error_message)
-
-        url = response.json()["ui_results_url"]
+        url = response.get("ui_results_url")
         return url
 
     except Exception as e:
@@ -420,42 +411,20 @@ def _poll_evaluation_until_complete(
             # Check status
             status_response = api_client.get_evaluation_status(eval_name, project_name)
 
-            if not status_response.ok:
-                error_message = status_response.json().get(
-                    "detail", "An unknown error occurred."
-                )
-                judgeval_logger.error(
-                    f"Error checking evaluation status: {error_message}"
-                )
-                # Don't raise exception immediately, just log and continue polling
-                time.sleep(poll_interval_seconds)
-                continue
-
-            if status_response.json().get("status") != "completed":
+            if status_response.get("status") != "completed":
                 time.sleep(poll_interval_seconds)
                 continue
 
             results_response = api_client.fetch_evaluation_results(
                 project_name, eval_name
             )
+            url = results_response.get("ui_results_url")
 
-            if not results_response.ok:
-                error_message = results_response.json().get(
-                    "detail", "An unknown error occurred."
-                )
-                judgeval_logger.error(
-                    f"Error fetching evaluation results: {error_message}"
-                )
-                raise JudgmentAPIError(error_message)
-
-            result_data = results_response.json()
-            url = result_data.get("ui_results_url")
-
-            if result_data.get("examples") is None:
+            if results_response.get("examples") is None:
                 time.sleep(poll_interval_seconds)
                 continue
 
-            examples_data = result_data.get("examples", [])
+            examples_data = results_response.get("examples", [])
             scoring_results = []
             scorer_data_count = 0
 
@@ -564,36 +533,46 @@ def run_eval(
             target=progress_logger, args=(stop_event, "Running evaluation...")
         )
         t.start()
-
-        api_client = JudgmentApiClient(
-            judgment_api_key, evaluation_run.organization_id
-        )
-        response = api_client.add_to_run_eval_queue(evaluation_run)
-
-        if not response.ok:
-            error_message = response.json().get("detail", "An unknown error occurred.")
-            judgeval_logger.error(f"Error adding evaluation to queue: {error_message}")
-            raise JudgmentAPIError(error_message)
-
-        old_scorer_data_count = 0
-        if evaluation_run.append:
-            results_response = api_client.fetch_evaluation_results(
-                evaluation_run.project_name, evaluation_run.eval_name
+        try:
+            api_client = JudgmentApiClient(
+                judgment_api_key, evaluation_run.organization_id
             )
-            old_scorer_data_count = retrieve_counts(results_response.json())
-
-        results, url = _poll_evaluation_until_complete(
-            eval_name=evaluation_run.eval_name,
-            project_name=evaluation_run.project_name,
-            judgment_api_key=judgment_api_key,
-            organization_id=evaluation_run.organization_id,
-            expected_scorer_data_count=(
-                len(evaluation_run.scorers) * len(evaluation_run.examples)
+            response = api_client.add_to_evaluation_queue(
+                evaluation_run.model_dump(warnings=False)
             )
-            + old_scorer_data_count,
-        )
-        stop_event.set()
-        t.join()
+
+            if not response.get("success", False):
+                error_message = response.error
+                judgeval_logger.error(
+                    f"Error adding evaluation to queue: {error_message}"
+                )
+                raise JudgmentAPIError(error_message)
+
+            old_scorer_data_count = 0
+            if evaluation_run.append:
+                try:
+                    results_response = api_client.fetch_evaluation_results(
+                        evaluation_run.project_name, evaluation_run.eval_name
+                    )
+                    old_scorer_data_count = retrieve_counts(results_response)
+                except Exception:
+                    # This usually means the user did append = True but the eval run name doesn't exist yet
+                    pass
+
+            results, url = _poll_evaluation_until_complete(
+                eval_name=evaluation_run.eval_name,
+                project_name=evaluation_run.project_name,
+                judgment_api_key=judgment_api_key,
+                organization_id=evaluation_run.organization_id,
+                expected_scorer_data_count=(
+                    len(evaluation_run.scorers) * len(evaluation_run.examples)
+                )
+                + old_scorer_data_count,
+            )
+        finally:
+            stop_event.set()
+            t.join()
+
     if len(local_scorers) > 0:
         results = safe_run_async(
             a_execute_scoring(

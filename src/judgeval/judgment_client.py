@@ -5,9 +5,6 @@ Implements the JudgmentClient to interact with the Judgment API.
 import os
 from uuid import uuid4
 from typing import Optional, List, Dict, Any, Union, Callable
-import asyncio
-from requests import codes
-from judgeval.utils.requests import requests
 
 from judgeval.data.datasets import EvalDataset, EvalDatasetClient
 from judgeval.data import (
