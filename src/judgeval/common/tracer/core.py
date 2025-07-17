@@ -31,6 +31,7 @@ from typing import (
     TypeAlias,
 )
 import types
+import art
 
 from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
 
@@ -510,6 +511,20 @@ class TraceClient:
             reward_score: The reward score to set
         """
         self.update_metadata({"reward_score": reward_score})
+
+    def record_additional_metadata(self, metadata: dict):
+        """Update the trace's additional_metadata with the provided dict."""
+        current_span_id = self.get_current_span()
+        if current_span_id:
+            span = self.span_id_to_span[current_span_id]
+            if "self" in metadata:
+                del metadata["self"]
+            span.additional_metadata = metadata
+
+            try:
+                self.otel_span_processor.queue_span_update(span, span_state="additional_metadata")
+            except Exception as e:
+                judgeval_logger.warning(f"Failed to queue span with additional metadata: {e}")
 
 
 def _capture_exception_for_trace(
@@ -1027,6 +1042,41 @@ class Tracer:
             if self.trace_across_async_contexts
             else current_trace_var_val
         )
+    
+    def get_current_art_trajectory(self) -> art.Trajectory:
+        """
+        Transform the current trace to an artifact.
+        """
+        current_trace = self.get_current_trace()
+        if not current_trace:
+            raise ValueError("No current trace found")
+
+        trajectory = art.Trajectory(
+            messages_and_choices=[],
+            reward=current_trace.metadata.get("reward_score", 0),
+        )
+        
+        # Get the current trace's spans
+        spans = current_trace.trace_spans
+
+        # Get only the spans that are used for agent conversation
+        first_found = False
+        for span in spans:
+            # If first span, get its input as system + user prompt
+            if span.span_type == "llm" and not first_found:
+                first_found = True
+                input_messages = span.inputs.get("messages", [])
+                trajectory.messages_and_choices.extend(input_messages)
+                continue
+
+            if span.span_type == "llm":
+                trajectory.messages_and_choices.append({"role": "assistant", "content": span.output})
+            elif span.span_type == "user":
+                trajectory.messages_and_choices.append({"role": "user", "content": span.output})
+            elif span.span_type == "tool":
+                trajectory.messages_and_choices.append({"role": "tool", "content": span.output})
+                
+        return trajectory
 
     def reset_current_trace(
         self,
@@ -1649,9 +1699,10 @@ def wrap(
 
     def process_span(span, response):
         """Format and record the output in the span"""
-        output, usage = _format_output_data(client, response)
+        output, usage, choice = _format_output_data(client, response)
         span.record_output(output)
         span.record_usage(usage)
+        span.record_additional_metadata({"choice": choice})
 
         return response
 
@@ -1762,7 +1813,7 @@ def _get_client_config(
 
 def _format_output_data(
     client: ApiClient, response: Any
-) -> tuple[Optional[str], Optional[TraceUsage]]:
+) -> tuple[Optional[str], Optional[TraceUsage], Optional[Any]]:
     """Format API response data based on client type.
 
     Normalizes different response formats into a consistent structure
@@ -1779,6 +1830,7 @@ def _format_output_data(
     cache_creation_input_tokens = 0
     model_name = None
     message_content = None
+    choice = None
 
     if isinstance(client, (OpenAI, AsyncOpenAI)):
         if isinstance(response, ChatCompletion):
@@ -1791,12 +1843,16 @@ def _format_output_data(
                 message_content = response.choices[0].message.parsed
             else:
                 message_content = response.choices[0].message.content
+
+            choice = response.choices[0]
+
         elif isinstance(response, Response):
             model_name = response.model
             prompt_tokens = response.usage.input_tokens
             completion_tokens = response.usage.output_tokens
             cache_read_input_tokens = response.usage.input_tokens_details.cached_tokens
             message_content = "".join(seg.text for seg in response.output[0].content)
+            choice = response.choices[0]
 
         # Note: LiteLLM seems to use cache_read_input_tokens to calculate the cost for OpenAI
     elif isinstance(client, (Together, AsyncTogether)):
@@ -1804,16 +1860,17 @@ def _format_output_data(
         prompt_tokens = response.usage.prompt_tokens
         completion_tokens = response.usage.completion_tokens
         message_content = response.choices[0].message.content
-
+        choice = response.choices[0]
         # As of 2025-07-14, Together does not do any input cache token tracking
     elif isinstance(client, (genai.Client, genai.client.AsyncClient)):
         model_name = response.model_version
         prompt_tokens = response.usage_metadata.prompt_token_count
         completion_tokens = response.usage_metadata.candidates_token_count
         message_content = response.candidates[0].content.parts[0].text
-
+        choice = response.candidates[0]
         if hasattr(response.usage_metadata, "cached_content_token_count"):
             cache_read_input_tokens = response.usage_metadata.cached_content_token_count
+            choice = response.candidates[0]
     elif isinstance(client, (Anthropic, AsyncAnthropic)):
         model_name = response.model
         prompt_tokens = response.usage.input_tokens
@@ -1821,9 +1878,10 @@ def _format_output_data(
         cache_read_input_tokens = response.usage.cache_read_input_tokens
         cache_creation_input_tokens = response.usage.cache_creation_input_tokens
         message_content = response.content[0].text
+        choice = response.content[0]
     else:
         judgeval_logger.warning(f"Unsupported client type: {type(client)}")
-        return None, None
+        return None, None, None
 
     prompt_cost, completion_cost = cost_per_token(
         model=model_name,
@@ -1846,7 +1904,8 @@ def _format_output_data(
         total_cost_usd=total_cost_usd,
         model_name=model_name,
     )
-    return message_content, usage
+    
+    return message_content, usage, choice
 
 
 def combine_args_kwargs(func, args, kwargs):
