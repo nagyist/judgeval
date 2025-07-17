@@ -385,8 +385,9 @@ def _poll_evaluation_until_complete(
     judgment_api_key: str,
     organization_id: str,
     expected_scorer_data_count: int,
-    poll_interval_seconds: float = 1.5,
-    max_poll_count: int = 5,
+    poll_interval_seconds: float = 5,
+    max_failures: int = 5,
+    max_poll_count: int = 24,  # This should be equivalent to 120 seconds
 ) -> Tuple[List[ScoringResult], str]:
     """
     Polls until the evaluation is complete and returns the results.
@@ -404,8 +405,9 @@ def _poll_evaluation_until_complete(
         List[ScoringResult]: The evaluation results
     """
     poll_count = 0
+    exception_count = 0
     api_client = JudgmentApiClient(judgment_api_key, organization_id)
-    while True:
+    while poll_count < max_poll_count:
         poll_count += 1
         try:
             # Check status
@@ -451,16 +453,21 @@ def _poll_evaluation_until_complete(
 
             return scoring_results, url
         except Exception as e:
+            exception_count += 1
             if isinstance(e, JudgmentAPIError):
                 raise
 
             judgeval_logger.error(f"Error checking evaluation status: {str(e)}")
-            if poll_count > max_poll_count:
+            if exception_count > max_failures:
                 raise JudgmentAPIError(
                     f"Error checking evaluation status after {poll_count} attempts: {str(e)}"
                 )
 
             time.sleep(poll_interval_seconds)
+
+    raise JudgmentAPIError(
+        f"Error checking evaluation status after {poll_count} attempts"
+    )
 
 
 def progress_logger(stop_event, msg="Working...", interval=5):
