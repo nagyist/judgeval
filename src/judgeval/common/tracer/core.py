@@ -37,11 +37,7 @@ from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
 from judgeval.common.tracer.otel_span_processor import JudgmentSpanProcessor
 from judgeval.common.tracer.span_processor import SpanProcessorBase
 from judgeval.common.tracer.trace_manager import TraceManagerClient
-from litellm import cost_per_token as _original_cost_per_token
 from openai import OpenAI, AsyncOpenAI
-from openai.types.chat.chat_completion import ChatCompletion
-from openai.types.responses.response import Response
-from openai.types.chat import ParsedChatCompletion
 from together import Together, AsyncTogether
 from anthropic import Anthropic, AsyncAnthropic
 from google import genai
@@ -49,7 +45,7 @@ from judgeval.common.tracer.utils import combine_args_kwargs, get_instance_prefi
 from judgeval.data import Example, Trace, TraceSpan, TraceUsage
 from judgeval.scorers import APIScorerConfig, BaseScorer
 from judgeval.evaluation_run import EvaluationRun
-from judgeval.common.utils import ExcInfo, OptExcInfo, validate_api_key
+from judgeval.common.utils import OptExcInfo, validate_api_key
 from judgeval.common.logger import judgeval_logger
 
 
