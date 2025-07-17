@@ -94,17 +94,17 @@ def execute_api_eval(evaluation_run: EvaluationRun) -> Dict:
         )
 
 
-def execute_api_trace_eval(trace_run: TraceRun) -> Dict:
+def execute_api_trace_eval(trace_run: TraceRun, judgment_api_key: str) -> Dict:
     """
     Executes an evaluation of a list of `Trace`s using one or more `JudgmentScorer`s via the Judgment API.
     """
 
     try:
         # submit API request to execute evals
-        if not trace_run.judgment_api_key or not trace_run.organization_id:
+        if not judgment_api_key or not trace_run.organization_id:
             raise ValueError("API key and organization ID are required")
         api_client = JudgmentApiClient(
-            trace_run.judgment_api_key, trace_run.organization_id
+            judgment_api_key, trace_run.organization_id
         )
         return api_client.run_trace_evaluation(trace_run.model_dump(warnings=False))
     except Exception as e:
@@ -194,14 +194,17 @@ def check_eval_run_name_exists(
 
 
 def log_evaluation_results(
-    scoring_results: List[ScoringResult], run: Union[EvaluationRun, TraceRun]
+    scoring_results: List[ScoringResult],
+    run: Union[EvaluationRun, TraceRun],
+    judgment_api_key: str,
 ) -> str:
     """
     Logs evaluation results to the Judgment API database.
 
     Args:
-        scoring_results (List[ScoringResult]): The results to log
-        run (Union[EvaluationRun, TraceRun]): The evaluation run containing project info and API key
+        merged_results (List[ScoringResult]): The results to log
+        evaluation_run (EvaluationRun): The evaluation run containing project info and API key
+        judgment_api_key (str): The API key for the Judgment API
 
     Raises:
         JudgmentAPIError: If there's an API error during logging
@@ -265,6 +268,7 @@ def check_examples(
 
 def run_trace_eval(
     trace_run: TraceRun,
+    judgment_api_key: str,
     override: bool = False,
     function: Optional[Callable] = None,
     tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
@@ -275,7 +279,7 @@ def run_trace_eval(
         check_eval_run_name_exists(
             trace_run.eval_name,
             trace_run.project_name,
-            trace_run.judgment_api_key,
+            judgment_api_key,
             trace_run.organization_id,
         )
 
@@ -284,7 +288,7 @@ def run_trace_eval(
         check_experiment_type(
             trace_run.eval_name,
             trace_run.project_name,
-            trace_run.judgment_api_key,
+            judgment_api_key,
             trace_run.organization_id,
             True,
         )
@@ -324,7 +328,7 @@ def run_trace_eval(
     # Execute evaluation using Judgment API
     try:  # execute an EvaluationRun with just JudgmentScorers
         judgeval_logger.info("Executing Trace Evaluation... ")
-        response_data: Dict = execute_api_trace_eval(trace_run)
+        response_data: Dict = execute_api_trace_eval(trace_run, judgment_api_key)
         scoring_results = [
             ScoringResult(**result) for result in response_data["results"]
         ]
@@ -340,7 +344,9 @@ def run_trace_eval(
     # Convert the response data to `ScoringResult` objects
     # TODO: allow for custom scorer on traces
 
-    url = log_evaluation_results(response_data["agent_results"], trace_run)
+    url = log_evaluation_results(
+        response_data["agent_results"], trace_run, judgment_api_key
+    )
     rprint(
         f"\n🔍 You can view your evaluation results here: [rgb(106,0,255)][link={url}]View Results[/link]\n"
     )
@@ -498,6 +504,7 @@ def progress_logger(stop_event, msg="Working...", interval=5):
 
 def run_eval(
     evaluation_run: EvaluationRun,
+    judgment_api_key: str,
     override: bool = False,
 ) -> List[ScoringResult]:
     """
@@ -516,7 +523,7 @@ def run_eval(
         check_eval_run_name_exists(
             evaluation_run.eval_name,
             evaluation_run.project_name,
-            evaluation_run.judgment_api_key,
+            judgment_api_key,
             evaluation_run.organization_id,
         )
 
@@ -525,7 +532,7 @@ def run_eval(
         check_experiment_type(
             evaluation_run.eval_name,
             evaluation_run.project_name,
-            evaluation_run.judgment_api_key,
+            judgment_api_key,
             evaluation_run.organization_id,
             False,
         )
@@ -559,7 +566,7 @@ def run_eval(
         t.start()
 
         api_client = JudgmentApiClient(
-            evaluation_run.judgment_api_key, evaluation_run.organization_id
+            judgment_api_key, evaluation_run.organization_id
         )
         response = api_client.add_to_run_eval_queue(evaluation_run)
 
@@ -578,7 +585,7 @@ def run_eval(
         results, url = _poll_evaluation_until_complete(
             eval_name=evaluation_run.eval_name,
             project_name=evaluation_run.project_name,
-            judgment_api_key=evaluation_run.judgment_api_key,
+            judgment_api_key=judgment_api_key,
             organization_id=evaluation_run.organization_id,
             expected_scorer_data_count=(
                 len(evaluation_run.scorers) * len(evaluation_run.examples)
@@ -602,7 +609,7 @@ def run_eval(
             scoring_result.model_dump(warnings=False) for scoring_result in results
         ]
 
-        url = log_evaluation_results(send_results, evaluation_run)
+        url = log_evaluation_results(send_results, evaluation_run, judgment_api_key)
     rprint(
         f"\n🔍 You can view your evaluation results here: [rgb(106,0,255)][link={url}]View Results[/link]\n"
     )

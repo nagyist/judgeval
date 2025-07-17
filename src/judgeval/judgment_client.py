@@ -38,13 +38,11 @@ from judgeval.common.logger import judgeval_logger
 class EvalRunRequestBody(BaseModel):
     eval_name: str
     project_name: str
-    judgment_api_key: str
 
 
 class DeleteEvalRunRequestBody(BaseModel):
     eval_names: List[str]
     project_name: str
-    judgment_api_key: str
 
 
 class SingletonMeta(type):
@@ -117,11 +115,12 @@ class JudgmentClient(metaclass=SingletonMeta):
                 scorers=scorers,
                 model=model,
                 append=append,
-                judgment_api_key=self.judgment_api_key,
                 organization_id=self.organization_id,
                 tools=tools,
             )
-            return run_trace_eval(trace_run, override, function, tracer, examples)
+            return run_trace_eval(
+                trace_run, self.judgment_api_key, override, function, tracer, examples
+            )
         except ValueError as e:
             raise ValueError(
                 f"Please check your TraceRun object, one or more fields are invalid: \n{str(e)}"
@@ -168,11 +167,11 @@ class JudgmentClient(metaclass=SingletonMeta):
                 examples=examples,
                 scorers=scorers,
                 model=model,
-                judgment_api_key=self.judgment_api_key,
                 organization_id=self.organization_id,
             )
             return run_eval(
                 eval,
+                self.judgment_api_key,
                 override,
             )
         except ValueError as e:
