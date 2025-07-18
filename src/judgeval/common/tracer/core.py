@@ -32,7 +32,7 @@ from typing import (
 )
 import types
 from art.local import LocalBackend
-from ..train_types import Model, TrainConfig, Trajectory, TrajectoryGroup, gather_trajectory_groups, dev
+from ..train_types import TrainableModel, TrainConfig, Trajectory, TrajectoryGroup, gather_trajectory_groups, dev
 
 from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
 
@@ -1242,7 +1242,7 @@ class Tracer:
             else:
                 trace_client_instance.record_state_after(state)
 
-    def train(self, func: Callable, inputs: list[list], model: Model, config: TrainConfig = TrainConfig(), _config: dev.TrainConfig | None = None, verbose: bool = False):
+    def train(self, func: Callable, inputs: list[list], model: TrainableModel, config: TrainConfig = TrainConfig(), _config: dev.TrainConfig | None = None, verbose: bool = False):
         """
         Train a model on trajectory data using GRPO.
         """
