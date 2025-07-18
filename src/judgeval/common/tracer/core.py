@@ -43,6 +43,7 @@ from openai import OpenAI, AsyncOpenAI
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.responses.response import Response
 from openai.types.chat import ParsedChatCompletion
+from openai.types.chat.chat_completion import Choice
 from together import Together, AsyncTogether
 from anthropic import Anthropic, AsyncAnthropic
 from google import genai
@@ -1073,7 +1074,7 @@ class Tracer:
 
             if span.span_type == "llm":
                 if span.additional_metadata.get("choice", None) is not None:
-                    trajectory.messages_and_choices.append(span.additional_metadata.get("choice"))
+                    trajectory.messages_and_choices.append(Choice(span.additional_metadata.get("choice")))
                 else:
                     trajectory.messages_and_choices.append({"role": "assistant", "content": span.output})
             elif span.span_type == "user":
