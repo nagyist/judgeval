@@ -1074,7 +1074,7 @@ class Tracer:
             elif span.span_type == "user":
                 trajectory.messages_and_choices.append({"role": "user", "content": span.output})
             elif span.span_type == "tool":
-                trajectory.messages_and_choices.append({"role": "tool", "content": span.output})
+                trajectory.messages_and_choices.append({"role": "user", "content": span.output})
                 
         return trajectory
 
