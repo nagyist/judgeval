@@ -4,6 +4,8 @@ from pydantic import BaseModel
 from typing import TYPE_CHECKING, cast, Generic, Iterable, Optional, overload, TypeVar
 from typing_extensions import Never
 
+from art.local import LocalBackend
+
 from . import dev
 from .openai import patch_openai
 from .trajectories import Trajectory, TrajectoryGroup
@@ -89,6 +91,10 @@ class Model(
             inference_model_name=inference_model_name,
             **kwargs,
         )
+
+        # Set up backend
+        if self._backend is None:
+            self.register(LocalBackend())
 
     @overload
     def __new__(

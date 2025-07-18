@@ -1246,10 +1246,6 @@ class Tracer:
         """
         Train a model on trajectory data using GRPO.
         """
-        # Set up backend
-        backend = LocalBackend()
-        model.register(backend)
-        
         # Inference-training loop
         for _ in range(config.steps):
             # Inference
