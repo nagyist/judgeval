@@ -68,7 +68,6 @@ ApiClient: TypeAlias = Union[
     AsyncTogether,
     genai.Client,
     genai.client.AsyncClient,
-    art.model.TrainableModel,
 ]
 SpanType: TypeAlias = str
 
@@ -1763,8 +1762,6 @@ def wrap(
         client.models.generate_content = wrapped(original_create)
     elif isinstance(client, (genai.client.AsyncClient)):
         client.models.generate_content = wrapped_async(original_create)
-    elif isinstance(client, (art.model.TrainableModel)):
-        client.chat.completions.create = wrapped(original_create)
 
     return client
 
@@ -1811,8 +1808,6 @@ def _get_client_config(
         )
     elif isinstance(client, (genai.Client, genai.client.AsyncClient)):
         return "GOOGLE_API_CALL", client.models.generate_content, None, None, None
-    elif isinstance(client, (art.model.TrainableModel)):
-        return "ART_API_CALL", client.chat.completions.create, None, None, None
     raise ValueError(f"Unsupported client type: {type(client)}")
 
 
@@ -1837,7 +1832,7 @@ def _format_output_data(
     message_content = None
     choice = None
 
-    if isinstance(client, (OpenAI, AsyncOpenAI, art.model.TrainableModel)):
+    if isinstance(client, (OpenAI, AsyncOpenAI)):
         if isinstance(response, ChatCompletion):
             model_name = response.model
             prompt_tokens = response.usage.prompt_tokens
