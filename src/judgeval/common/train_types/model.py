@@ -309,6 +309,9 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
         _openai_client_config: dev.OpenAIServerConfig | None = None,
         verbose: bool = False,
     ) -> None:
+        if backend is None:
+            backend = LocalBackend(in_process=verbose, path="./.art")
+
         await super().register(backend, verbose=verbose)
         base_url, api_key = await backend._prepare_backend_for_training(
             self, _openai_client_config
