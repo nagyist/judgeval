@@ -1762,7 +1762,7 @@ def wrap(
         client.models.generate_content = wrapped(original_create)
     elif isinstance(client, (genai.client.AsyncClient)):
         client.models.generate_content = wrapped_async(original_create)
-    elif isinstance(client, (art.TrainableModel)):
+    elif isinstance(client, (art.model.TrainableModel)):
         client.chat.completions.create = wrapped(original_create)
 
     return client
