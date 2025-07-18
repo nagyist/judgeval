@@ -1045,7 +1045,7 @@ class Tracer:
             else current_trace_var_val
         )
     
-    def trace_to_art_trajectory(self, trace: Trace | TraceClient) -> Trajectory:
+    async def trace_to_art_trajectory(self, trace: Trace | TraceClient) -> Trajectory:
         if not trace:
             raise ValueError("No current trace found")
 
@@ -1082,12 +1082,12 @@ class Tracer:
                 
         return trajectory
     
-    def get_current_art_trajectory(self) -> Trajectory:
+    async def get_current_art_trajectory(self) -> Trajectory:
         """
         Transform the current trace to an artifact.
         """
         current_trace = self.get_current_trace()
-        return self.trace_to_art_trajectory(current_trace)
+        return await self.trace_to_art_trajectory(current_trace)
 
     def reset_current_trace(
         self,
@@ -1259,7 +1259,10 @@ class Tracer:
             
             # Train
             trajectory_groups = await gather_trajectory_groups(
-                (TrajectoryGroup(self.trace_to_art_trajectory(trace) for trace in group) for group in groups),
+                (
+                    TrajectoryGroup(await self.trace_to_art_trajectory(trace) for trace in group)
+                    for group in groups
+                ),
                 pbar_desc="gather",
                 max_exceptions=config.max_exceptions
             )
