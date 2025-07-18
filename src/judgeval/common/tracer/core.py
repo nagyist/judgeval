@@ -1882,14 +1882,19 @@ def _format_output_data(
     else:
         judgeval_logger.warning(f"Unsupported client type: {type(client)}")
         return None, None, None
+    prompt_cost = 0
+    completion_cost = 0
+    try:
+        prompt_cost, completion_cost = cost_per_token(
+            model=model_name,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cache_read_input_tokens=cache_read_input_tokens,
+            cache_creation_input_tokens=cache_creation_input_tokens,
+        )
+    except Exception as e:
+        pass
 
-    prompt_cost, completion_cost = cost_per_token(
-        model=model_name,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-        cache_read_input_tokens=cache_read_input_tokens,
-        cache_creation_input_tokens=cache_creation_input_tokens,
-    )
     total_cost_usd = (
         (prompt_cost + completion_cost) if prompt_cost and completion_cost else None
     )
