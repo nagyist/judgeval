@@ -1837,7 +1837,7 @@ def _format_output_data(
             model_name = response.model
             prompt_tokens = response.usage.prompt_tokens
             completion_tokens = response.usage.completion_tokens
-            cache_read_input_tokens = response.usage.prompt_tokens_details.cached_tokens
+            cache_read_input_tokens = response.usage.prompt_tokens_details.cached_tokens if hasattr(response.usage.prompt_tokens_details, "cached_tokens") else 0
 
             if isinstance(response, ParsedChatCompletion):
                 message_content = response.choices[0].message.parsed
@@ -1850,7 +1850,7 @@ def _format_output_data(
             model_name = response.model
             prompt_tokens = response.usage.input_tokens
             completion_tokens = response.usage.output_tokens
-            cache_read_input_tokens = response.usage.input_tokens_details.cached_tokens
+            cache_read_input_tokens = response.usage.input_tokens_details.cached_tokens if hasattr(response.usage.input_tokens_details, "cached_tokens") else 0
             message_content = "".join(seg.text for seg in response.output[0].content)
             choice = response.choices[0]
 
