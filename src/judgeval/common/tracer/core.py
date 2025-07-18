@@ -31,7 +31,8 @@ from typing import (
     TypeAlias,
 )
 import types
-import art
+from art.local import LocalBackend
+from ..train_types import Model, TrainConfig, Trajectory, TrajectoryGroup, gather_trajectory_groups, dev
 
 from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
 
@@ -1044,21 +1045,17 @@ class Tracer:
             else current_trace_var_val
         )
     
-    def get_current_art_trajectory(self) -> art.Trajectory:
-        """
-        Transform the current trace to an artifact.
-        """
-        current_trace = self.get_current_trace()
-        if not current_trace:
+    def trace_to_art_trajectory(self, trace: TraceClient) -> Trajectory:
+        if not trace:
             raise ValueError("No current trace found")
 
-        trajectory = art.Trajectory(
+        trajectory = Trajectory(
             messages_and_choices=[],
-            reward=current_trace.metadata.get("reward_score", 0),
+            reward=trace.metadata.get("reward_score", 0),
         )
         
         # Get the current trace's spans
-        spans = current_trace.trace_spans
+        spans = trace.trace_spans
 
         # Get only the spans that are used for agent conversation
         first_found = False
@@ -1082,6 +1079,13 @@ class Tracer:
                 trajectory.messages_and_choices.append({"role": "user", "content": span.output})
                 
         return trajectory
+    
+    def get_current_art_trajectory(self) -> Trajectory:
+        """
+        Transform the current trace to an artifact.
+        """
+        current_trace = self.get_current_trace()
+        return self.trace_to_art_trajectory(current_trace)
 
     def reset_current_trace(
         self,
@@ -1237,6 +1241,31 @@ class Tracer:
                 trace_client_instance.record_state_before(state)
             else:
                 trace_client_instance.record_state_after(state)
+
+    def train(self, func: Callable, inputs: list[list], model: Model, config: TrainConfig = TrainConfig(), _config: dev.TrainConfig | None = None, verbose: bool = False) -> str:
+        """
+        Train a model on trajectory data using GRPO.
+        """
+        # Set up backend
+        backend = LocalBackend()
+        model.register(backend)
+        
+        # Inference-training loop
+        for _ in range(config.steps):
+            # Inference
+            groups = []
+            for input in inputs:
+                asyncio.run(asyncio.gather(*[func(*input) for _ in range(config.num_rollouts)]))
+                groups.append(self.traces)
+                self.traces = []
+            
+            # Train
+            trajectory_groups = gather_trajectory_groups(
+                trajectory_groups=(TrajectoryGroup(self.trace_to_art_trajectory(trace) for trace in group) for group in groups),
+                max_exceptions=config.max_exceptions,
+            )
+            model.delete_checkpoints()
+            model.train(trajectory_groups, config=config, _config=_config or {}, verbose=verbose)
 
     def observe(
         self,
