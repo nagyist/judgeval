@@ -134,7 +134,10 @@ class Model(
             )
         return self._backend
 
-    async def register(self, backend: "Backend" = LocalBackend()) -> None:
+    async def register(self, backend: "Backend" | None = None, verbose: bool = False) -> None:
+        if backend is None:
+            backend = LocalBackend(in_process=verbose, path="./.art")
+
         if self.config is not None:
             try:
                 self.config.model_dump_json()
@@ -302,10 +305,11 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
 
     async def register(
         self,
-        backend: "Backend" = LocalBackend(),
+        backend: "Backend" | None = None,
         _openai_client_config: dev.OpenAIServerConfig | None = None,
+        verbose: bool = False,
     ) -> None:
-        await super().register(backend)
+        await super().register(backend, verbose=verbose)
         base_url, api_key = await backend._prepare_backend_for_training(
             self, _openai_client_config
         )
