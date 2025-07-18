@@ -1045,7 +1045,7 @@ class Tracer:
             else current_trace_var_val
         )
     
-    def trace_to_art_trajectory(self, trace: TraceClient) -> Trajectory:
+    def trace_to_art_trajectory(self, trace: Trace | TraceClient) -> Trajectory:
         if not trace:
             raise ValueError("No current trace found")
 
