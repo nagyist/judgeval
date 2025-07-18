@@ -92,10 +92,6 @@ class Model(
             **kwargs,
         )
 
-        # Set up backend
-        if self._backend is None:
-            self.register(LocalBackend())
-
     @overload
     def __new__(
         cls,
@@ -138,7 +134,7 @@ class Model(
             )
         return self._backend
 
-    async def register(self, backend: "Backend") -> None:
+    async def register(self, backend: "Backend" = LocalBackend()) -> None:
         if self.config is not None:
             try:
                 self.config.model_dump_json()
@@ -306,7 +302,7 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
 
     async def register(
         self,
-        backend: "Backend",
+        backend: "Backend" = LocalBackend(),
         _openai_client_config: dev.OpenAIServerConfig | None = None,
     ) -> None:
         await super().register(backend)
