@@ -1242,12 +1242,12 @@ class Tracer:
             else:
                 trace_client_instance.record_state_after(state)
 
-    def train(self, func: Callable, inputs: list[list], model: TrainableModel, config: TrainConfig = TrainConfig(), _config: dev.TrainConfig | None = None, verbose: bool = False):
+    async def train(self, func: Callable, inputs: list[list], model: TrainableModel, config: TrainConfig = TrainConfig(), _config: dev.TrainConfig | None = None, verbose: bool = False):
         """
         Train a model on trajectory data using GRPO.
         """
         # Inference-training loop
-        for _ in range(config.steps):
+        for _ in range(await model.get_step(), config.steps):
             # Inference
             groups = []
             for input in inputs:
@@ -1256,12 +1256,13 @@ class Tracer:
                 self.traces = []
             
             # Train
-            trajectory_groups = gather_trajectory_groups(
-                trajectory_groups=(TrajectoryGroup(self.trace_to_art_trajectory(trace) for trace in group) for group in groups),
+            trajectory_groups = await gather_trajectory_groups(
+                (TrajectoryGroup(self.trace_to_art_trajectory(trace) for trace in group) for group in groups),
+                pbar_desc="gather"
                 max_exceptions=config.max_exceptions,
             )
-            model.delete_checkpoints()
-            model.train(trajectory_groups, config=config, _config=_config or {}, verbose=verbose)
+            await model.delete_checkpoints()
+            await model.train(trajectory_groups, config=config, _config=_config or {}, verbose=verbose)
 
     def observe(
         self,
