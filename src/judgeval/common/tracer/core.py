@@ -1260,7 +1260,7 @@ class Tracer:
             # Train
             trajectory_groups = await gather_trajectory_groups(
                 (
-                    TrajectoryGroup(await self.trace_to_art_trajectory(trace) for trace in group)
+                    TrajectoryGroup(self.trace_to_art_trajectory(trace) for trace in group)
                     for group in groups
                 ),
                 pbar_desc="gather",
