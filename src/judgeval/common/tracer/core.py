@@ -1068,9 +1068,14 @@ class Tracer:
                 input_messages = span.inputs.get("messages", [])
                 trajectory.messages_and_choices.extend(input_messages)
                 continue
+            if not first_found:
+                continue
 
             if span.span_type == "llm":
-                trajectory.messages_and_choices.append({"role": "assistant", "content": span.output})
+                if span.additional_metadata.get("choice", None) is not None:
+                    trajectory.messages_and_choices.append(span.additional_metadata.get("choice"))
+                else:
+                    trajectory.messages_and_choices.append({"role": "assistant", "content": span.output})
             elif span.span_type == "user":
                 trajectory.messages_and_choices.append({"role": "user", "content": span.output})
             elif span.span_type == "tool":
