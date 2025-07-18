@@ -1284,6 +1284,7 @@ dependencies = [
     { name = "matplotlib" },
     { name = "nest-asyncio" },
     { name = "openai" },
+    { name = "openpipe-art" },
     { name = "pandas" },
     { name = "python-dotenv" },
     { name = "python-slugify" },
@@ -1315,10 +1316,11 @@ requires-dist = [
     { name = "langchain-core" },
     { name = "langchain-huggingface" },
     { name = "langchain-openai" },
-    { name = "litellm", specifier = "==1.61.15" },
+    { name = "litellm", specifier = ">=1.61.15" },
     { name = "matplotlib", specifier = ">=3.10.3" },
     { name = "nest-asyncio" },
     { name = "openai" },
+    { name = "openpipe-art", specifier = ">=0.4.4" },
     { name = "pandas" },
     { name = "python-dotenv", specifier = "==1.0.1" },
     { name = "python-slugify", specifier = ">=8.0.4" },
@@ -1617,7 +1619,7 @@ wheels = [
 
 [[package]]
 name = "litellm"
-version = "1.61.15"
+version = "1.74.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1632,9 +1634,9 @@ dependencies = [
     { name = "tiktoken" },
     { name = "tokenizers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/23/3a/3e299244bb048bbe63e6342a34b5974ab551b24ca0cbafdd5aaf81c0c81d/litellm-1.61.15.tar.gz", hash = "sha256:f10ff155d8bca6cb0e2a1cc8d9aedbe6b390f73b30b9603e9cadb66b11472d44", size = 6561672, upload-time = "2025-02-23T07:24:01.411Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/52/49/32f0e7052309f2757885737e7eb7ce6f5ea5b48fad455b10dfd21720f04e/litellm-1.74.4.tar.gz", hash = "sha256:ace3dd8c052b57b728a2dbd38e7061cf95e3506b13a58c61da39902f6ee4a6be", size = 9405133, upload-time = "2025-07-17T02:46:11.015Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ac/b8/2908528ce280a1554162bffaec47514c71a01d76867e0b3fefd096c9cd00/litellm-1.61.15-py3-none-any.whl", hash = "sha256:977fd4e37491dd5adf14ed7c4d55bd099dd5ee7d40b8b8af5eba515d448013bb", size = 6871062, upload-time = "2025-02-23T07:23:57.868Z" },
+    { url = "https://files.pythonhosted.org/packages/21/0c/88df53727c28c006b2fb36616f93a036cde7fb9e37f016f60f02422f52ae/litellm-1.74.4-py3-none-any.whl", hash = "sha256:28de09c9d4cdbe322402f94236ec8dbac9edc5356e2f3b628b9bab0fb39284e4", size = 8639543, upload-time = "2025-07-17T02:46:08.052Z" },
 ]
 
 [[package]]
@@ -2056,6 +2058,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/18/2b/0d93a981afe76b4e89c57b69bf421b5f15878983fccbad321f142ba6e89b/openai-1.93.2.tar.gz", hash = "sha256:4a7312b426b5e4c98b78dfa1148b5683371882de3ad3d5f7c8e0c74f3cc90778", size = 487225, upload-time = "2025-07-08T15:38:00.218Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/03/22/f7b90b519e8a5867dc96d411615eb7f987d2d5474c22e7d37c7170a132da/openai-1.93.2-py3-none-any.whl", hash = "sha256:5adbbebd48eae160e6d68efc4c0a4f7cb1318a44c62d9fc626cec229f418eab4", size = 755084, upload-time = "2025-07-08T15:37:58.045Z" },
+]
+
+[[package]]
+name = "openpipe-art"
+version = "0.4.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "litellm" },
+    { name = "openai" },
+    { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0d/92/574441b200e0b6aef01621a5be677073623a52f185ce2d27e9fcceb81219/openpipe_art-0.4.4.tar.gz", hash = "sha256:6dec47a7fdcde7fd9d15d0ef0d4935cf42a60242816e53812f3fa83bae8bfbb7", size = 14386928, upload-time = "2025-07-17T07:27:12.491Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1a/97/48de9ec81a7655541db768a82f4e61ab784ccde7918b4b1f72e13ccd4f33/openpipe_art-0.4.4-py3-none-any.whl", hash = "sha256:2ddd6246294557e5d1d8015fa2ec146eb75f8bdd85dd6362e45e523e1b63f73a", size = 132973, upload-time = "2025-07-17T07:27:10.835Z" },
 ]
 
 [[package]]

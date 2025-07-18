@@ -16,7 +16,7 @@ classifiers = [
 license = "Apache-2.0"
 license-files = ["LICENSE.md"]
 dependencies = [
-    "litellm==1.61.15",
+    "litellm>=1.61.15",
     "python-dotenv==1.0.1",
     "requests",
     "pandas",
@@ -33,6 +33,7 @@ dependencies = [
     "matplotlib>=3.10.3",
     "python-slugify>=8.0.4",
     "datamodel-code-generator>=0.31.1",
+    "openpipe-art>=0.4.4",
 ]
 
 [project.urls]
