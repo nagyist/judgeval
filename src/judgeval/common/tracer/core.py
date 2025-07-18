@@ -1068,7 +1068,6 @@ class Tracer:
                 first_found = True
                 input_messages = span.inputs.get("messages", [])
                 trajectory.messages_and_choices.extend(input_messages)
-                continue
             if not first_found:
                 continue
 
