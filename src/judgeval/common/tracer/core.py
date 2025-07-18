@@ -1947,7 +1947,7 @@ def combine_args_kwargs(func, args, kwargs):
 def cost_per_token(*args, **kwargs):
     try:
         prompt_tokens_cost_usd_dollar, completion_tokens_cost_usd_dollar = (
-           1, 1
+           0.001, 0.001
         )
         if (
             prompt_tokens_cost_usd_dollar == 0
