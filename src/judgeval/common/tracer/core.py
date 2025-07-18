@@ -1074,7 +1074,7 @@ class Tracer:
 
             if span.span_type == "llm":
                 if span.additional_metadata.get("choice", None) is not None:
-                    trajectory.messages_and_choices.append(Choice(span.additional_metadata.get("choice")))
+                    trajectory.messages_and_choices.append(Choice(**span.additional_metadata.get("choice")))
                 else:
                     trajectory.messages_and_choices.append({"role": "assistant", "content": span.output})
             elif span.span_type == "user":
