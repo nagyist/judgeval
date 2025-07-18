@@ -134,7 +134,7 @@ class Model(
             )
         return self._backend
 
-    async def register(self, backend: "Backend" | None = None, verbose: bool = False) -> None:
+    async def register(self, backend: Optional["Backend"] = None, verbose: bool = False) -> None:
         if backend is None:
             backend = LocalBackend(in_process=verbose, path="./.art")
 
@@ -305,7 +305,7 @@ class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
 
     async def register(
         self,
-        backend: "Backend" | None = None,
+        backend: Optional["Backend"] = None,
         _openai_client_config: dev.OpenAIServerConfig | None = None,
         verbose: bool = False,
     ) -> None:
