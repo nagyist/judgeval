@@ -1258,8 +1258,8 @@ class Tracer:
             # Train
             trajectory_groups = await gather_trajectory_groups(
                 (TrajectoryGroup(self.trace_to_art_trajectory(trace) for trace in group) for group in groups),
-                pbar_desc="gather"
-                max_exceptions=config.max_exceptions,
+                pbar_desc="gather",
+                max_exceptions=config.max_exceptions
             )
             await model.delete_checkpoints()
             await model.train(trajectory_groups, config=config, _config=_config or {}, verbose=verbose)
