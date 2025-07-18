@@ -1242,7 +1242,7 @@ class Tracer:
             else:
                 trace_client_instance.record_state_after(state)
 
-    def train(self, func: Callable, inputs: list[list], model: Model, config: TrainConfig = TrainConfig(), _config: dev.TrainConfig | None = None, verbose: bool = False) -> str:
+    def train(self, func: Callable, inputs: list[list], model: Model, config: TrainConfig = TrainConfig(), _config: dev.TrainConfig | None = None, verbose: bool = False):
         """
         Train a model on trajectory data using GRPO.
         """
