@@ -1049,6 +1049,8 @@ class Tracer:
         if not trace:
             raise ValueError("No current trace found")
 
+        trace = Trace(**trace)
+
         trajectory = Trajectory(
             messages_and_choices=[],
             reward=trace.metadata.get("reward_score", 0),
