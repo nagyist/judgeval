@@ -31,7 +31,7 @@ from typing import (
     TypeAlias,
 )
 import types
-from judgeval.common.tracer.train_types import (
+from judgeval.common.train_types import (
     TrainableModel,
     TrainConfig,
     Trajectory,
