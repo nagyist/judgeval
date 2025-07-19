@@ -46,7 +46,7 @@ from judgeval.common.tracer.otel_span_processor import JudgmentSpanProcessor
 from judgeval.common.tracer.span_processor import SpanProcessorBase
 from judgeval.common.tracer.trace_manager import TraceManagerClient
 from openai import OpenAI, AsyncOpenAI
-from openai.types.chat.chat_completion import ChatCompletion
+from openai.types.chat.chat_completion import ChatCompletion, Choice
 from openai.types.responses.response import Response
 from openai.types.chat import ParsedChatCompletion
 from together import Together, AsyncTogether
@@ -58,7 +58,6 @@ from judgeval.scorers import APIScorerConfig, BaseScorer
 from judgeval.evaluation_run import EvaluationRun
 from judgeval.common.utils import ExcInfo, validate_api_key
 from judgeval.common.logger import judgeval_logger
-
 
 current_trace_var = contextvars.ContextVar[Optional["TraceClient"]](
     "current_trace", default=None
@@ -1081,7 +1080,7 @@ class Tracer:
             if span.span_type == "llm":
                 if span.additional_metadata.get("choice", None) is not None:
                     trajectory.messages_and_choices.append(
-                        span.additional_metadata.get("choice")
+                        Choice(**span.additional_metadata.get("choice"))
                     )
                 else:
                     trajectory.messages_and_choices.append(
