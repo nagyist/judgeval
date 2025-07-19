@@ -5,7 +5,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from openai.types.chat.chat_completion import Choice
 from tqdm import auto as tqdm
-from typing import Awaitable, Iterable, Iterator, Literal, overload, Callable
+from typing import Awaitable, Iterable, Iterator, Literal, overload
 
 from .trajectories import Trajectory, TrajectoryGroup
 
@@ -17,8 +17,6 @@ async def gather_trajectory_groups(
     pbar_total_completion_tokens: bool = True,
     max_exceptions: int | float = 0,
     max_metrics: int | None = None,
-    after_each: Callable[[TrajectoryGroup], Awaitable[TrajectoryGroup | None]]
-    | None = None,
 ) -> list[TrajectoryGroup]:
     groups = list(groups)
     context = GatherContext(
@@ -32,25 +30,9 @@ async def gather_trajectory_groups(
         total = sum(getattr(g, "_num_trajectories", 1) for g in groups)
         context.pbar = tqdm.tqdm(desc=pbar_desc, total=total)
         result_groups = await future
-
     if context.pbar is not None:
         context.pbar.close()
-
-    # Filter out any None results that may have been returned due to handled exceptions
-    processed_groups: list[TrajectoryGroup] = [
-        g for g in result_groups if g is not None
-    ]
-
-    # If an after_each callback was provided, await it and collect its return values.
-    if after_each is not None:
-        gather_results = await asyncio.gather(
-            *(after_each(g) for g in processed_groups)
-        )  # type: ignore[arg-type]
-
-        # Filter out callbacks that returned None
-        processed_groups = [g for g in gather_results if g is not None]
-
-    return processed_groups
+    return [g for g in result_groups if g is not None]
 
 
 @overload
@@ -139,7 +121,6 @@ async def wrap_group_awaitable(
         context.update_pbar(n=0)
         if context.too_many_exceptions():
             raise
-        return None
 
 
 async def wrap_trajectories_awaitable(
@@ -175,8 +156,7 @@ def record_metrics(context: "GatherContext", trajectory: Trajectory) -> None:
     ]
     if logprobs:
         trajectory.metrics["completion_tokens"] = sum(
-            len(l.content or l.refusal or [])
-            for l in logprobs  # noqa: E741
+            len(l.content or l.refusal or []) for l in logprobs
         ) / len(logprobs)
     context.metric_sums["reward"] += trajectory.reward  # type: ignore
     context.metric_divisors["reward"] += 1
@@ -192,30 +172,26 @@ class GatherContext:
     max_metrics: int | None = None
     pbar_total_completion_tokens: bool = False
     max_exceptions: int | float = 0
-    increment_pbar: bool = True
 
     def update_pbar(self, n: int) -> None:
-        if self.pbar is None:
-            return
-        if self.increment_pbar:
+        if self.pbar is not None:
             self.pbar.update(n)
-        postfix = {}
-        included_metrics = list(self.metric_sums.keys())
-        if self.max_metrics is not None:
-            included_metrics = included_metrics[: self.max_metrics]
-        for metric in included_metrics:
-            sum = self.metric_sums[metric]
-            divisor = max(1, self.metric_divisors[metric])
-            postfix[metric] = sum / divisor
-        # move token metrics to the end
-        for key in (
-            "prompt_tokens",
-            "completion_tokens",
-            "total_completion_tokens",
-        ):
-            if key in postfix:
-                postfix[key] = postfix.pop(key)
-        self.pbar.set_postfix(postfix)
+            postfix = {}
+            included_metrics = self.metric_sums.keys()
+            if self.max_metrics is not None:
+                included_metrics = list(self.metric_sums.keys())[: self.max_metrics]
+            for metric in included_metrics:
+                sum = self.metric_sums[metric]
+                divisor = max(1, self.metric_divisors[metric])
+                postfix[metric] = sum / divisor
+            for key in (
+                "prompt_tokens",
+                "completion_tokens",
+                "total_completion_tokens",
+            ):
+                if key in postfix:
+                    postfix[key] = postfix.pop(key)
+            self.pbar.set_postfix(postfix)
 
     def too_many_exceptions(self) -> bool:
         if (
@@ -225,13 +201,6 @@ class GatherContext:
         ) or self.metric_sums["exceptions"] <= self.max_exceptions:
             return False
         return True
-
-    def reset(self) -> None:
-        self.pbar = None
-        self.metric_sums = Counter()
-        self.metric_divisors = Counter()
-        self.pbar_total_completion_tokens = False
-        self.max_exceptions = 0
 
 
 gather_context_var = contextvars.ContextVar("gather_context", default=GatherContext())

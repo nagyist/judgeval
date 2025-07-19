@@ -1,27 +1,24 @@
-import httpx
-from openai import AsyncOpenAI, DefaultAsyncHttpxClient
-from pydantic import BaseModel
-from typing import TYPE_CHECKING, cast, Generic, Iterable, Optional, overload, TypeVar
-from typing_extensions import Never
-
-from art.local import LocalBackend
+from openai import AsyncOpenAI
+from typing import cast, Iterable, TYPE_CHECKING, Optional
 
 from . import dev
+from .backend import Backend
 from .openai import patch_openai
 from .trajectories import Trajectory, TrajectoryGroup
 from .types import TrainConfig
+from pydantic import BaseModel
+from openai import (
+    AsyncOpenAI,
+    DefaultAsyncHttpxClient,
+)
+import httpx
+from art.local import LocalBackend
 
 if TYPE_CHECKING:
-    from art.backend import Backend
+    from .backend import Backend
 
 
-ModelConfig = TypeVar("ModelConfig", bound=BaseModel | None)
-
-
-class Model(
-    BaseModel,
-    Generic[ModelConfig],
-):
+class Model(BaseModel):
     """
     A model is an object that can be passed to your `rollout` function, and used
     to log completions. Additionally, a `TrainableModel`, which is a subclass of
@@ -32,22 +29,22 @@ class Model(
 
     You can instantiate a prompted model like so:
 
-    ``python model = art.Model(
+    ```python model = art.Model(
         name="gpt-4.1", project="my-project",
         inference_api_key=os.getenv("OPENAI_API_KEY"),
         inference_base_url="https://api.openai.com/v1/",
     )
-    ``
+    ```
 
     Or, if you're pointing at OpenRouter:
 
-    ``python model = art.Model(
+    ```python model = art.Model(
         name="gemini-2.5-pro", project="my-project",
         inference_api_key=os.getenv("OPENROUTER_API_KEY"),
         inference_base_url="https://openrouter.ai/api/v1",
         inference_model_name="google/gemini-2.5-pro-preview-03-25",
     )
-    ``
+    ```
 
     For trainable (`art.TrainableModel`) models the inference values will be
     populated automatically by `model.register(api)` so you generally don't need
@@ -56,7 +53,9 @@ class Model(
 
     name: str
     project: str
-    config: ModelConfig
+
+    config: BaseModel | None = None
+    trainable: bool = False
 
     # --- Inference connection information (populated automatically for
     #     TrainableModel or set manually for prompted / comparison models) ---
@@ -71,62 +70,6 @@ class Model(
     _s3_prefix: str | None = None
     _openai_client: AsyncOpenAI | None = None
 
-    def __init__(
-        self,
-        *,
-        name: str,
-        project: str,
-        config: ModelConfig | None = None,
-        inference_api_key: str | None = None,
-        inference_base_url: str | None = None,
-        inference_model_name: str | None = None,
-        **kwargs: Never,
-    ) -> None:
-        super().__init__(
-            name=name,
-            project=project,
-            config=config,
-            inference_api_key=inference_api_key,
-            inference_base_url=inference_base_url,
-            inference_model_name=inference_model_name,
-            **kwargs,
-        )
-
-    @overload
-    def __new__(
-        cls,
-        *,
-        name: str,
-        project: str,
-        config: None = None,
-        inference_api_key: str | None = None,
-        inference_base_url: str | None = None,
-        inference_model_name: str | None = None,
-    ) -> "Model[None]": ...
-
-    @overload
-    def __new__(
-        cls,
-        *,
-        name: str,
-        project: str,
-        config: ModelConfig,
-        inference_api_key: str | None = None,
-        inference_base_url: str | None = None,
-        inference_model_name: str | None = None,
-    ) -> "Model[ModelConfig]": ...
-
-    def __new__(
-        cls,
-        *args,
-        **kwargs,
-    ) -> "Model[ModelConfig] | Model[None]":
-        return super().__new__(cls)
-
-    @property
-    def trainable(self) -> bool:
-        return False
-
     def backend(self) -> "Backend":
         if self._backend is None:
             raise ValueError(
@@ -134,15 +77,9 @@ class Model(
             )
         return self._backend
 
-    async def register(
-        self,
-        backend: Optional["Backend"] = None,
-        _openai_client_config: Optional[dev.OpenAIServerConfig] = None,
-        verbose: bool = False,
-    ) -> None:
+    async def register(self, backend: Optional["Backend"] = None, verbose: bool = False) -> None:
         if backend is None:
-            backend = LocalBackend(in_process=verbose, path="./.art")
-
+            backend = LocalBackend(in_process=verbose, path="./.train")
         if self.config is not None:
             try:
                 self.config.model_dump_json()
@@ -184,18 +121,6 @@ class Model(
 
         return self._openai_client
 
-    def litellm_completion_params(self) -> dict:
-        """Return the parameters that should be sent to litellm.completion."""
-        model_name = self.inference_model_name
-        if self.trainable:
-            model_name = f"hosted_vllm/{model_name}"
-        return {
-            "model": model_name,
-            "base_url": self.inference_base_url,
-            "api_key": self.inference_api_key,
-            "temperature": 1,  # Important for trainable models
-        }
-
     # ------------------------------------------------------------------
     # Inference name helpers
     # ------------------------------------------------------------------
@@ -203,14 +128,14 @@ class Model(
     def get_inference_name(self) -> str:
         """Return the name that should be sent to the inference endpoint.
 
-        If `inference_model_name` is provided we use that, otherwise we fall
-        back to the model's own `name`.
+        If ``inference_model_name`` is provided we use that, otherwise we fall
+        back to the model's own ``name``.
         """
         return self.inference_model_name or self.name
 
     async def log(
         self,
-        trajectories: Iterable[Trajectory | BaseException] | Iterable[TrajectoryGroup],
+        trajectories: Iterable[Trajectory] | Iterable[TrajectoryGroup],
         split: str = "val",
     ) -> None:
         """
@@ -220,13 +145,9 @@ class Model(
             trajectories: A batch of trajectories or trajectory groups.
             split: The evaluation's split. Defaults to "val".
         """
-        if any(isinstance(t, Trajectory) for t in trajectories) or any(
-            isinstance(t, BaseException) for t in trajectories
-        ):
+        if any(isinstance(t, Trajectory) for t in trajectories):
             trajectory_groups = [
-                TrajectoryGroup(
-                    cast(Iterable[Trajectory | BaseException], trajectories)
-                )
+                TrajectoryGroup(cast(Iterable[Trajectory], trajectories))
             ]
         else:
             trajectory_groups = cast(list[TrajectoryGroup], list(trajectories))
@@ -242,87 +163,41 @@ class Model(
 # ---------------------------------------------------------------------------
 
 
-class TrainableModel(Model[ModelConfig], Generic[ModelConfig]):
+class TrainableModel(Model):
     base_model: str
+    trainable: bool = True
 
     # The fields within `_internal_config` are unstable and subject to change.
     # Use at your own risk.
     _internal_config: dev.InternalModelConfig | None = None
 
-    def __init__(
-        self,
-        *,
-        name: str,
-        project: str,
-        config: ModelConfig | None = None,
-        base_model: str,
-        _internal_config: dev.InternalModelConfig | None = None,
-        **kwargs: Never,
-    ) -> None:
-        super().__init__(
-            name=name,
-            project=project,
-            config=config,
-            base_model=base_model,  # type: ignore
-            **kwargs,
-        )
-        if _internal_config is not None:
+    def __init__(self, **data):
+        # Pop any internal config provided at construction and assign it
+        internal_cfg = data.pop("_internal_config", None)
+        super().__init__(**data)
+        if internal_cfg is not None:
             # Bypass BaseModel __setattr__ to allow setting private attr
-            object.__setattr__(self, "_internal_config", _internal_config)
-
-    @overload
-    def __new__(
-        cls,
-        *,
-        name: str,
-        project: str,
-        config: None = None,
-        base_model: str,
-        _internal_config: dev.InternalModelConfig | None = None,
-    ) -> "TrainableModel[None]": ...
-
-    @overload
-    def __new__(
-        cls,
-        *,
-        name: str,
-        project: str,
-        config: ModelConfig,
-        base_model: str,
-        _internal_config: dev.InternalModelConfig | None = None,
-    ) -> "TrainableModel[ModelConfig]": ...
-
-    def __new__(
-        cls,
-        *args,
-        **kwargs,
-    ) -> "TrainableModel[ModelConfig] | TrainableModel[None]":
-        return super().__new__(cls)  # type: ignore
+            object.__setattr__(self, "_internal_config", internal_cfg)
 
     def model_dump(self, *args, **kwargs) -> dict:
         data = super().model_dump(*args, **kwargs)
         data["_internal_config"] = self._internal_config
         return data
 
-    @property
-    def trainable(self) -> bool:
-        return True
-
     async def register(
         self,
         backend: Optional["Backend"] = None,
-        _openai_client_config: Optional[dev.OpenAIServerConfig] = None,
         verbose: bool = False,
+        _openai_client_config: dev.OpenAIServerConfig | None = None,
     ) -> None:
         if backend is None:
-            backend = LocalBackend(in_process=verbose, path="./.art")
-
-        await super().register(backend, verbose=verbose)
+            backend = LocalBackend(in_process=verbose, path="./.train")
+        await super().register(backend, verbose)
         base_url, api_key = await backend._prepare_backend_for_training(
             self, _openai_client_config
         )
 
-        # Populate the top-level inference fields so that the rest of the
+        # Populate the new top-level inference fields so that the rest of the
         # code (and any user code) can create an OpenAI client immediately.
         self.inference_base_url = base_url
         self.inference_api_key = api_key

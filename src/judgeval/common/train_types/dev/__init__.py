@@ -6,7 +6,6 @@ from .model import (
     TrainerArgs,
 )
 from .openai_server import get_openai_server_config, OpenAIServerConfig, ServerArgs
-from .torchtune import TorchtuneArgs
 from .train import TrainConfig
 
 __all__ = [
@@ -18,6 +17,5 @@ __all__ = [
     "get_openai_server_config",
     "OpenAIServerConfig",
     "ServerArgs",
-    "TorchtuneArgs",
     "TrainConfig",
 ]

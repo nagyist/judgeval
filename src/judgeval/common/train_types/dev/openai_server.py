@@ -8,7 +8,7 @@ def get_openai_server_config(
     model_name: str,
     base_model: str,
     log_file: str,
-    lora_path: str | None = None,
+    lora_path: str,
     config: "OpenAIServerConfig | None" = None,
 ) -> "OpenAIServerConfig":
     if config is None:
@@ -16,11 +16,7 @@ def get_openai_server_config(
     log_file = config.get("log_file", log_file)
     server_args = ServerArgs(
         api_key="default",
-        lora_modules=(
-            [f'{{"name": "{model_name}", "path": "{lora_path}"}}']
-            if lora_path
-            else None
-        ),
+        lora_modules=[f'{{"name": "{model_name}", "path": "{lora_path}"}}'],
         return_tokens_as_token_ids=True,
         enable_auto_tool_choice=True,
         tool_call_parser="hermes",
@@ -28,8 +24,8 @@ def get_openai_server_config(
     server_args.update(config.get("server_args", {}))
     engine_args = EngineArgs(
         model=base_model,
-        num_scheduler_steps=16 if lora_path else 1,
-        served_model_name=base_model if lora_path else model_name,
+        num_scheduler_steps=16,
+        served_model_name=base_model,
         disable_log_requests=True,
         generation_config="vllm",
     )

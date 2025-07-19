@@ -1,108 +1,16 @@
-from enum import Enum
+import torch
+from transformers.debug_utils import DebugOption
+from transformers.training_args import OptimizerNames
+from transformers.trainer_utils import (
+    FSDPOption,
+    HubStrategy,
+    IntervalStrategy,
+    SaveStrategy,
+    SchedulerType,
+)
 from typing_extensions import TypedDict
 
 from .engine import EngineArgs
-from .torchtune import TorchtuneArgs
-
-
-# Vendored from transformers.training_args.OptimizerNames
-class OptimizerNames(str, Enum):
-    """
-    Stores the acceptable string identifiers for optimizers.
-    """
-
-    ADAMW_TORCH = "adamw_torch"
-    ADAMW_TORCH_FUSED = "adamw_torch_fused"
-    ADAMW_TORCH_XLA = "adamw_torch_xla"
-    ADAMW_TORCH_NPU_FUSED = "adamw_torch_npu_fused"
-    ADAMW_APEX_FUSED = "adamw_apex_fused"
-    ADAFACTOR = "adafactor"
-    ADAMW_ANYPRECISION = "adamw_anyprecision"
-    ADAMW_TORCH_4BIT = "adamw_torch_4bit"
-    ADAMW_TORCH_8BIT = "adamw_torch_8bit"
-    ADEMAMIX = "ademamix"
-    SGD = "sgd"
-    ADAGRAD = "adagrad"
-    ADAMW_BNB = "adamw_bnb_8bit"
-    ADAMW_8BIT = "adamw_8bit"  # just an alias for adamw_bnb_8bit
-    ADEMAMIX_8BIT = "ademamix_8bit"
-    LION_8BIT = "lion_8bit"
-    LION = "lion_32bit"
-    PAGED_ADAMW = "paged_adamw_32bit"
-    PAGED_ADAMW_8BIT = "paged_adamw_8bit"
-    PAGED_ADEMAMIX = "paged_ademamix_32bit"
-    PAGED_ADEMAMIX_8BIT = "paged_ademamix_8bit"
-    PAGED_LION = "paged_lion_32bit"
-    PAGED_LION_8BIT = "paged_lion_8bit"
-    RMSPROP = "rmsprop"
-    RMSPROP_BNB = "rmsprop_bnb"
-    RMSPROP_8BIT = "rmsprop_bnb_8bit"
-    RMSPROP_32BIT = "rmsprop_bnb_32bit"
-    GALORE_ADAMW = "galore_adamw"
-    GALORE_ADAMW_8BIT = "galore_adamw_8bit"
-    GALORE_ADAFACTOR = "galore_adafactor"
-    GALORE_ADAMW_LAYERWISE = "galore_adamw_layerwise"
-    GALORE_ADAMW_8BIT_LAYERWISE = "galore_adamw_8bit_layerwise"
-    GALORE_ADAFACTOR_LAYERWISE = "galore_adafactor_layerwise"
-    LOMO = "lomo"
-    ADALOMO = "adalomo"
-    GROKADAMW = "grokadamw"
-    SCHEDULE_FREE_RADAM = "schedule_free_radam"
-    SCHEDULE_FREE_ADAMW = "schedule_free_adamw"
-    SCHEDULE_FREE_SGD = "schedule_free_sgd"
-    APOLLO_ADAMW = "apollo_adamw"
-    APOLLO_ADAMW_LAYERWISE = "apollo_adamw_layerwise"
-
-
-# Vendored from transformers.debug_utils.DebugOption
-class DebugOption(str, Enum):
-    UNDERFLOW_OVERFLOW = "underflow_overflow"
-    TPU_METRICS_DEBUG = "tpu_metrics_debug"
-
-
-# Vendored from transformers.trainer_utils.IntervalStrategy
-class IntervalStrategy(str, Enum):
-    NO = "no"
-    STEPS = "steps"
-    EPOCH = "epoch"
-
-
-# Vendored from transformers.trainer_utils.SaveStrategy (which is an alias for IntervalStrategy)
-SaveStrategy = IntervalStrategy
-
-
-# Vendored from transformers.trainer_utils.HubStrategy
-class HubStrategy(str, Enum):
-    END = "end"
-    EVERY_SAVE = "every_save"
-    CHECKPOINT = "checkpoint"
-    ALL_CHECKPOINTS = "all_checkpoints"
-
-
-# Vendored from transformers.trainer_utils.SchedulerType
-class SchedulerType(str, Enum):
-    LINEAR = "linear"
-    COSINE = "cosine"
-    COSINE_WITH_RESTARTS = "cosine_with_restarts"
-    POLYNOMIAL = "polynomial"
-    CONSTANT = "constant"
-    CONSTANT_WITH_WARMUP = "constant_with_warmup"
-    INVERSE_SQRT = "inverse_sqrt"
-    REDUCE_ON_PLATEAU = "reduce_lr_on_plateau"
-    COSINE_WITH_MIN_LR = "cosine_with_min_lr"
-    WARMUP_STABLE_DECAY = "warmup_stable_decay"
-    WORMHOLE = "wormhole"
-
-
-# Vendored from transformers.trainer_utils.FSDPOption
-class FSDPOption(str, Enum):
-    FULL_SHARD = "full_shard"
-    SHARD_GRAD_OP = "shard_grad_op"
-    NO_SHARD = "no_shard"
-    HYBRID_SHARD = "hybrid_shard"
-    HYBRID_SHARD_ZERO2 = "hybrid_shard_zero2"
-    OFFLOAD = "offload"
-    AUTO_WRAP = "auto_wrap"
 
 
 class InternalModelConfig(TypedDict, total=False):
@@ -119,8 +27,6 @@ class InternalModelConfig(TypedDict, total=False):
     engine_args: "EngineArgs"
     peft_args: "PeftArgs"
     trainer_args: "TrainerArgs"
-    torchtune_args: TorchtuneArgs | None
-    _decouple_vllm_and_unsloth: bool
 
 
 class InitArgs(TypedDict, total=False):
@@ -249,7 +155,7 @@ class TrainerArgs(TypedDict, total=False):
     accelerator_config: dict | str | None
     deepspeed: dict | str | None
     label_smoothing_factor: float
-    optim: OptimizerNames | str
+    optim: "OptimizerNames | str"
     optim_args: str | None
     adafactor: bool
     group_by_length: bool

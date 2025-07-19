@@ -1,6 +1,7 @@
+import asyncio
 import pydantic
 import traceback
-from typing import Awaitable, Any, Iterable, Iterator, overload
+from typing import Awaitable, Any, cast, Iterable, Iterator, overload
 from openai.types.chat.chat_completion import Choice
 from .types import Messages, MessagesAndChoices, Tools
 import time
@@ -18,15 +19,9 @@ class PydanticException(pydantic.BaseModel):
     traceback: str
 
 
-class History(pydantic.BaseModel):
-    messages_and_choices: MessagesAndChoices
-    tools: Tools | None = None
-
-
 class Trajectory(pydantic.BaseModel):
     messages_and_choices: MessagesAndChoices
     tools: Tools | None = None
-    additional_histories: list[History] = []
     reward: float
     metrics: dict[str, float | int | bool] = {}
     metadata: dict[str, MetadataValue] = {}
@@ -36,9 +31,6 @@ class Trajectory(pydantic.BaseModel):
     def __init__(self, **data: Any):
         super().__init__(**data)
         self.start_time = datetime.now()
-
-    def log(self, message: str) -> None:
-        self.logs.append(message)
 
     def finish(self) -> "Trajectory":
         duration = (datetime.now() - self.start_time).total_seconds()
@@ -59,11 +51,38 @@ class Trajectory(pydantic.BaseModel):
         return f"Trajectory(reward={self.reward}, metrics={self.metrics}, metadata={self.metadata})"
 
     def messages(self) -> Messages:
-        return get_messages(self.messages_and_choices)
+        return [
+            (
+                {
+                    "role": "assistant",
+                    "content": message_or_choice.message.content,
+                    **(
+                        {
+                            "tool_calls": [
+                                {
+                                    "id": tool_call.id,
+                                    "type": tool_call.type,
+                                    "function": {
+                                        "name": tool_call.function.name,
+                                        "arguments": tool_call.function.arguments,
+                                    },
+                                }
+                                for tool_call in message_or_choice.message.tool_calls
+                            ]
+                        }
+                        if message_or_choice.message.tool_calls
+                        else {}
+                    ),  # type: ignore
+                }
+                if isinstance(message_or_choice, Choice)
+                else message_or_choice
+            )
+            for message_or_choice in self.messages_and_choices
+        ]
 
     # Used for logging to console
     def for_logging(self) -> dict[str, Any]:
-        loggable_dict: dict[str, Any] = {
+        loggable_dict = {
             "reward": self.reward,
             "metrics": self.metrics,
             "metadata": self.metadata,
@@ -71,50 +90,18 @@ class Trajectory(pydantic.BaseModel):
             "tools": self.tools,
             "logs": self.logs,
         }
-        messages_list: list[dict[str, Any]] = loggable_dict["messages"]
         for message_or_choice in self.messages_and_choices:
             trainable = isinstance(message_or_choice, Choice)
-            if trainable:
-                message = message_or_choice.message.to_dict()
-            else:
-                message = dict(message_or_choice)  # Ensure it's a dict
-            messages_list.append({**message, "trainable": trainable})
+            message = (
+                message_or_choice.message.to_dict() if trainable else message_or_choice
+            )
+            loggable_dict["messages"].append({**message, "trainable": trainable})
         return loggable_dict
-
-
-def get_messages(messages_and_choices: MessagesAndChoices) -> Messages:
-    return [
-        (
-            {
-                "role": "assistant",
-                "content": message_or_choice.message.content,
-                **(
-                    {
-                        "tool_calls": [
-                            {
-                                "id": tool_call.id,
-                                "type": tool_call.type,
-                                "function": {
-                                    "name": tool_call.function.name,
-                                    "arguments": tool_call.function.arguments,
-                                },
-                            }
-                            for tool_call in message_or_choice.message.tool_calls
-                        ]
-                    }
-                    if message_or_choice.message.tool_calls
-                    else {}
-                ),  # type: ignore
-            }
-            if isinstance(message_or_choice, Choice)
-            else message_or_choice
-        )
-        for message_or_choice in messages_and_choices
-    ]
 
 
 class TrajectoryGroup(pydantic.BaseModel):
     trajectories: list[Trajectory]
+    metadata: dict[str, MetadataValue] = {}
     exceptions: list[PydanticException] = []
 
     def __init__(
@@ -123,6 +110,7 @@ class TrajectoryGroup(pydantic.BaseModel):
             Iterable[Trajectory | BaseException] | Iterable[Awaitable[Trajectory]]
         ),
         *,
+        metadata: dict[str, MetadataValue] = {},
         exceptions: list[BaseException] = [],
     ) -> None:
         super().__init__(
@@ -132,6 +120,7 @@ class TrajectoryGroup(pydantic.BaseModel):
                 if isinstance(trajectory, Trajectory)
             ]
             or getattr(self, "trajectories", []),
+            metadata=metadata,
             exceptions=[
                 PydanticException(
                     type=str(type(exception)),
@@ -160,45 +149,46 @@ class TrajectoryGroup(pydantic.BaseModel):
         return len(self.trajectories)
 
     @overload
-    def __new__(  # type: ignore[misc]
+    def __new__(
         cls,
         trajectories: Iterable[Trajectory | BaseException],
         *,
+        metadata: dict[str, MetadataValue] = {},
         exceptions: list[BaseException] = [],
     ) -> "TrajectoryGroup": ...
 
     @overload
-    def __new__(  # type: ignore[misc]
+    def __new__(
         cls,
         trajectories: Iterable[Awaitable[Trajectory]],
         *,
+        metadata: dict[str, MetadataValue] = {},
         exceptions: list[BaseException] = [],
     ) -> Awaitable["TrajectoryGroup"]: ...
 
-    def __new__(  # type: ignore[misc]
+    def __new__(
         cls,
         trajectories: (
             Iterable[Trajectory | BaseException] | Iterable[Awaitable[Trajectory]]
         ),
         *,
+        metadata: dict[str, MetadataValue] = {},
         exceptions: list[BaseException] = [],
-    ):
+    ) -> "TrajectoryGroup | Awaitable[TrajectoryGroup]":
         ts = list(trajectories)
         if any(hasattr(t, "__await__") for t in ts):
 
             async def _(exceptions: list[BaseException]):
                 from .gather import get_gather_context, record_metrics
-                import asyncio
-                from typing import cast
 
                 context = get_gather_context()
-                completed_trajectories = []
+                trajectories = []
                 for future in asyncio.as_completed(
                     cast(list[Awaitable[Trajectory]], ts)
                 ):
                     try:
                         trajectory = await future
-                        completed_trajectories.append(trajectory)
+                        trajectories.append(trajectory)
                         record_metrics(context, trajectory)
                         context.update_pbar(n=1)
                     except BaseException as e:
@@ -208,8 +198,9 @@ class TrajectoryGroup(pydantic.BaseModel):
                         if context.too_many_exceptions():
                             raise
                 return TrajectoryGroup(
-                    trajectories=completed_trajectories,
+                    trajectories=trajectories,
                     exceptions=exceptions,
+                    metadata=metadata,
                 )
 
             class CoroutineWithMetadata:
@@ -223,11 +214,10 @@ class TrajectoryGroup(pydantic.BaseModel):
             coro = _(exceptions.copy())
             return CoroutineWithMetadata(coro, len(ts))
         else:
-            from typing import cast
-
             group = super().__new__(cls)
             group.__init__(
                 trajectories=cast(list[Trajectory | BaseException], ts),
+                metadata=metadata,
                 exceptions=exceptions,
             )
             return group
