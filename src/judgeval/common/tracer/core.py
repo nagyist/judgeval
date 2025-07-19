@@ -1284,16 +1284,15 @@ class Tracer:
                 self.traces = []
 
             # Train
-            # Create TrajectoryGroups by awaiting all trace conversions
-            trajectory_group_tasks = []
-            for group in groups:
+            # Create async functions that return TrajectoryGroups
+            async def create_trajectory_group(group):
                 trajectories = await asyncio.gather(
                     *[self.trace_to_art_trajectory(trace) for trace in group]
                 )
-                trajectory_group_tasks.append(TrajectoryGroup(trajectories))
+                return TrajectoryGroup(trajectories)
 
             trajectory_groups = await gather_trajectory_groups(
-                trajectory_group_tasks,
+                (create_trajectory_group(group) for group in groups),
                 pbar_desc="gather",
                 max_exceptions=config.max_exceptions,
             )
