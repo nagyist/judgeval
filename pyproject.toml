@@ -33,7 +33,7 @@ dependencies = [
     "matplotlib>=3.10.3",
     "python-slugify>=8.0.4",
     "datamodel-code-generator>=0.31.1",
-    "openpipe-art==0.3.11.post2",
+    "openpipe-art==0.4.4",
     "gql<4",
 ]
 
