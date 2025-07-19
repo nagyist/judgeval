@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import copy
 import functools
 import inspect
 import os
@@ -1277,7 +1278,7 @@ class Tracer:
             groups = []
             for input in inputs:
                 await asyncio.gather(
-                    *[func(*input) for _ in range(config.num_rollouts)]
+                    *[func(*copy.deepcopy(input)) for _ in range(config.num_rollouts)]
                 )
                 groups.append(self.traces)
                 self.traces = []
