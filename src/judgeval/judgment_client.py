@@ -6,7 +6,6 @@ import os
 from uuid import uuid4
 from typing import Optional, List, Dict, Any, Union, Callable
 
-from judgeval.data.datasets import EvalDataset, EvalDatasetClient
 from judgeval.data import (
     ScoringResult,
     Example,
@@ -71,7 +70,6 @@ class JudgmentClient(metaclass=SingletonMeta):
         self.judgment_api_key = api_key
         self.organization_id = organization_id
         self.api_client = JudgmentApiClient(api_key, organization_id)
-        self.eval_dataset_client = EvalDatasetClient(api_key, organization_id)
 
         # Verify API key is valid
         result, response = validate_api_key(api_key)
@@ -178,70 +176,6 @@ class JudgmentClient(metaclass=SingletonMeta):
         except Exception as e:
             raise Exception(f"An unexpected error occurred during evaluation: {str(e)}")
 
-    def create_dataset(self) -> EvalDataset:
-        return self.eval_dataset_client.create_dataset()
-
-    def push_dataset(
-        self,
-        alias: str,
-        dataset: EvalDataset,
-        project_name: str,
-        overwrite: Optional[bool] = False,
-    ) -> bool:
-        """
-        Uploads an `EvalDataset` to the Judgment platform for storage.
-
-        Args:
-            alias (str): The name to use for the dataset
-            dataset (EvalDataset): The dataset to upload to Judgment
-            overwrite (Optional[bool]): Whether to overwrite the dataset if it already exists
-
-        Returns:
-            bool: Whether the dataset was successfully uploaded
-        """
-        # Set judgment_api_key just in case it was not set
-        dataset.judgment_api_key = self.judgment_api_key
-        return self.eval_dataset_client.push(dataset, alias, project_name, overwrite)
-
-    def append_dataset(
-        self, alias: str, examples: List[Example], project_name: str
-    ) -> bool:
-        """
-        Appends an `EvalDataset` to the Judgment platform for storage.
-        """
-        return self.eval_dataset_client.append_examples(alias, examples, project_name)
-
-    def pull_dataset(self, alias: str, project_name: str) -> EvalDataset:
-        """
-        Retrieves a saved `EvalDataset` from the Judgment platform.
-
-        Args:
-            alias (str): The name of the dataset to retrieve
-
-        Returns:
-            EvalDataset: The retrieved dataset
-        """
-        return self.eval_dataset_client.pull(alias, project_name)
-
-    def delete_dataset(self, alias: str, project_name: str) -> bool:
-        """
-        Deletes a saved `EvalDataset` from the Judgment platform.
-        """
-        return self.eval_dataset_client.delete(alias, project_name)
-
-    def pull_project_dataset_stats(self, project_name: str) -> dict:
-        """
-        Retrieves all dataset stats from the Judgment platform for the project.
-
-        Args:
-            project_name (str): The name of the project to retrieve
-
-        Returns:
-            dict: The retrieved dataset stats
-        """
-        return self.eval_dataset_client.pull_project_dataset_stats(project_name)
-
-    # Maybe add option where you can pass in the EvaluationRun object and it will pull the eval results from the backend
     def pull_eval(
         self, project_name: str, eval_run_name: str
     ) -> List[Dict[str, Union[str, List[ScoringResult]]]]:

@@ -1,0 +1,195 @@
+import datetime
+import json
+import os
+import yaml
+from dataclasses import dataclass
+from typing import List, Literal, Optional
+
+from judgeval.data import Example, Trace
+from judgeval.common.logger import judgeval_logger
+from judgeval.utils.file_utils import get_examples_from_yaml
+from judgeval.common.api.api import JudgmentApiClient
+
+
+@dataclass
+class Dataset:
+    examples: List[Example]
+    traces: List[Trace]
+    name: str
+    project_name: str
+    judgment_api_key: str = os.getenv("JUDGMENT_API_KEY") or ""
+    organization_id: str = os.getenv("JUDGMENT_ORG_ID") or ""
+
+    @classmethod
+    def get(
+        cls,
+        name: str,
+        project_name: str,
+    ):
+        client = JudgmentApiClient(cls.judgment_api_key, cls.organization_id)
+        dataset = client.pull_dataset(name, project_name)
+        return cls(
+            name=name,
+            project_name=project_name,
+            examples=[Example(**e) for e in dataset.get("examples", [])],
+            traces=[Trace(**t) for t in dataset.get("traces", [])],
+        )
+
+    @classmethod
+    def create(
+        cls,
+        name: str,
+        project_name: str,
+        examples: Optional[List[Example]] = None,
+        traces: Optional[List[Trace]] = None,
+        overwrite: bool = False,
+    ):
+        if examples and traces:
+            raise ValueError("Only one of examples or traces must be provided")
+
+        if not examples:
+            examples = []
+
+        if not traces:
+            traces = []
+
+        client = JudgmentApiClient(cls.judgment_api_key, cls.organization_id)
+        client.push_dataset(
+            name,
+            project_name,
+            examples=[e.model_dump() for e in examples],
+            traces=[t.model_dump() for t in traces],
+            overwrite=overwrite,
+        )
+        return cls(
+            name=name,
+            project_name=project_name,
+            examples=examples,
+            traces=traces,
+        )
+
+    def add_from_json(self, file_path: str) -> None:
+        """
+        Adds examples from a JSON file.
+
+        The format of the JSON file is expected to be a dictionary with one key: "examples".
+        The value of the key is a list of dictionaries, where each dictionary represents an example.
+
+        The JSON file is expected to have the following format:
+        {
+        "examples": [
+            {
+                "input": "test input",
+                "actual_output": "test output",
+                ...
+            }
+            ]
+        }
+        """
+        try:
+            with open(file_path, "r") as file:
+                payload = json.load(file)
+                examples = payload.get("examples", [])
+        except FileNotFoundError:
+            judgeval_logger.error(f"JSON file not found: {file_path}")
+            raise FileNotFoundError(f"The file {file_path} was not found.")
+        except json.JSONDecodeError:
+            judgeval_logger.error(f"Invalid JSON file: {file_path}")
+            raise ValueError(f"The file {file_path} is not a valid JSON file.")
+
+        new_examples = [Example(**e) for e in examples]
+        self.add_examples(new_examples)
+
+    def add_from_yaml(self, file_path: str) -> None:
+        """
+        Adds examples from a YAML file.
+
+        The format of the YAML file is expected to be a dictionary with one key: "examples".
+        The value of the key is a list of dictionaries, where each dictionary represents an example.
+
+        The YAML file is expected to have the following format:
+        examples:
+          - input: "test input"
+            actual_output: "test output"
+            ...
+        """
+        examples = get_examples_from_yaml(file_path)
+        self.add_examples(examples)
+
+    def add_examples(self, e: List[Example]) -> None:
+        client = JudgmentApiClient(self.judgment_api_key, self.organization_id)
+        client.append_examples(
+            dataset_alias=self.name,
+            project_name=self.project_name,
+            examples=[e.model_dump() for e in e],
+        )
+
+    def add_traces(self, t: List[Trace]) -> None:
+        client = JudgmentApiClient(self.judgment_api_key, self.organization_id)
+        client.append_traces(
+            dataset_alias=self.name,
+            project_name=self.project_name,
+            traces=[t.model_dump() for t in t],
+        )
+
+    def save_as(
+        self,
+        file_type: Literal["json", "yaml"],
+        dir_path: str,
+        save_name: str | None = None,
+    ) -> None:
+        """
+        Saves the dataset as a file. Save only the examples.
+
+        Args:
+            file_type (Literal["json", "csv"]): The file type to save the dataset as.
+            dir_path (str): The directory path to save the file to.
+            save_name (str, optional): The name of the file to save. Defaults to None.
+        """
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+        file_name = (
+            datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            if save_name is None
+            else save_name
+        )
+        complete_path = os.path.join(dir_path, f"{file_name}.{file_type}")
+        if file_type == "json":
+            with open(complete_path, "w") as file:
+                json.dump(
+                    {
+                        "examples": [e.to_dict() for e in self.examples],
+                    },
+                    file,
+                    indent=4,
+                )
+        elif file_type == "yaml":
+            with open(complete_path, "w") as file:
+                yaml_data = {
+                    "examples": [e.to_dict() for e in self.examples],
+                }
+                yaml.dump(yaml_data, file, default_flow_style=False)
+        else:
+            ACCEPTABLE_FILE_TYPES = ["json", "yaml"]
+            raise TypeError(
+                f"Invalid file type: {file_type}. Please choose from {ACCEPTABLE_FILE_TYPES}"
+            )
+
+    def delete(self):
+        client = JudgmentApiClient(self.judgment_api_key, self.organization_id)
+        client.delete_dataset(self.name, self.project_name)
+
+    def __iter__(self):
+        return iter(self.examples)
+
+    def __len__(self):
+        return len(self.examples)
+
+    def __str__(self):
+        return (
+            f"{self.__class__.__name__}("
+            f"examples={self.examples}, "
+            f"traces={self.traces}, "
+            f"name={self.name}"
+            f")"
+        )

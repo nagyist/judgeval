@@ -93,6 +93,7 @@ class EvalRunNameExistsPayload(TypedDict):
 # Datasets API
 JUDGMENT_DATASETS_PUSH_API_URL = f"{ROOT_API}/datasets/push/"
 JUDGMENT_DATASETS_APPEND_EXAMPLES_API_URL = f"{ROOT_API}/datasets/insert_examples/"
+JUDGMENT_DATASETS_APPEND_TRACES_API_URL = f"{ROOT_API}/traces/add_to_dataset/"
 JUDGMENT_DATASETS_PULL_API_URL = f"{ROOT_API}/datasets/pull_for_judgeval/"
 JUDGMENT_DATASETS_DELETE_API_URL = f"{ROOT_API}/datasets/delete/"
 JUDGMENT_DATASETS_EXPORT_JSONL_API_URL = f"{ROOT_API}/datasets/export_jsonl/"
