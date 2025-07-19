@@ -1281,7 +1281,7 @@ class Tracer:
             groups = []
             for input in step_inputs:
                 await asyncio.gather(
-                    *[func(*copy.deepcopy(input)) for _ in range(config.num_rollouts)]
+                    *[func(*input) for _ in range(config.num_rollouts)]
                 )
                 groups.append(self.traces)
                 self.traces = []
