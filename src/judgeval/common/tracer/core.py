@@ -1559,6 +1559,17 @@ class Tracer:
         """
         Train a model on trajectory data using GRPO.
         """
+        
+        @self.observe(span_type="inference")
+        async def rollout_and_reward(self, func: Callable, reward: Callable[..., float], input: list):
+            res = func(*input)
+            try:
+                reward_score = reward(*input, agent_output=res)
+            except TypeError:
+                reward_score = reward(*input)
+            self.get_current_trace().set_reward(reward_score)
+            return res
+    
         # Inference-training loop
         for _ in range(await model.get_step(), config.steps):
             # Inference
@@ -1567,7 +1578,7 @@ class Tracer:
             groups = []
             for input in step_inputs:
                 await asyncio.gather(
-                    *[self.rollout_and_reward(func, reward, input) for _ in range(config.num_rollouts)]
+                    *[rollout_and_reward(func, reward, input) for _ in range(config.num_rollouts)]
                 )
                 groups.append(self.traces)
                 self.traces = []
@@ -1590,15 +1601,6 @@ class Tracer:
                 trajectory_groups, config=config, _config=_config or {}, verbose=verbose
             )
 
-    @observe(span_type="inference")
-    async def rollout_and_reward(self, func: Callable, reward: Callable[..., float], input: list):
-        res = func(*input)
-        try:
-            reward_score = reward(*input, agent_output=res)
-        except TypeError:
-            reward_score = reward(*input)
-        self.get_current_trace().set_reward(reward_score)
-        return res
 
     def observe_tools(
         self,
