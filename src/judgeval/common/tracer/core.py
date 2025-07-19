@@ -1292,7 +1292,7 @@ class Tracer:
                 return TrajectoryGroup(trajectories)
 
             trajectory_groups = await gather_trajectory_groups(
-                (create_trajectory_group(group) for group in groups),
+                [create_trajectory_group(group) for group in groups],
                 pbar_desc="gather",
                 max_exceptions=config.max_exceptions,
             )
