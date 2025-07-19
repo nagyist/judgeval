@@ -42,6 +42,7 @@ dependencies = [
     "weave>=0.51.56",
     "opentelemetry-api",
     "opentelemetry-sdk",
+    "dotenv>=0.9.9",
 ]
 
 [project.urls]
@@ -92,4 +93,11 @@ exclude = ["docs"]
 override-dependencies = [
     "bitsandbytes; sys_platform != 'darwin'",
     "xformers; sys_platform != 'darwin'",
+    # Pin protobuf to a version that satisfies both unsloth-zoo and opentelemetry requirements
+    "protobuf>=3.20.0,<4.0.0",
+    # Pin opentelemetry packages to older versions that work with protobuf <4.0.0
+    "opentelemetry-proto==1.26.0",
+    "opentelemetry-exporter-otlp-proto-grpc==1.26.0", 
+    "opentelemetry-exporter-otlp-proto-http==1.26.0",
+    "opentelemetry-exporter-otlp-proto-common==1.26.0",
 ]
