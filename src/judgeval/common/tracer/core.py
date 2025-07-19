@@ -58,6 +58,7 @@ from judgeval.scorers import APIScorerConfig, BaseScorer
 from judgeval.evaluation_run import EvaluationRun
 from judgeval.common.utils import ExcInfo, validate_api_key
 from judgeval.common.logger import judgeval_logger
+import copy
 
 current_trace_var = contextvars.ContextVar[Optional["TraceClient"]](
     "current_trace", default=None
@@ -1274,8 +1275,10 @@ class Tracer:
         # Inference-training loop
         for _ in range(await model.get_step(), config.steps):
             # Inference
+            # Deep copy inputs for this step to avoid mutation across iterations
+            step_inputs = copy.deepcopy(inputs)
             groups = []
-            for input in inputs:
+            for input in step_inputs:
                 await asyncio.gather(
                     *[func(*input) for _ in range(config.num_rollouts)]
                 )
