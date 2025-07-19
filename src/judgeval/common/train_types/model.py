@@ -2,7 +2,6 @@ from openai import AsyncOpenAI
 from typing import cast, Iterable, TYPE_CHECKING, Optional
 
 from . import dev
-from .backend import Backend
 from .openai import patch_openai
 from .trajectories import Trajectory, TrajectoryGroup
 from .types import TrainConfig
@@ -15,7 +14,7 @@ import httpx
 from art.local import LocalBackend
 
 if TYPE_CHECKING:
-    from .backend import Backend
+    from art.backend import Backend
 
 
 class Model(BaseModel):
