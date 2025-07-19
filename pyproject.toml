@@ -40,6 +40,8 @@ dependencies = [
     "polars>=1.31.0",
     "wandb>=0.21.0",
     "weave>=0.51.56",
+    "opentelemetry-api",
+    "opentelemetry-sdk",
 ]
 
 [project.urls]
