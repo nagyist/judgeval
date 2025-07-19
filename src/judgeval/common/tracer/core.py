@@ -1591,9 +1591,13 @@ class Tracer:
             )
 
     @observe(span_type="inference")
-    async def rollout_and_reward(self, func: Callable, reward: Callable, input: list):
+    async def rollout_and_reward(self, func: Callable, reward: Callable[..., float], input: list):
         res = func(*input)
-        self.get_current_trace().set_reward(reward(*input))
+        try:
+            reward_score = reward(*input, agent_output=res)
+        except TypeError:
+            reward_score = reward(*input)
+        self.get_current_trace().set_reward(reward_score)
         return res
 
     def observe_tools(
