@@ -2,10 +2,10 @@ from openai.types.chat.chat_completion import Choice
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from openai.types.chat.chat_completion_tool_param import ChatCompletionToolParam
 import pydantic
-from typing import Literal
+from typing import Literal, TypeAlias
 
-Message = ChatCompletionMessageParam
-MessageOrChoice = Message | Choice
+Message: TypeAlias = ChatCompletionMessageParam
+MessageOrChoice: TypeAlias = Message | Choice
 Messages = list[Message]
 MessagesAndChoices = list[MessageOrChoice]
 Tools = list[ChatCompletionToolParam]

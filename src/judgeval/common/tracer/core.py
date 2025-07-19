@@ -31,20 +31,24 @@ from typing import (
     TypeAlias,
 )
 import types
-from art.local import LocalBackend
-from ..train_types import TrainableModel, TrainConfig, Trajectory, TrajectoryGroup, gather_trajectory_groups, dev
+from ..train_types import (
+    TrainableModel,
+    TrainConfig,
+    Trajectory,
+    TrajectoryGroup,
+    gather_trajectory_groups,
+    dev,
+)
 
 from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
 
 from judgeval.common.tracer.otel_span_processor import JudgmentSpanProcessor
 from judgeval.common.tracer.span_processor import SpanProcessorBase
 from judgeval.common.tracer.trace_manager import TraceManagerClient
-from litellm import cost_per_token as _original_cost_per_token
 from openai import OpenAI, AsyncOpenAI
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.responses.response import Response
 from openai.types.chat import ParsedChatCompletion
-from openai.types.chat.chat_completion import Choice
 from together import Together, AsyncTogether
 from anthropic import Anthropic, AsyncAnthropic
 from google import genai
@@ -524,9 +528,13 @@ class TraceClient:
             span.additional_metadata = metadata
 
             try:
-                self.otel_span_processor.queue_span_update(span, span_state="additional_metadata")
+                self.otel_span_processor.queue_span_update(
+                    span, span_state="additional_metadata"
+                )
             except Exception as e:
-                judgeval_logger.warning(f"Failed to queue span with additional metadata: {e}")
+                judgeval_logger.warning(
+                    f"Failed to queue span with additional metadata: {e}"
+                )
 
 
 def _capture_exception_for_trace(
@@ -1044,7 +1052,7 @@ class Tracer:
             if self.trace_across_async_contexts
             else current_trace_var_val
         )
-    
+
     async def trace_to_art_trajectory(self, trace: Trace | TraceClient) -> Trajectory:
         if not trace:
             raise ValueError("No current trace found")
@@ -1055,7 +1063,7 @@ class Tracer:
             messages_and_choices=[],
             reward=trace.metadata.get("reward_score", 0),
         )
-        
+
         # Get the current trace's spans
         spans = trace.trace_spans
 
@@ -1072,16 +1080,24 @@ class Tracer:
 
             if span.span_type == "llm":
                 if span.additional_metadata.get("choice", None) is not None:
-                    trajectory.messages_and_choices.append(span.additional_metadata.get("choice"))
+                    trajectory.messages_and_choices.append(
+                        span.additional_metadata.get("choice")
+                    )
                 else:
-                    trajectory.messages_and_choices.append({"role": "assistant", "content": span.output})
+                    trajectory.messages_and_choices.append(
+                        {"role": "assistant", "content": span.output}
+                    )
             elif span.span_type == "user":
-                trajectory.messages_and_choices.append({"role": "user", "content": span.output})
+                trajectory.messages_and_choices.append(
+                    {"role": "user", "content": span.output}
+                )
             elif span.span_type == "tool":
-                trajectory.messages_and_choices.append({"role": "user", "content": span.output})
-                
+                trajectory.messages_and_choices.append(
+                    {"role": "user", "content": span.output}
+                )
+
         return trajectory
-    
+
     async def get_current_art_trajectory(self) -> Trajectory:
         """
         Transform the current trace to an artifact.
@@ -1244,7 +1260,15 @@ class Tracer:
             else:
                 trace_client_instance.record_state_after(state)
 
-    async def train(self, func: Callable, inputs: list[list], model: TrainableModel, config: TrainConfig = TrainConfig(), _config: dev.TrainConfig | None = None, verbose: bool = False):
+    async def train(
+        self,
+        func: Callable,
+        inputs: list[list],
+        model: TrainableModel,
+        config: TrainConfig = TrainConfig(),
+        _config: dev.TrainConfig | None = None,
+        verbose: bool = False,
+    ):
         """
         Train a model on trajectory data using GRPO.
         """
@@ -1253,21 +1277,27 @@ class Tracer:
             # Inference
             groups = []
             for input in inputs:
-                asyncio.run(asyncio.gather(*[func(*input) for _ in range(config.num_rollouts)]))
+                await asyncio.gather(
+                    *[func(*input) for _ in range(config.num_rollouts)]
+                )
                 groups.append(self.traces)
                 self.traces = []
-            
+
             # Train
             trajectory_groups = await gather_trajectory_groups(
                 (
-                    TrajectoryGroup(self.trace_to_art_trajectory(trace) for trace in group)
+                    TrajectoryGroup(
+                        self.trace_to_art_trajectory(trace) for trace in group
+                    )
                     for group in groups
                 ),
                 pbar_desc="gather",
-                max_exceptions=config.max_exceptions
+                max_exceptions=config.max_exceptions,
             )
             await model.delete_checkpoints()
-            await model.train(trajectory_groups, config=config, _config=_config or {}, verbose=verbose)
+            await model.train(
+                trajectory_groups, config=config, _config=_config or {}, verbose=verbose
+            )
 
     def observe(
         self,
@@ -1384,6 +1414,7 @@ class Tracer:
                                 "offline_mode": self.offline_mode,
                                 "parent_trace_id": current_trace.parent_trace_id,
                                 "parent_name": current_trace.parent_name,
+                                "metadata": current_trace.metadata,
                             }
 
                             trace_id, server_response = current_trace.save(
@@ -1513,6 +1544,7 @@ class Tracer:
                                 "offline_mode": self.offline_mode,
                                 "parent_trace_id": current_trace.parent_trace_id,
                                 "parent_name": current_trace.parent_name,
+                                "metadata": current_trace.metadata,
                             }
                             self.traces.append(complete_trace_data)
                             self.reset_current_trace(trace_token)
@@ -1873,7 +1905,11 @@ def _format_output_data(
             model_name = response.model
             prompt_tokens = response.usage.prompt_tokens
             completion_tokens = response.usage.completion_tokens
-            cache_read_input_tokens = response.usage.prompt_tokens_details.cached_tokens if hasattr(response.usage.prompt_tokens_details, "cached_tokens") else 0
+            cache_read_input_tokens = (
+                response.usage.prompt_tokens_details.cached_tokens
+                if hasattr(response.usage.prompt_tokens_details, "cached_tokens")
+                else 0
+            )
 
             if isinstance(response, ParsedChatCompletion):
                 message_content = response.choices[0].message.parsed
@@ -1886,7 +1922,11 @@ def _format_output_data(
             model_name = response.model
             prompt_tokens = response.usage.input_tokens
             completion_tokens = response.usage.output_tokens
-            cache_read_input_tokens = response.usage.input_tokens_details.cached_tokens if hasattr(response.usage.input_tokens_details, "cached_tokens") else 0
+            cache_read_input_tokens = (
+                response.usage.input_tokens_details.cached_tokens
+                if hasattr(response.usage.input_tokens_details, "cached_tokens")
+                else 0
+            )
             message_content = "".join(seg.text for seg in response.output[0].content)
             choice = response.choices[0]
 
@@ -1919,12 +1959,12 @@ def _format_output_data(
         judgeval_logger.warning(f"Unsupported client type: {type(client)}")
         return None, None, None
     prompt_cost, completion_cost = cost_per_token(
-            model=model_name,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            cache_read_input_tokens=cache_read_input_tokens,
-            cache_creation_input_tokens=cache_creation_input_tokens,
-        )
+        model=model_name,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cache_read_input_tokens=cache_read_input_tokens,
+        cache_creation_input_tokens=cache_creation_input_tokens,
+    )
 
     total_cost_usd = (
         (prompt_cost + completion_cost) if prompt_cost and completion_cost else None
@@ -1940,7 +1980,7 @@ def _format_output_data(
         total_cost_usd=total_cost_usd,
         model_name=model_name,
     )
-    
+
     return message_content, usage, choice
 
 
@@ -1978,7 +2018,8 @@ def combine_args_kwargs(func, args, kwargs):
 def cost_per_token(*args, **kwargs):
     try:
         prompt_tokens_cost_usd_dollar, completion_tokens_cost_usd_dollar = (
-           0.001, 0.001
+            0.001,
+            0.001,
         )
         if (
             prompt_tokens_cost_usd_dollar == 0
@@ -1986,8 +2027,8 @@ def cost_per_token(*args, **kwargs):
         ):
             judgeval_logger.warning("LiteLLM returned a total of 0 for cost per token")
         return prompt_tokens_cost_usd_dollar, completion_tokens_cost_usd_dollar
-    except Exception as e:
-     #   judgeval_logger.warning(f"Error calculating cost per token: {e}")
+    except Exception:
+        #   judgeval_logger.warning(f"Error calculating cost per token: {e}")
         return None, None
 
 

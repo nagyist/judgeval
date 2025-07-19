@@ -43,12 +43,12 @@ async def gather_trajectory_groups(
 
     # If an after_each callback was provided, await it and collect its return values.
     if after_each is not None:
-        processed_groups = await asyncio.gather(
+        gather_results = await asyncio.gather(
             *(after_each(g) for g in processed_groups)
         )  # type: ignore[arg-type]
 
         # Filter out callbacks that returned None
-        processed_groups = [g for g in processed_groups if g is not None]  # type: ignore[list-item]
+        processed_groups = [g for g in gather_results if g is not None]
 
     return processed_groups
 
@@ -139,6 +139,7 @@ async def wrap_group_awaitable(
         context.update_pbar(n=0)
         if context.too_many_exceptions():
             raise
+        return None
 
 
 async def wrap_trajectories_awaitable(
@@ -199,9 +200,9 @@ class GatherContext:
         if self.increment_pbar:
             self.pbar.update(n)
         postfix = {}
-        included_metrics = self.metric_sums.keys()
+        included_metrics = list(self.metric_sums.keys())
         if self.max_metrics is not None:
-            included_metrics = list(self.metric_sums.keys())[: self.max_metrics]
+            included_metrics = included_metrics[: self.max_metrics]
         for metric in included_metrics:
             sum = self.metric_sums[metric]
             divisor = max(1, self.metric_divisors[metric])

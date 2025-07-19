@@ -1,7 +1,6 @@
-import asyncio
 import pydantic
 import traceback
-from typing import Awaitable, Any, cast, Iterable, Iterator, overload
+from typing import Awaitable, Any, Iterable, Iterator, overload
 from openai.types.chat.chat_completion import Choice
 from .types import Messages, MessagesAndChoices, Tools
 import time
@@ -64,7 +63,7 @@ class Trajectory(pydantic.BaseModel):
 
     # Used for logging to console
     def for_logging(self) -> dict[str, Any]:
-        loggable_dict = {
+        loggable_dict: dict[str, Any] = {
             "reward": self.reward,
             "metrics": self.metrics,
             "metadata": self.metadata,
@@ -72,12 +71,14 @@ class Trajectory(pydantic.BaseModel):
             "tools": self.tools,
             "logs": self.logs,
         }
+        messages_list: list[dict[str, Any]] = loggable_dict["messages"]
         for message_or_choice in self.messages_and_choices:
             trainable = isinstance(message_or_choice, Choice)
-            message = (
-                message_or_choice.message.to_dict() if trainable else message_or_choice
-            )
-            loggable_dict["messages"].append({**message, "trainable": trainable})
+            if trainable:
+                message = message_or_choice.message.to_dict()
+            else:
+                message = dict(message_or_choice)  # Ensure it's a dict
+            messages_list.append({**message, "trainable": trainable})
         return loggable_dict
 
 
@@ -159,7 +160,7 @@ class TrajectoryGroup(pydantic.BaseModel):
         return len(self.trajectories)
 
     @overload
-    def __new__(
+    def __new__(  # type: ignore[misc]
         cls,
         trajectories: Iterable[Trajectory | BaseException],
         *,
@@ -167,35 +168,37 @@ class TrajectoryGroup(pydantic.BaseModel):
     ) -> "TrajectoryGroup": ...
 
     @overload
-    def __new__(
+    def __new__(  # type: ignore[misc]
         cls,
         trajectories: Iterable[Awaitable[Trajectory]],
         *,
         exceptions: list[BaseException] = [],
     ) -> Awaitable["TrajectoryGroup"]: ...
 
-    def __new__(
+    def __new__(  # type: ignore[misc]
         cls,
         trajectories: (
             Iterable[Trajectory | BaseException] | Iterable[Awaitable[Trajectory]]
         ),
         *,
         exceptions: list[BaseException] = [],
-    ) -> "TrajectoryGroup | Awaitable[TrajectoryGroup]":
+    ):
         ts = list(trajectories)
         if any(hasattr(t, "__await__") for t in ts):
 
             async def _(exceptions: list[BaseException]):
                 from .gather import get_gather_context, record_metrics
+                import asyncio
+                from typing import cast
 
                 context = get_gather_context()
-                trajectories = []
+                completed_trajectories = []
                 for future in asyncio.as_completed(
                     cast(list[Awaitable[Trajectory]], ts)
                 ):
                     try:
                         trajectory = await future
-                        trajectories.append(trajectory)
+                        completed_trajectories.append(trajectory)
                         record_metrics(context, trajectory)
                         context.update_pbar(n=1)
                     except BaseException as e:
@@ -205,7 +208,7 @@ class TrajectoryGroup(pydantic.BaseModel):
                         if context.too_many_exceptions():
                             raise
                 return TrajectoryGroup(
-                    trajectories=trajectories,
+                    trajectories=completed_trajectories,
                     exceptions=exceptions,
                 )
 
@@ -220,6 +223,8 @@ class TrajectoryGroup(pydantic.BaseModel):
             coro = _(exceptions.copy())
             return CoroutineWithMetadata(coro, len(ts))
         else:
+            from typing import cast
+
             group = super().__new__(cls)
             group.__init__(
                 trajectories=cast(list[Trajectory | BaseException], ts),
