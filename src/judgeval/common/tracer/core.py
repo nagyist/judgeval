@@ -1261,48 +1261,6 @@ class Tracer:
             else:
                 trace_client_instance.record_state_after(state)
 
-    async def train(
-        self,
-        func: Callable,
-        inputs: list[list],
-        model: TrainableModel,
-        config: TrainConfig = TrainConfig(),
-        _config: dev.TrainConfig | None = None,
-        verbose: bool = False,
-    ):
-        """
-        Train a model on trajectory data using GRPO.
-        """
-        # Inference-training loop
-        for _ in range(await model.get_step(), config.steps):
-            # Inference
-            # Deep copy inputs for this step to avoid mutation across iterations
-            step_inputs = copy.deepcopy(inputs)
-            groups = []
-            for input in step_inputs:
-                await asyncio.gather(
-                    *[func(*input) for _ in range(config.num_rollouts)]
-                )
-                groups.append(self.traces)
-                self.traces = []
-
-            # Train
-            # Create async functions that return TrajectoryGroups
-            async def create_trajectory_group(group):
-                trajectories = await asyncio.gather(
-                    *[self.trace_to_art_trajectory(trace) for trace in group]
-                )
-                return TrajectoryGroup(trajectories)
-
-            trajectory_groups = await gather_trajectory_groups(
-                [create_trajectory_group(group) for group in groups],
-                pbar_desc="gather",
-                max_exceptions=config.max_exceptions,
-            )
-            await model.delete_checkpoints()
-            await model.train(
-                trajectory_groups, config=config, _config=_config or {}, verbose=verbose
-            )
 
     def observe(
         self,
@@ -1587,6 +1545,56 @@ class Tracer:
                     return result
 
             return wrapper
+    
+    async def train(
+        self,
+        func: Callable,
+        reward: Callable,
+        inputs: list[list],
+        model: TrainableModel,
+        config: TrainConfig = TrainConfig(),
+        _config: dev.TrainConfig | None = None,
+        verbose: bool = False,
+    ):
+        """
+        Train a model on trajectory data using GRPO.
+        """
+        # Inference-training loop
+        for _ in range(await model.get_step(), config.steps):
+            # Inference
+            # Deep copy inputs for this step to avoid mutation across iterations
+            step_inputs = copy.deepcopy(inputs)
+            groups = []
+            for input in step_inputs:
+                await asyncio.gather(
+                    *[self.rollout_and_reward(func, reward, input) for _ in range(config.num_rollouts)]
+                )
+                groups.append(self.traces)
+                self.traces = []
+
+            # Train
+            # Create async functions that return TrajectoryGroups
+            async def create_trajectory_group(group):
+                trajectories = await asyncio.gather(
+                    *[self.trace_to_art_trajectory(trace) for trace in group]
+                )
+                return TrajectoryGroup(trajectories)
+
+            trajectory_groups = await gather_trajectory_groups(
+                [create_trajectory_group(group) for group in groups],
+                pbar_desc="gather",
+                max_exceptions=config.max_exceptions,
+            )
+            await model.delete_checkpoints()
+            await model.train(
+                trajectory_groups, config=config, _config=_config or {}, verbose=verbose
+            )
+
+    @observe(span_type="inference")
+    async def rollout_and_reward(self, func: Callable, reward: Callable, input: list):
+        res = func(*input)
+        self.get_current_trace().set_reward(reward(*input))
+        return res
 
     def observe_tools(
         self,
