@@ -1567,7 +1567,7 @@ class Tracer:
                 reward_score = reward(*input, agent_output=res)
             except TypeError:
                 reward_score = reward(*input)
-            self.get_current_trace().set_reward(reward_score)
+            self.get_current_trace().set_reward_score(reward_score)
             return res
     
         # Inference-training loop
