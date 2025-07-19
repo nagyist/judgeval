@@ -1096,6 +1096,7 @@ class Tracer:
                     {"role": "user", "content": span.output}
                 )
 
+        print(trajectory.messages_and_choices)
         return trajectory
 
     async def get_current_art_trajectory(self) -> Trajectory:
