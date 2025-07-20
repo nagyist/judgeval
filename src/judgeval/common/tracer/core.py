@@ -1564,9 +1564,9 @@ class Tracer:
         async def rollout_and_reward(func: Callable, reward: Callable, input: list):
             res = await func(*input)
             try:
-                reward_score = reward(*input, agent_output=res)
+                reward_score = await reward(*input, agent_output=res)
             except TypeError:
-                reward_score = reward(*input)
+                reward_score = await reward(*input)
             print(reward_score)
             self.get_current_trace().set_reward_score(reward_score)
             return res
