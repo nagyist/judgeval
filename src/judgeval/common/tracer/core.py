@@ -1562,7 +1562,7 @@ class Tracer:
         
         @self.observe(span_type="inference")
         async def rollout_and_reward(func: Callable, reward: Callable, input: list):
-            res = func(*input)
+            res = await func(*input)
             try:
                 reward_score = reward(*input, agent_output=res)
             except TypeError:
