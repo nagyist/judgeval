@@ -1073,10 +1073,15 @@ class Tracer:
         for span in spans:
             # If first span, get its input as system + user prompt
             if span.span_type == "llm" and not first_found:
-                first_found = True
                 input_messages = span.inputs.get("messages", [])
+                if input_messages == []:
+                    continue
+                first_found = True
                 trajectory.messages_and_choices.extend(input_messages)
             if not first_found:
+                continue
+
+            if span.output == None:
                 continue
 
             if span.span_type == "llm":
@@ -1555,19 +1560,21 @@ class Tracer:
         config: TrainConfig = TrainConfig(),
         _config: dev.TrainConfig | None = None,
         verbose: bool = False,
+        comparative_reward: bool = False,
     ):
         """
         Train a model on trajectory data using GRPO.
         """
         
         @self.observe(span_type="inference")
-        async def rollout_and_reward(func: Callable, reward: Callable, input: list):
+        async def rollout_and_reward(func: Callable, reward: Callable, input: list, comparative_reward: bool = False):
             res = await func(*input)
-            try:
-                reward_score = await reward(*input, agent_output=res)
-            except TypeError:
-                reward_score = await reward(*input)
-            self.get_current_trace().set_reward_score(reward_score)
+            if not comparative_reward:
+                try:
+                    reward_score = await reward(*input, agent_output=res)
+                except TypeError:
+                    reward_score = await reward(*input)
+                self.get_current_trace().set_reward_score(reward_score)
             return res
     
         # Inference-training loop
