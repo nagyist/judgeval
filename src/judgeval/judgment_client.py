@@ -25,11 +25,11 @@ from judgeval.run_evaluation import (
 from judgeval.data.trace_run import TraceRun
 from judgeval.common.api import JudgmentApiClient
 from judgeval.common.exceptions import JudgmentAPIError
-from langchain_core.callbacks import BaseCallbackHandler
 from judgeval.common.tracer import Tracer
 from judgeval.common.utils import validate_api_key
 from pydantic import BaseModel
 from judgeval.common.logger import judgeval_logger
+from judgeval.integrations.langgraph import JudgevalCallbackHandler
 
 
 class EvalRunRequestBody(BaseModel):
@@ -86,7 +86,7 @@ class JudgmentClient(metaclass=SingletonMeta):
         scorers: List[Union[APIScorerConfig, BaseScorer]],
         examples: Optional[List[Example]] = None,
         function: Optional[Callable] = None,
-        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
+        tracer: Optional[Union[Tracer, JudgevalCallbackHandler]] = None,
         traces: Optional[List[Trace]] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
         project_name: str = "default_project",
@@ -314,7 +314,7 @@ class JudgmentClient(metaclass=SingletonMeta):
         scorers: List[Union[APIScorerConfig, BaseScorer]],
         examples: Optional[List[Example]] = None,
         function: Optional[Callable] = None,
-        tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
+        tracer: Optional[Union[Tracer, JudgevalCallbackHandler]] = None,
         traces: Optional[List[Trace]] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
         model: Optional[str] = "gpt-4.1",

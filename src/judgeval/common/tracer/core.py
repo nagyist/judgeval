@@ -32,6 +32,7 @@ from typing import (
 )
 import types
 
+
 from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
 
 from judgeval.common.tracer.otel_span_processor import JudgmentSpanProcessor
@@ -1692,25 +1693,27 @@ def wrap(
         return wrapper
 
     if isinstance(client, (OpenAI)):
-        client.chat.completions.create = wrapped(original_create)
-        client.responses.create = wrapped(original_responses_create)
-        client.beta.chat.completions.parse = wrapped(original_beta_parse)
+        setattr(client.chat.completions, "create", wrapped(original_create))
+        setattr(client.responses, "create", wrapped(original_responses_create))
+        setattr(client.beta.chat.completions, "parse", wrapped(original_beta_parse))
     elif isinstance(client, (AsyncOpenAI)):
-        client.chat.completions.create = wrapped_async(original_create)
-        client.responses.create = wrapped_async(original_responses_create)
-        client.beta.chat.completions.parse = wrapped_async(original_beta_parse)
+        setattr(client.chat.completions, "create", wrapped_async(original_create))
+        setattr(client.responses, "create", wrapped_async(original_responses_create))
+        setattr(
+            client.beta.chat.completions, "parse", wrapped_async(original_beta_parse)
+        )
     elif isinstance(client, (Together)):
-        client.chat.completions.create = wrapped(original_create)
+        setattr(client.chat.completions, "create", wrapped(original_create))
     elif isinstance(client, (AsyncTogether)):
-        client.chat.completions.create = wrapped_async(original_create)
+        setattr(client.chat.completions, "create", wrapped_async(original_create))
     elif isinstance(client, (Anthropic)):
-        client.messages.create = wrapped(original_create)
+        setattr(client.messages, "create", wrapped(original_create))
     elif isinstance(client, (AsyncAnthropic)):
-        client.messages.create = wrapped_async(original_create)
+        setattr(client.messages, "create", wrapped_async(original_create))
     elif isinstance(client, (genai.Client)):
-        client.models.generate_content = wrapped(original_create)
+        setattr(client.models, "generate_content", wrapped(original_create))
     elif isinstance(client, (genai.client.AsyncClient)):
-        client.models.generate_content = wrapped_async(original_create)
+        setattr(client.models, "generate_content", wrapped_async(original_create))
 
     return client
 
@@ -1783,9 +1786,17 @@ def _format_output_data(
     if isinstance(client, (OpenAI, AsyncOpenAI)):
         if isinstance(response, ChatCompletion):
             model_name = response.model
-            prompt_tokens = response.usage.prompt_tokens
-            completion_tokens = response.usage.completion_tokens
-            cache_read_input_tokens = response.usage.prompt_tokens_details.cached_tokens
+            prompt_tokens = response.usage.prompt_tokens if response.usage else 0
+            completion_tokens = (
+                response.usage.completion_tokens if response.usage else 0
+            )
+            cache_read_input_tokens = (
+                response.usage.prompt_tokens_details.cached_tokens
+                if response.usage
+                and response.usage.prompt_tokens_details
+                and response.usage.prompt_tokens_details.cached_tokens
+                else 0
+            )
 
             if isinstance(response, ParsedChatCompletion):
                 message_content = response.choices[0].message.parsed
@@ -1793,10 +1804,19 @@ def _format_output_data(
                 message_content = response.choices[0].message.content
         elif isinstance(response, Response):
             model_name = response.model
-            prompt_tokens = response.usage.input_tokens
-            completion_tokens = response.usage.output_tokens
-            cache_read_input_tokens = response.usage.input_tokens_details.cached_tokens
-            message_content = "".join(seg.text for seg in response.output[0].content)
+            prompt_tokens = response.usage.input_tokens if response.usage else 0
+            completion_tokens = response.usage.output_tokens if response.usage else 0
+            cache_read_input_tokens = (
+                response.usage.input_tokens_details.cached_tokens
+                if response.usage and response.usage.input_tokens_details
+                else 0
+            )
+            if hasattr(response.output[0], "content"):
+                message_content = "".join(
+                    seg.text
+                    for seg in response.output[0].content
+                    if hasattr(seg, "text")
+                )
 
         # Note: LiteLLM seems to use cache_read_input_tokens to calculate the cost for OpenAI
     elif isinstance(client, (Together, AsyncTogether)):

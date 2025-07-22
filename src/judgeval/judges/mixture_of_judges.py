@@ -178,8 +178,8 @@ class MixtureOfJudges(JudgevalJudge):
     def generate(
         self,
         input: Union[str, List[dict]],
-        response_schema: pydantic.BaseModel = None,
-        aggregation_schema: pydantic.BaseModel = None,
+        response_schema: pydantic.BaseModel | None = None,
+        aggregation_schema: pydantic.BaseModel | None = None,
         **kwargs,
     ) -> str:
         """
@@ -230,8 +230,8 @@ class MixtureOfJudges(JudgevalJudge):
     async def a_generate(
         self,
         input: Union[str, List[dict]],
-        response_schema: pydantic.BaseModel = None,
-        aggregation_schema: pydantic.BaseModel = None,
+        response_schema: pydantic.BaseModel | None = None,
+        aggregation_schema: pydantic.BaseModel | None = None,
         **kwargs,
     ) -> str:
         """

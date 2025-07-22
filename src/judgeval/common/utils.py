@@ -16,7 +16,7 @@ from types import TracebackType
 from judgeval.common.api.constants import ROOT_API
 from judgeval.utils.requests import requests
 import pprint
-from typing import Any, Dict, List, Mapping, Optional, TypeAlias, Union, TypeGuard
+from typing import Any, Dict, List, Optional, TypeAlias, Union, TypeGuard
 
 # Third-party imports
 import litellm
@@ -138,7 +138,9 @@ def validate_api_key(judgment_api_key: str):
 
 
 def fetch_together_api_response(
-    model: str, messages: List[Mapping], response_format: pydantic.BaseModel = None
+    model: str,
+    messages: List[Dict[str, str]],
+    response_format: pydantic.BaseModel | None = None,
 ) -> str:
     """
     Fetches a single response from the Together API for a given model and messages.
@@ -167,7 +169,9 @@ def fetch_together_api_response(
 
 
 async def afetch_together_api_response(
-    model: str, messages: List[Mapping], response_format: pydantic.BaseModel = None
+    model: str,
+    messages: List[Dict],
+    response_format: pydantic.BaseModel | None = None,
 ) -> str:
     """
     ASYNCHRONOUSLY Fetches a single response from the Together API for a given model and messages.
@@ -192,8 +196,8 @@ async def afetch_together_api_response(
 
 def query_together_api_multiple_calls(
     models: List[str],
-    messages: List[List[Mapping]],
-    response_formats: List[pydantic.BaseModel] | None = None,
+    messages: List[List[Dict]],
+    response_formats: List[pydantic.BaseModel | None] | None = None,
 ) -> List[Union[str, None]]:
     """
     Queries the Together API for multiple calls in parallel
@@ -255,8 +259,8 @@ def query_together_api_multiple_calls(
 
 async def aquery_together_api_multiple_calls(
     models: List[str],
-    messages: List[List[Mapping]],
-    response_formats: List[pydantic.BaseModel] | None = None,
+    messages: List[List[Dict]],
+    response_formats: List[pydantic.BaseModel | None] | None = None,
 ) -> List[Union[str, None]]:
     """
     Queries the Together API for multiple calls in parallel
@@ -314,7 +318,9 @@ async def aquery_together_api_multiple_calls(
 
 
 def fetch_litellm_api_response(
-    model: str, messages: List[Mapping], response_format: pydantic.BaseModel = None
+    model: str,
+    messages: List[Dict[str, str]],
+    response_format: pydantic.BaseModel | None = None,
 ) -> str:
     """
     Fetches a single response from the Litellm API for a given model and messages.
@@ -339,8 +345,8 @@ def fetch_litellm_api_response(
 
 def fetch_custom_litellm_api_response(
     custom_model_parameters: CustomModelParameters,
-    messages: List[Mapping],
-    response_format: pydantic.BaseModel = None,
+    messages: List[Dict[str, str]],
+    response_format: pydantic.BaseModel | None = None,
 ) -> str:
     if messages is None or messages == []:
         raise ValueError("Messages cannot be empty")
@@ -372,7 +378,9 @@ def fetch_custom_litellm_api_response(
 
 
 async def afetch_litellm_api_response(
-    model: str, messages: List[Mapping], response_format: pydantic.BaseModel = None
+    model: str,
+    messages: List[Dict[str, str]],
+    response_format: pydantic.BaseModel | None = None,
 ) -> str:
     """
     ASYNCHRONOUSLY Fetches a single response from the Litellm API for a given model and messages.
@@ -402,8 +410,8 @@ async def afetch_litellm_api_response(
 
 async def afetch_custom_litellm_api_response(
     custom_model_parameters: CustomModelParameters,
-    messages: List[Mapping],
-    response_format: pydantic.BaseModel = None,
+    messages: List[Dict[str, str]],
+    response_format: pydantic.BaseModel | None = None,
 ) -> str:
     """
     ASYNCHRONOUSLY Fetches a single response from the Litellm API for a given model and messages.
@@ -439,8 +447,8 @@ async def afetch_custom_litellm_api_response(
 
 def query_litellm_api_multiple_calls(
     models: List[str],
-    messages: List[List[Mapping]],
-    response_formats: List[pydantic.BaseModel] | None = None,
+    messages: List[List[Dict]],
+    response_formats: List[pydantic.BaseModel | None] | None = None,
 ) -> List[Union[str, None]]:
     """
     Queries the Litellm API for multiple calls in parallel
@@ -480,8 +488,8 @@ def query_litellm_api_multiple_calls(
 
 async def aquery_litellm_api_multiple_calls(
     models: List[str],
-    messages: List[List[Mapping]],
-    response_formats: List[pydantic.BaseModel] | None = None,
+    messages: List[List[Dict[str, str]]],
+    response_formats: List[pydantic.BaseModel | None] | None = None,
 ) -> List[Union[str, None]]:
     """
     Queries the Litellm API for multiple calls in parallel
@@ -565,14 +573,14 @@ def validate_batched_chat_messages(messages):
 
 
 def is_batched_messages(
-    messages: Union[List[Mapping], List[List[Mapping]]],
-) -> TypeGuard[List[List[Mapping]]]:
+    messages: Union[List[Dict[str, str]], List[List[Dict[str, str]]]],
+) -> TypeGuard[List[List[Dict[str, str]]]]:
     return isinstance(messages, list) and all(isinstance(msg, list) for msg in messages)
 
 
 def is_simple_messages(
-    messages: Union[List[Mapping], List[List[Mapping]]],
-) -> TypeGuard[List[Mapping]]:
+    messages: Union[List[Dict[str, str]], List[List[Dict[str, str]]]],
+) -> TypeGuard[List[Dict[str, str]]]:
     return isinstance(messages, list) and all(
         not isinstance(msg, list) for msg in messages
     )
@@ -580,8 +588,8 @@ def is_simple_messages(
 
 def get_chat_completion(
     model_type: str,
-    messages: Union[List[Mapping], List[List[Mapping]]],
-    response_format: pydantic.BaseModel = None,
+    messages: Union[List[Dict[str, str]], List[List[Dict[str, str]]]],
+    response_format: pydantic.BaseModel | None = None,
     batched: bool = False,
 ) -> Union[str, List[str | None]]:
     """
@@ -653,8 +661,8 @@ def get_chat_completion(
 
 async def aget_chat_completion(
     model_type: str,
-    messages: Union[List[Mapping], List[List[Mapping]]],
-    response_format: pydantic.BaseModel = None,
+    messages: Union[List[Dict[str, str]], List[List[Dict[str, str]]]],
+    response_format: pydantic.BaseModel | None = None,
     batched: bool = False,
 ) -> Union[str, List[str | None]]:
     """
@@ -722,8 +730,8 @@ async def aget_chat_completion(
 
 def get_completion_multiple_models(
     models: List[str],
-    messages: List[List[Mapping]],
-    response_formats: List[pydantic.BaseModel] | None = None,
+    messages: List[List[Dict[str, str]]],
+    response_formats: List[pydantic.BaseModel | None] | None = None,
 ) -> List[str | None]:
     """
     Retrieves completions for a single prompt from multiple models in parallel. Supports closed-source and OSS models.
@@ -801,8 +809,8 @@ def get_completion_multiple_models(
 
 async def aget_completion_multiple_models(
     models: List[str],
-    messages: List[List[Mapping]],
-    response_formats: List[pydantic.BaseModel] | None = None,
+    messages: List[List[Dict[str, str]]],
+    response_formats: List[pydantic.BaseModel | None] | None = None,
 ) -> List[str | None]:
     """
     ASYNCHRONOUSLY retrieves completions for a single prompt from multiple models in parallel. Supports closed-source and OSS models.
@@ -875,7 +883,7 @@ async def aget_completion_multiple_models(
 
 
 if __name__ == "__main__":
-    batched_messages: List[List[Mapping]] = [
+    batched_messages: List[List[Dict[str, str]]] = [
         [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": "What is the capital of France?"},
@@ -886,12 +894,12 @@ if __name__ == "__main__":
         ],
     ]
 
-    non_batched_messages: List[Mapping] = [
+    non_batched_messages: List[Dict[str, str]] = [
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "What is the capital of France?"},
     ]
 
-    batched_messages_2: List[List[Mapping]] = [
+    batched_messages_2: List[List[Dict[str, str]]] = [
         [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": "What is the capital of China?"},
