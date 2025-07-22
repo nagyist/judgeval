@@ -25,7 +25,7 @@ class TogetherJudge(JudgevalJudge):
 
     # TODO: Fix cost for generate and a_generate
     def generate(
-        self, input: Union[str, List[dict]], schema: BaseModel | None = None
+        self, input: Union[str, List[dict]], schema: Union[BaseModel, None] = None
     ) -> str:
         if isinstance(input, str):
             convo = BASE_CONVERSATION + [{"role": "user", "content": input}]
@@ -42,7 +42,7 @@ class TogetherJudge(JudgevalJudge):
             raise TypeError("Input must be a string or a list of dictionaries.")
 
     async def a_generate(
-        self, input: Union[str, List[dict]], schema: BaseModel | None = None
+        self, input: Union[str, List[dict]], schema: Union[BaseModel, None] = None
     ) -> str:
         if isinstance(input, str):
             convo = BASE_CONVERSATION + [{"role": "user", "content": input}]

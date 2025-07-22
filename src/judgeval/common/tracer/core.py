@@ -80,7 +80,7 @@ class TraceClient:
         tracer: Tracer,
         trace_id: Optional[str] = None,
         name: str = "default",
-        project_name: str | None = None,
+        project_name: Union[str, None] = None,
         enable_monitoring: bool = True,
         enable_evaluations: bool = True,
         parent_trace_id: Optional[str] = None,
@@ -851,9 +851,9 @@ class Tracer:
 
     def __init__(
         self,
-        api_key: str | None = os.getenv("JUDGMENT_API_KEY"),
-        organization_id: str | None = os.getenv("JUDGMENT_ORG_ID"),
-        project_name: str | None = None,
+        api_key: Union[str, None] = os.getenv("JUDGMENT_API_KEY"),
+        organization_id: Union[str, None] = os.getenv("JUDGMENT_ORG_ID"),
+        project_name: Union[str, None] = None,
         deep_tracing: bool = False,  # Deep tracing is disabled by default
         enable_monitoring: bool = os.getenv("JUDGMENT_MONITORING", "true").lower()
         == "true",
@@ -906,8 +906,8 @@ class Tracer:
             self.class_identifiers: Dict[
                 str, str
             ] = {}  # Dictionary to store class identifiers
-            self.span_id_to_previous_span_id: Dict[str, str | None] = {}
-            self.trace_id_to_previous_trace: Dict[str, TraceClient | None] = {}
+            self.span_id_to_previous_span_id: Dict[str, Union[str, None]] = {}
+            self.trace_id_to_previous_trace: Dict[str, Union[TraceClient, None]] = {}
             self.current_span_id: Optional[str] = None
             self.current_trace: Optional[TraceClient] = None
             self.trace_across_async_contexts: bool = trace_across_async_contexts
@@ -959,7 +959,9 @@ class Tracer:
             self.enable_monitoring = False
             self.enable_evaluations = False
 
-    def set_current_span(self, span_id: str) -> Optional[contextvars.Token[str | None]]:
+    def set_current_span(
+        self, span_id: str
+    ) -> Optional[contextvars.Token[Union[str, None]]]:
         self.span_id_to_previous_span_id[span_id] = self.current_span_id
         self.current_span_id = span_id
         Tracer.current_span_id = span_id
@@ -982,7 +984,7 @@ class Tracer:
 
     def reset_current_span(
         self,
-        token: Optional[contextvars.Token[str | None]] = None,
+        token: Optional[contextvars.Token[Union[str, None]]] = None,
         span_id: Optional[str] = None,
     ):
         try:
@@ -998,7 +1000,7 @@ class Tracer:
 
     def set_current_trace(
         self, trace: TraceClient
-    ) -> Optional[contextvars.Token[TraceClient | None]]:
+    ) -> Optional[contextvars.Token[Union[TraceClient, None]]]:
         """
         Set the current trace context in contextvars
         """
@@ -1031,7 +1033,7 @@ class Tracer:
 
     def reset_current_trace(
         self,
-        token: Optional[contextvars.Token[TraceClient | None]] = None,
+        token: Optional[contextvars.Token[Union[TraceClient, None]]] = None,
         trace_id: Optional[str] = None,
     ):
         try:
@@ -1047,7 +1049,7 @@ class Tracer:
 
     @contextmanager
     def trace(
-        self, name: str, project_name: str | None = None
+        self, name: str, project_name: Union[str, None] = None
     ) -> Generator[TraceClient, None, None]:
         """Start a new trace context using a context manager"""
         trace_id = str(uuid.uuid4())

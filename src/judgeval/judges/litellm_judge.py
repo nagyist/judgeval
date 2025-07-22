@@ -22,7 +22,7 @@ class LiteLLMJudge(JudgevalJudge):
     def generate(
         self,
         input: Union[str, List[Mapping[str, str]]],
-        schema: pydantic.BaseModel | None = None,
+        schema: Union[pydantic.BaseModel, None] = None,
     ) -> str:
         if isinstance(input, str):
             convo = BASE_CONVERSATION + [{"role": "user", "content": input}]
@@ -42,7 +42,7 @@ class LiteLLMJudge(JudgevalJudge):
     async def a_generate(
         self,
         input: Union[str, List[Mapping[str, str]]],
-        schema: pydantic.BaseModel | None = None,
+        schema: Union[pydantic.BaseModel, None] = None,
     ) -> str:
         if isinstance(input, str):
             convo = BASE_CONVERSATION + [{"role": "user", "content": input}]

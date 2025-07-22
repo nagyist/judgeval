@@ -231,7 +231,7 @@ class EvalDataset:
         self,
         file_type: Literal["json", "csv", "yaml"],
         dir_path: str,
-        save_name: str | None = None,
+        save_name: Union[str, None] = None,
     ) -> None:
         """
         Saves the dataset as a file. Save only the examples.

@@ -18,8 +18,8 @@ from judgeval.common.logger import judgeval_logger
 
 def build_dynamic_mixture_prompt(
     judge_responses: List[str],
-    custom_system_prompt: str | None = None,
-    custom_conversation_history: List[dict] | None = None,
+    custom_system_prompt: Union[str, None] = None,
+    custom_conversation_history: Union[List[dict], None] = None,
 ) -> List[dict]:
     """
     Dynamically builds a prompt to mix judge responses together for the Mixture of Judges model.
@@ -178,8 +178,8 @@ class MixtureOfJudges(JudgevalJudge):
     def generate(
         self,
         input: Union[str, List[dict]],
-        response_schema: pydantic.BaseModel | None = None,
-        aggregation_schema: pydantic.BaseModel | None = None,
+        response_schema: Union[pydantic.BaseModel, None] = None,
+        aggregation_schema: Union[pydantic.BaseModel, None] = None,
         **kwargs,
     ) -> str:
         """
@@ -230,8 +230,8 @@ class MixtureOfJudges(JudgevalJudge):
     async def a_generate(
         self,
         input: Union[str, List[dict]],
-        response_schema: pydantic.BaseModel | None = None,
-        aggregation_schema: pydantic.BaseModel | None = None,
+        response_schema: Union[pydantic.BaseModel, None] = None,
+        aggregation_schema: Union[pydantic.BaseModel, None] = None,
         **kwargs,
     ) -> str:
         """

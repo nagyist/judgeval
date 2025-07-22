@@ -1,4 +1,4 @@
-from typing import Literal, List, Dict, Any
+from typing import Literal, List, Dict, Any, Union
 from requests import exceptions
 from judgeval.common.api.constants import (
     JUDGMENT_TRACES_FETCH_API_URL,
@@ -65,7 +65,7 @@ class JudgmentAPIException(exceptions.HTTPError):
         self.request = request
 
     @property
-    def status_code(self) -> int | None:
+    def status_code(self) -> Union[int, None]:
         """Get the HTTP status code from the response."""
         return self.response.status_code if self.response else None
 
