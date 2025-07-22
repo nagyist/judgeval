@@ -3,8 +3,6 @@ name: MyPy Check
 on:
   pull_request:
     branches: [ main, staging ]
-  push:
-    branches: [justin/mypy-fix]
 
 jobs:
   mypy:
