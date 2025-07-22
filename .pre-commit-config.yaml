@@ -18,6 +18,6 @@ repos:
     hooks:
       - id: mypy
         language: system
-
+        # These next two lines allow commits even if mypy fails, REMOVE once we fix all mypy errors
         verbose: true
         entry: bash -c 'mypy src/judgeval/ || true'
