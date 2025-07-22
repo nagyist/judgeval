@@ -1580,12 +1580,10 @@ class Tracer:
         # Inference-training loop
         for _ in range(await model.get_step(), config.steps):
             # Inference
-            # Deep copy inputs for this step to avoid mutation across iterations
-            step_inputs = copy.deepcopy(inputs)
             groups = []
-            for input in step_inputs:
+            for input in inputs:
                 await asyncio.gather(
-                    *[rollout_and_reward(func, reward, input) for _ in range(config.num_rollouts)]
+                    *[rollout_and_reward(func, reward, copy.deepcopy(input)) for _ in range(config.num_rollouts)]
                 )
                 groups.append(self.traces)
                 self.traces = []
