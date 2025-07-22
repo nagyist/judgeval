@@ -38,7 +38,10 @@ async def safe_a_score_example(
         skip_on_missing_params (bool): Whether to skip the test case if required parameters are missing.
     """
     try:
-        scorer.score = await scorer.a_score_example(example)
+        score = await scorer.a_score_example(example)
+        if score is None:
+            raise Exception("a_score_example need to return a score")
+        scorer.score = score
         scorer.success = scorer.success_check()
     except Exception as e:
         judgeval_logger.error(f"Error during scoring: {str(e)}")
