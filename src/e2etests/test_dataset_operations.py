@@ -40,7 +40,7 @@ def test_pull_dataset(client: JudgmentClient, project_name: str):
     dataset2 = Dataset.get(name=random_name2, project_name=project_name)
 
     assert dataset1, "Failed to pull dataset"
-    assert len(dataset1.examples) == 3, "Dataset should have 2 examples"
+    assert len(dataset1.examples) == 3, "Dataset should have 3 examples"
     for i, e in enumerate(dataset1.examples, start=1):
         assert e.input == f"input {i}", (
             f"Example should have .input be 'input {i}' but got '{e.input}'"

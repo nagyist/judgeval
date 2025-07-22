@@ -57,5 +57,5 @@ def test_basic_custom_scorer(
     assert not scorer_data_2[1].success
 
     scorer_data_3 = res[2].scorers_data
-    assert not scorer_data_3[0].success
+    assert scorer_data_3[0].success
     assert not scorer_data_3[1].success

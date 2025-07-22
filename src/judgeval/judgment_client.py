@@ -196,8 +196,12 @@ class JudgmentClient(metaclass=SingletonMeta):
         """
         Creates a project on the server.
         """
-        self.api_client.create_project(project_name)
-        return True
+        try:
+            self.api_client.create_project(project_name)
+            return True
+        except Exception as e:
+            judgeval_logger.error(f"Error creating project: {e}")
+            return False
 
     def delete_project(self, project_name: str) -> bool:
         """

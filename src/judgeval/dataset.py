@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from typing import List, Literal, Optional
 
 from judgeval.data import Example, Trace
-from judgeval.common.logger import judgeval_logger
-from judgeval.utils.file_utils import get_examples_from_yaml
+from judgeval.utils.file_utils import get_examples_from_yaml, get_examples_from_json
 from judgeval.common.api.api import JudgmentApiClient
 
 
@@ -28,10 +27,14 @@ class Dataset:
     ):
         client = JudgmentApiClient(cls.judgment_api_key, cls.organization_id)
         dataset = client.pull_dataset(name, project_name)
+        examples = dataset.get("examples", [])
+        for e in examples:
+            if isinstance(e, dict) and isinstance(e.get("data"), dict):
+                e.update(e.pop("data"))
         return cls(
             name=name,
             project_name=project_name,
-            examples=[Example(**e) for e in dataset.get("examples", [])],
+            examples=[Example(**e) for e in examples],
             traces=[Trace(**t) for t in dataset.get("traces", [])],
         )
 
@@ -72,47 +75,36 @@ class Dataset:
         """
         Adds examples from a JSON file.
 
-        The format of the JSON file is expected to be a dictionary with one key: "examples".
-        The value of the key is a list of dictionaries, where each dictionary represents an example.
-
         The JSON file is expected to have the following format:
-        {
-        "examples": [
+        [
             {
-                "input": "test input",
-                "actual_output": "test output",
-                ...
-            }
-            ]
-        }
+                "key_01": "value_01",
+                "key_02": "value_02"
+            },
+            {
+                "key_11": "value_11",
+                "key_12": "value_12",
+                "key_13": "value_13"
+            },
+            ...
+        ]
         """
-        try:
-            with open(file_path, "r") as file:
-                payload = json.load(file)
-                examples = payload.get("examples", [])
-        except FileNotFoundError:
-            judgeval_logger.error(f"JSON file not found: {file_path}")
-            raise FileNotFoundError(f"The file {file_path} was not found.")
-        except json.JSONDecodeError:
-            judgeval_logger.error(f"Invalid JSON file: {file_path}")
-            raise ValueError(f"The file {file_path} is not a valid JSON file.")
-
-        new_examples = [Example(**e) for e in examples]
-        self.add_examples(new_examples)
+        examples = get_examples_from_json(file_path)
+        self.add_examples(examples)
 
     def add_from_yaml(self, file_path: str) -> None:
         """
         Adds examples from a YAML file.
 
-        The format of the YAML file is expected to be a dictionary with one key: "examples".
-        The value of the key is a list of dictionaries, where each dictionary represents an example.
-
         The YAML file is expected to have the following format:
-        examples:
-          - input: "test input"
-            actual_output: "test output"
-            ...
+        - key_01: value_01
+          key_02: value_02
+        - key_11: value_11
+          key_12: value_12
+          key_13: value_13
+        ...
         """
+
         examples = get_examples_from_yaml(file_path)
         self.add_examples(examples)
 
