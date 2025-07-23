@@ -11,6 +11,7 @@ from judgeval.scorers.judgeval_scorers.api_scorers import (
     ToolOrderScorer,
     PromptScorer,
     ToolDependencyScorer,
+    RewardScorer,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "DerailmentScorer",
     "ToolOrderScorer",
     "ToolDependencyScorer",
+    "RewardScorer",
 ]
