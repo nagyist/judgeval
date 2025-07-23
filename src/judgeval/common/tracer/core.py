@@ -1576,13 +1576,12 @@ class Tracer:
             return res
     
         import random
-        random.shuffle(inputs)
         # Inference-training loop
         for _ in range(await model.get_step(), config.steps):
             # Inference
             groups = []
             if config.batch_size > 0:
-                batch_inputs = [inputs[i:i+config.batch_size] for i in range(0, len(inputs), config.batch_size)]
+                batch_inputs = random.sample(inputs, config.batch_size)
             else:
                 batch_inputs = inputs
             for input in batch_inputs:
