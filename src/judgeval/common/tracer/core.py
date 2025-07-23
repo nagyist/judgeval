@@ -55,7 +55,7 @@ from anthropic import Anthropic, AsyncAnthropic
 from google import genai
 
 from judgeval.data import Example, Trace, TraceSpan, TraceUsage
-from judgeval.scorers import APIScorerConfig, BaseScorer
+from judgeval.scorers import APIScorerConfig, BaseScorer, RewardScorer
 from judgeval.evaluation_run import EvaluationRun
 from judgeval.common.utils import ExcInfo, validate_api_key
 from judgeval.common.logger import judgeval_logger
@@ -1573,6 +1573,10 @@ class Tracer:
             except TypeError:
                 reward_score = await reward(*input)
             self.get_current_trace().set_reward_score(reward_score)
+            self.async_evaluate(
+                scorers=[RewardScorer()],
+                additional_metadata={"reward_score": reward_score}
+            )
             return res
     
         import random
