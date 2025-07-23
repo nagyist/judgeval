@@ -1559,29 +1559,32 @@ class Tracer:
         model: TrainableModel,
         config: TrainConfig = TrainConfig(),
         _config: dev.TrainConfig | None = None,
-        verbose: bool = False,
-        comparative_reward: bool = False,
+        verbose: bool = False
     ):
         """
         Train a model on trajectory data using GRPO.
         """
         
         @self.observe(span_type="inference")
-        async def rollout_and_reward(func: Callable, reward: Callable, input: list, comparative_reward: bool = False):
+        async def rollout_and_reward(func: Callable, reward: Callable, input: list):
             res = await func(*input)
-            if not comparative_reward:
-                try:
-                    reward_score = await reward(*input, agent_output=res)
-                except TypeError:
-                    reward_score = await reward(*input)
-                self.get_current_trace().set_reward_score(reward_score)
+            try:
+                reward_score = await reward(*input, agent_output=res)
+            except TypeError:
+                reward_score = await reward(*input)
+            self.get_current_trace().set_reward_score(reward_score)
             return res
     
+        inputs.shuffle()
         # Inference-training loop
         for _ in range(await model.get_step(), config.steps):
             # Inference
             groups = []
-            for input in inputs:
+            if config.batch_size > 0:
+                batch_inputs = [inputs[i:i+config.batch_size] for i in range(0, len(inputs), config.batch_size)]
+            else:
+                batch_inputs = inputs
+            for input in batch_inputs:
                 await asyncio.gather(
                     *[rollout_and_reward(func, reward, copy.deepcopy(input)) for _ in range(config.num_rollouts)]
                 )

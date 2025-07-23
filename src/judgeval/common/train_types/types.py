@@ -17,6 +17,8 @@ class TrainConfig(pydantic.BaseModel):
     steps: int = 10
     num_rollouts: int = 10
     max_exceptions: int = 0
+    batch_size: int = 0
+    comparative_reward: bool = False
 
 
 Verbosity = Literal[0, 1, 2]
