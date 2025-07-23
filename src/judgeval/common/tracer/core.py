@@ -1575,6 +1575,7 @@ class Tracer:
             self.get_current_trace().set_reward_score(reward_score)
             return res
     
+        import random
         random.shuffle(inputs)
         # Inference-training loop
         for _ in range(await model.get_step(), config.steps):
