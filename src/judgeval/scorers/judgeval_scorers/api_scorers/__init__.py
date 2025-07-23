@@ -26,6 +26,9 @@ from judgeval.scorers.judgeval_scorers.api_scorers.prompt_scorer import (
 from judgeval.scorers.judgeval_scorers.api_scorers.tool_dependency import (
     ToolDependencyScorer,
 )
+from judgeval.scorers.judgeval_scorers.api_scorers.reward_scorer import (
+    RewardScorer,
+)
 
 __all__ = [
     "ExecutionOrderScorer",
@@ -44,4 +47,5 @@ __all__ = [
     "ToolOrderScorer",
     "PromptScorer",
     "ToolDependencyScorer",
+    "RewardScorer",
 ]
