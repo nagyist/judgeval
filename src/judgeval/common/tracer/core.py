@@ -195,7 +195,7 @@ class TraceClient:
         tools_called: Optional[List[str]] = None,
         expected_tools: Optional[List[str]] = None,
         additional_metadata: Optional[Dict[str, Any]] = None,
-        model: Optional[str] = None,
+        model: Optional[str] = "gpt-4.1",
         span_id: Optional[str] = None,
     ):
         if not self.enable_evaluations:
