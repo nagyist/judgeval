@@ -1575,6 +1575,8 @@ class Tracer:
             self.get_current_trace().set_reward_score(reward_score)
             self.async_evaluate(
                 scorers=[RewardScorer()],
+                input="",
+                actual_output="",
                 additional_metadata={"reward_score": reward_score}
             )
             return res
