@@ -54,13 +54,12 @@ def run_eval_helper(client: JudgmentClient, project_name: str, eval_run_name: st
     )
 
 
-def test_run_eval(client: JudgmentClient, project_name: str):
+def test_run_eval(client: JudgmentClient, project_name: str, random_name: str):
     """Test basic evaluation workflow."""
-    EVAL_RUN_NAME = "ColdEmailGenerator-Improve-BasePrompt"
 
-    run_eval_helper(client, project_name, EVAL_RUN_NAME)
-    results = client.pull_eval(project_name=project_name, eval_run_name=EVAL_RUN_NAME)
-    assert results, f"No evaluation results found for {EVAL_RUN_NAME}"
+    run_eval_helper(client, project_name, random_name)
+    results = client.pull_eval(project_name=project_name, eval_run_name=random_name)
+    assert results, f"No evaluation results found for {random_name}"
 
     client.delete_project(project_name=project_name)
 
@@ -187,9 +186,9 @@ def test_evaluate_dataset(client: JudgmentClient, project_name: str, random_name
     )
 
     Dataset.create(
-        name="test-dataset", project_name=project_name, examples=[example1, example2]
+        name=random_name, project_name=project_name, examples=[example1, example2]
     )
-    dataset = Dataset.get(name="test-dataset", project_name=project_name)
+    dataset = Dataset.get(name=random_name, project_name=project_name)
     res = client.run_evaluation(
         examples=dataset.examples,
         scorers=[FaithfulnessScorer(threshold=0.5)],
@@ -229,8 +228,8 @@ def test_evaluate_dataset_custom(
         CustomExample(unique_field="test", unique_number=3),
         CustomExample(unique_field="not_test", unique_number=1),
     ]
-    Dataset.create(name="test-dataset", project_name=project_name, examples=examples)
-    dataset = Dataset.get(name="test-dataset", project_name=project_name)
+    Dataset.create(name=random_name, project_name=project_name, examples=examples)
+    dataset = Dataset.get(name=random_name, project_name=project_name)
     res = client.run_evaluation(
         examples=dataset.examples,
         scorers=[CustomScorer()],

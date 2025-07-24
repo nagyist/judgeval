@@ -135,7 +135,7 @@ class DatasetStatsPayload(TypedDict):
 
 
 # Projects API
-JUDGMENT_PROJECT_DELETE_API_URL = f"{ROOT_API}/projects/delete/"
+JUDGMENT_PROJECT_DELETE_API_URL = f"{ROOT_API}/projects/delete_from_judgeval"
 JUDGMENT_PROJECT_CREATE_API_URL = f"{ROOT_API}/projects/add/"
 
 

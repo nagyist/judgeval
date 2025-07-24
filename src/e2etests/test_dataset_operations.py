@@ -10,15 +10,62 @@ from judgeval.data import JudgevalExample
 from judgeval.dataset import Dataset
 
 
-def test_create_dataset(client: JudgmentClient, project_name: str):
+def test_create_dataset(client: JudgmentClient, project_name: str, random_name: str):
     """Test dataset creation and manipulation."""
     dataset = Dataset.create(
-        name="test-dataset",
+        name=random_name,
         project_name=project_name,
         examples=[JudgevalExample(input="input 1", actual_output="output 1")],
     )
     assert dataset, "Failed to push dataset"
     dataset.delete()
+
+
+def test_create_dataset_across_projects(
+    client: JudgmentClient, project_name: str, random_name: str
+):
+    """Test that the same name for a dataset can be used across projects."""
+    client.create_project(project_name=random_name)
+    dataset = Dataset.create(
+        name=random_name,
+        project_name=project_name,
+        examples=[JudgevalExample(input="input 1", actual_output="output 1")],
+    )
+
+    assert dataset, "Failed to push dataset"
+
+    dataset2 = Dataset.create(
+        name=random_name,
+        project_name=random_name,
+        examples=[JudgevalExample(input="input 1", actual_output="output 1")],
+    )
+
+    assert dataset2, "Failed to push dataset"
+
+    dataset.delete()
+    dataset2.delete()
+    client.delete_project(project_name=random_name)
+
+
+def test_create_dataset_error(
+    client: JudgmentClient, project_name: str, random_name: str
+):
+    """Test that the same name for a dataset can be used across projects."""
+    dataset = Dataset.create(
+        name=random_name,
+        project_name=project_name,
+        examples=[JudgevalExample(input="input 1", actual_output="output 1")],
+    )
+    assert dataset
+
+    try:
+        Dataset.create(
+            name=random_name,
+            project_name=project_name,
+            examples=[JudgevalExample(input="input 1", actual_output="output 1")],
+        )
+    except Exception as e:
+        assert "Dataset already exists" in str(e)
 
 
 def test_pull_dataset(client: JudgmentClient, project_name: str):
@@ -63,14 +110,14 @@ def test_pull_dataset(client: JudgmentClient, project_name: str):
     dataset2.delete()
 
 
-def test_append_dataset(client: JudgmentClient, project_name: str):
+def test_append_dataset(client: JudgmentClient, project_name: str, random_name: str):
     """Test dataset editing."""
     examples = [
         JudgevalExample(input="input 1", actual_output="output 1"),
         JudgevalExample(input="input 2", actual_output="output 2"),
     ]
-    Dataset.create(name="test-dataset", project_name=project_name, examples=examples)
-    dataset = Dataset.get(name="test-dataset", project_name=project_name)
+    Dataset.create(name=random_name, project_name=project_name, examples=examples)
+    dataset = Dataset.get(name=random_name, project_name=project_name)
 
     initial_example_count = len(dataset.examples)
     examples = [
@@ -81,7 +128,7 @@ def test_append_dataset(client: JudgmentClient, project_name: str):
     assert initial_example_count == 2, "Dataset should have 2 examples"
     dataset.add_examples(examples)
 
-    dataset = Dataset.get(name="test-dataset", project_name=project_name)
+    dataset = Dataset.get(name=random_name, project_name=project_name)
     assert dataset, "Failed to pull dataset"
     assert len(dataset.examples) == initial_example_count + 3, (
         f"Dataset should have {initial_example_count + 3} examples, but has {len(dataset.examples)}"
@@ -90,26 +137,26 @@ def test_append_dataset(client: JudgmentClient, project_name: str):
     dataset.delete()
 
 
-def test_overwrite_dataset(client: JudgmentClient, project_name: str):
+def test_overwrite_dataset(client: JudgmentClient, project_name: str, random_name: str):
     """Test dataset overwriting."""
     examples = [
         JudgevalExample(input="input 1", actual_output="output 1"),
         JudgevalExample(input="input 2", actual_output="output 2"),
     ]
-    Dataset.create(name="test-dataset", project_name=project_name, examples=examples)
-    dataset = Dataset.get(name="test-dataset", project_name=project_name)
+    Dataset.create(name=random_name, project_name=project_name, examples=examples)
+    dataset = Dataset.get(name=random_name, project_name=project_name)
 
     new_examples = [
         JudgevalExample(input="input 3", actual_output="output 3"),
         JudgevalExample(input="input 4", actual_output="output 4"),
     ]
     Dataset.create(
-        name="test-dataset",
+        name=random_name,
         project_name=project_name,
         examples=new_examples,
         overwrite=True,
     )
-    dataset = Dataset.get(name="test-dataset", project_name=project_name)
+    dataset = Dataset.get(name=random_name, project_name=project_name)
     assert dataset, "Failed to pull dataset"
     assert len(dataset.examples) == 2, "Dataset should have 2 examples"
 
