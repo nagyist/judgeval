@@ -33,6 +33,7 @@ dependencies = [
     "matplotlib>=3.10.3",
     "python-slugify>=8.0.4",
     "datamodel-code-generator>=0.31.1",
+    "groq>=0.30.0",
 ]
 
 [project.urls]
