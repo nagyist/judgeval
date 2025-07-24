@@ -45,6 +45,7 @@ from openai.types.chat import ParsedChatCompletion
 from together import Together, AsyncTogether
 from anthropic import Anthropic, AsyncAnthropic
 from google import genai
+from groq import Groq, AsyncGroq
 
 from judgeval.data import Example, Trace, TraceSpan, TraceUsage
 from judgeval.scorers import APIScorerConfig, BaseScorer
@@ -67,6 +68,8 @@ ApiClient: TypeAlias = Union[
     AsyncTogether,
     genai.Client,
     genai.client.AsyncClient,
+    Groq,
+    AsyncGroq,
 ]
 SpanType: TypeAlias = str
 
@@ -1711,6 +1714,10 @@ def wrap(
         client.models.generate_content = wrapped(original_create)
     elif isinstance(client, (genai.client.AsyncClient)):
         client.models.generate_content = wrapped_async(original_create)
+    elif isinstance(client, (Groq)):
+        client.chat.completions.create = wrapped(original_create)
+    elif isinstance(client, (AsyncGroq)):
+        client.chat.completions.create = wrapped_async(original_create)
 
     return client
 
@@ -1745,6 +1752,8 @@ def _get_client_config(
             None,
             client.beta.chat.completions.parse,
         )
+    elif isinstance(client, (Groq, AsyncGroq)):
+        return "GROQ_API_CALL", client.chat.completions.create, None, None, None
     elif isinstance(client, (Together, AsyncTogether)):
         return "TOGETHER_API_CALL", client.chat.completions.create, None, None, None
     elif isinstance(client, (Anthropic, AsyncAnthropic)):
@@ -1821,6 +1830,11 @@ def _format_output_data(
         cache_read_input_tokens = response.usage.cache_read_input_tokens
         cache_creation_input_tokens = response.usage.cache_creation_input_tokens
         message_content = response.content[0].text
+    elif isinstance(client, (Groq, AsyncGroq)):
+        model_name = "groq/" + response.model
+        prompt_tokens = response.usage.prompt_tokens
+        completion_tokens = response.usage.completion_tokens
+        message_content = response.choices[0].message.content
     else:
         judgeval_logger.warning(f"Unsupported client type: {type(client)}")
         return None, None

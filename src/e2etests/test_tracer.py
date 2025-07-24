@@ -10,6 +10,7 @@ from openai import OpenAI, AsyncOpenAI
 from anthropic import Anthropic, AsyncAnthropic
 from together import AsyncTogether
 from google import genai
+from groq import Groq, AsyncGroq
 
 # Local imports
 from judgeval.tracer import Tracer, wrap, TraceManagerClient
@@ -26,6 +27,8 @@ openai_client = wrap(OpenAI())
 anthropic_client = wrap(Anthropic())
 openai_client_async = wrap(AsyncOpenAI())
 anthropic_client_async = wrap(AsyncAnthropic())
+groq_client = wrap(Groq(api_key=os.getenv("GROQ_API_KEY")))
+groq_client_async = wrap(AsyncGroq(api_key=os.getenv("GROQ_API_KEY")))
 
 # Add Together client if API key exists
 together_api_key = os.getenv("TOGETHER_API_KEY")
@@ -86,6 +89,7 @@ def validate_trace_token_counts(
         "ANTHROPIC_API_CALL",
         "TOGETHER_API_CALL",
         "GOOGLE_API_CALL",
+        "GROQ_API_CALL",
     }
 
     for span in trace_spans:
@@ -771,3 +775,39 @@ async def test_openai_cached_input_tokens():
 
     trace = judgment.get_current_trace()
     validate_trace_tokens(trace, cached_input_tokens=True)
+
+
+@pytest.mark.asyncio
+@judgment.observe(
+    name="test_groq_response_api",
+)
+async def test_groq_response_api():
+    """Test Groq's Response API with token counting verification."""
+    contents = "What is the capital of France?"
+    response = groq_client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": contents}],
+    )
+    print(f"Response: {response}")
+    await asyncio.sleep(1.5)
+
+    trace = judgment.get_current_trace()
+    validate_trace_tokens(trace)
+
+
+@pytest.mark.asyncio
+@judgment.observe(
+    name="test_groq_response_api_async",
+)
+async def test_groq_response_api_async():
+    """Test Groq's Response API with token counting verification."""
+    contents = "What is the capital of France?"
+    response = await groq_client_async.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": contents}],
+    )
+    print(f"Response: {response}")
+    await asyncio.sleep(1.5)
+
+    trace = judgment.get_current_trace()
+    validate_trace_tokens(trace)
