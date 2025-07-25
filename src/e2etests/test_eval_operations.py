@@ -232,7 +232,6 @@ def test_evaluate_dataset(client: JudgmentClient, project_name: str, random_name
         actual_output="You can reset your password by clicking on 'Forgot Password' at the login screen.",
         expected_output="You can reset your password by clicking on 'Forgot Password' at the login screen.",
         name="Password Reset",
-        context=["User Account"],
         retrieval_context=["Password reset instructions"],
         additional_metadata={"difficulty": "medium"},
     )
