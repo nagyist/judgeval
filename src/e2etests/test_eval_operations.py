@@ -33,7 +33,6 @@ def run_eval_helper(client: JudgmentClient, project_name: str, eval_run_name: st
         input="Generate a cold outreach email for GreenEnergy Solutions. Facts: They're developing solar panel technology that's 30% more efficient. They're looking to expand into the European market. They won a sustainability award in 2023.",
         actual_output="Dear GreenEnergy Solutions team,\n\nCongratulations on your 2023 sustainability award! Your innovative solar panel technology with 30% higher efficiency is exactly what the European market needs right now.\n\nI'd love to discuss how we could support your European expansion plans.\n\nBest regards,\nAlex",
         expected_output="A professional cold email mentioning the sustainability award, solar technology innovation, and European expansion plans",
-        context=["Business Development"],
         retrieval_context=[
             "GreenEnergy Solutions won 2023 sustainability award",
             "New solar technology 30% more efficient",
@@ -129,6 +128,59 @@ def test_run_append_without_existing(client: JudgmentClient, project_name: str):
     assert len(results) == 1
     print(results)
     assert results[0].success
+
+
+def test_run_mismatching_examples(
+    client: JudgmentClient, project_name: str, random_name: str
+):
+    """Test running evaluation with mismatching examples."""
+    example1 = JudgevalExample(
+        input="What is the capital of France?",
+        actual_output="Paris",
+    )
+    example2 = Example(
+        input="What is the capital of France?",
+        actual_output="Paris",
+    )
+    scorer = AnswerRelevancyScorer(threshold=0.5)
+    with pytest.raises(Exception):
+        client.run_evaluation(
+            examples=[example1, example2],
+            scorers=[scorer],
+            project_name=project_name,
+            eval_run_name=random_name,
+        )
+
+
+def test_run_mismatching_examples_append(
+    client: JudgmentClient, project_name: str, random_name: str
+):
+    """Test running evaluation with mismatching examples."""
+    example1 = JudgevalExample(
+        input="What is the capital of France?",
+        actual_output="Paris",
+    )
+    example2 = Example(
+        input="What is the capital of France?",
+        actual_output="Paris",
+    )
+    scorer = AnswerRelevancyScorer(threshold=0.5)
+    client.run_evaluation(
+        examples=[example1],
+        scorers=[scorer],
+        project_name=project_name,
+        eval_run_name=random_name,
+        append=True,
+    )
+
+    with pytest.raises(Exception):
+        client.run_evaluation(
+            examples=[example2],
+            scorers=[scorer],
+            project_name=project_name,
+            eval_run_name=random_name,
+            append=True,
+        )
 
 
 @pytest.mark.asyncio
