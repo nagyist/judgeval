@@ -4,7 +4,7 @@ Tests for dataset operations in the JudgmentClient.
 
 import random
 import string
-
+import pytest
 from judgeval.judgment_client import JudgmentClient
 from judgeval.data import JudgevalExample
 from judgeval.dataset import Dataset
@@ -66,6 +66,12 @@ def test_create_dataset_error(
         )
     except Exception as e:
         assert "Dataset already exists" in str(e)
+
+
+def test_get_dataset_error(client: JudgmentClient, project_name: str, random_name: str):
+    """Test that the dataset is not found."""
+    with pytest.raises(ValueError):
+        Dataset.get(name=random_name, project_name=project_name)
 
 
 def test_pull_dataset(client: JudgmentClient, project_name: str):

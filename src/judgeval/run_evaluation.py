@@ -632,9 +632,6 @@ def run_eval(
         send_results = [
             scoring_result.model_dump(warnings=False) for scoring_result in results
         ]
-
-        print(send_results)
-
         url = log_evaluation_results(send_results, evaluation_run, judgment_api_key)
     rprint(
         f"\n🔍 You can view your evaluation results here: [rgb(106,0,255)][link={url}]View Results[/link]\n"

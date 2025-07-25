@@ -8,6 +8,7 @@ from typing import List, Literal, Optional
 from judgeval.data import Example, Trace
 from judgeval.utils.file_utils import get_examples_from_yaml, get_examples_from_json
 from judgeval.common.api.api import JudgmentApiClient
+from judgeval.common.logger import judgeval_logger
 
 
 @dataclass
@@ -27,6 +28,9 @@ class Dataset:
     ):
         client = JudgmentApiClient(cls.judgment_api_key, cls.organization_id)
         dataset = client.pull_dataset(name, project_name)
+        if not dataset:
+            judgeval_logger.error(f"Dataset {name} not found in project {project_name}")
+            raise ValueError(f"Dataset {name} not found in project {project_name}")
         examples = dataset.get("examples", [])
         for e in examples:
             if isinstance(e, dict) and isinstance(e.get("data"), dict):
