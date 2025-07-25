@@ -40,6 +40,8 @@ from judgeval.common.train_types import (
     gather_trajectory_groups,
     dev,
 )
+# Ensure art.local.train is monkey-patched before any training begins
+import judgeval.common.train_types.patch_art_train
 
 from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
 
@@ -54,6 +56,7 @@ from together import Together, AsyncTogether
 from anthropic import Anthropic, AsyncAnthropic
 from google import genai
 
+from judgeval.judgment_client import JudgmentClient
 from judgeval.data import Example, Trace, TraceSpan, TraceUsage
 from judgeval.scorers import APIScorerConfig, BaseScorer, RewardScorer
 from judgeval.evaluation_run import EvaluationRun
@@ -958,6 +961,7 @@ class Tracer:
 
             self.offline_mode = False  # This is used to differentiate traces between online and offline (IE experiments vs monitoring page)
             self.deep_tracing: bool = deep_tracing
+            self.judgment_client = JudgmentClient(api_key=api_key, organization_id=organization_id)
 
             self.span_batch_size = span_batch_size
             self.span_flush_interval = span_flush_interval
@@ -1573,7 +1577,7 @@ class Tracer:
             except TypeError:
                 reward_score = await reward(*input)
             self.get_current_trace().set_reward_score(reward_score)
-            self.async_evaluate(
+            self.judgment_client.run_evaluation(
                 scorers=[RewardScorer()],
                 input="",
                 actual_output="",
