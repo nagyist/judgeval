@@ -1583,7 +1583,7 @@ class Tracer:
                 actual_output="",
                 additional_metadata={"reward_score": reward_score}
             )
-            return res
+            return self.get_current_trace()
     
         import random
         # Inference-training loop
@@ -1594,12 +1594,23 @@ class Tracer:
                 batch_inputs = random.sample(inputs, config.batch_size)
             else:
                 batch_inputs = inputs
-            for input in batch_inputs:
-                await asyncio.gather(
-                    *[rollout_and_reward(func, reward, copy.deepcopy(input)) for _ in range(config.num_rollouts)]
-                )
-                groups.append(self.traces)
-                self.traces = []
+            # Parallelize rollouts over all inputs in the batch.
+            # For every `input` we launch `config.num_rollouts` coroutines of
+            # `rollout_and_reward` concurrently, then gather the resulting
+            # traces.  The outer gather lets all inputs run in parallel as
+            # well, so the entire batch is processed concurrently.
+
+            groups = await asyncio.gather(
+                *[
+                    asyncio.gather(
+                        *[
+                            rollout_and_reward(func, reward, copy.deepcopy(input))
+                            for _ in range(config.num_rollouts)
+                        ]
+                    )
+                    for input in batch_inputs
+                ]
+            )
 
             # Train
             # Create async functions that return TrajectoryGroups
