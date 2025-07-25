@@ -51,6 +51,7 @@ JUDGMENT_ADD_TO_RUN_EVAL_QUEUE_API_URL = f"{ROOT_API}/add_to_run_eval_queue/"
 JUDGMENT_GET_EVAL_STATUS_API_URL = f"{ROOT_API}/get_evaluation_status/"
 JUDGMENT_CHECK_EXPERIMENT_TYPE_API_URL = f"{ROOT_API}/check_experiment_type/"
 JUDGMENT_EVAL_RUN_NAME_EXISTS_API_URL = f"{ROOT_API}/eval-run-name-exists/"
+JUDGMENT_CHECK_EXAMPLE_KEYS_API_URL = f"{ROOT_API}/check_example_keys/"
 
 
 # Evaluation API Payloads
@@ -88,6 +89,12 @@ class EvalRunNameExistsPayload(TypedDict):
     eval_name: str
     project_name: str
     judgment_api_key: str
+
+
+class CheckExampleKeysPayload(TypedDict):
+    keys: List[str]
+    eval_name: str
+    project_name: str
 
 
 # Datasets API

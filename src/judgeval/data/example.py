@@ -16,7 +16,6 @@ class ExampleParams(str, Enum):
     RETRIEVAL_CONTEXT = "retrieval_context"
     TOOLS_CALLED = "tools_called"
     EXPECTED_TOOLS = "expected_tools"
-    REASONING = "reasoning"
     ADDITIONAL_METADATA = "additional_metadata"
 
 
@@ -50,7 +49,5 @@ class JudgevalExample(Example):
     actual_output: Optional[str | List[str]] = None
     expected_output: Optional[str | List[str]] = None
     retrieval_context: Optional[List[str]] = None
-    reasoning: Optional[str] = None
-    context: Optional[List[str]] = None
     additional_metadata: Optional[Dict[str, Any]] = None
     expected_tools: Optional[List[Dict[str, Any]]] = None
