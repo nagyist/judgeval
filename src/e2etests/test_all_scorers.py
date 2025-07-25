@@ -12,7 +12,7 @@ from judgeval.scorers import (
     PromptScorer,
 )
 from uuid import uuid4
-from judgeval.data import JudgevalExample
+from judgeval.data import JudgevalExample, Example
 
 
 def test_ac_scorer(client: JudgmentClient, project_name: str):
@@ -185,7 +185,7 @@ def test_prompt_scorer(client: JudgmentClient, project_name: str):
     # Create test examples
     helpful_example = JudgevalExample(
         input="What's the capital of France?",
-        actual_output="The capital of France is Paris. It's one of the most populous cities in Europe and is known for landmarks like the Eiffel Tower and the Louvre Museum.",
+        actual_output="The capital of France is Paris.",
     )
 
     unhelpful_example = JudgevalExample(
@@ -206,6 +206,57 @@ def test_prompt_scorer(client: JudgmentClient, project_name: str):
     # Verify results
     assert res[0].success, "Helpful example should pass classification"
     assert not res[1].success, "Unhelpful example should fail classification"
+
+    # Print debug info if any test fails
+    print_debug_on_failure(res[0])
+    print_debug_on_failure(res[1])
+
+
+def test_custom_prompt_scorer(client: JudgmentClient, project_name: str):
+    """Test custom prompt scorer functionality."""
+    # Creating a custom prompt scorer from SDK
+    # Creating a prompt scorer from SDK
+    prompt_scorer = PromptScorer.create(
+        name=f"Test Prompt Scorer {uuid4()}",
+        prompt="Comparison A: {{comparison_a}}\n Comparison B: {{comparison_b}}\n\n Which candidate is better for a teammate?",
+        options={"comparison_a": 1.0, "comparison_b": 0.0},
+    )
+
+    prompt_scorer.set_options(
+        {
+            "comparison_a": 1.0,
+            "comparison_b": 0.0,
+        }
+    )
+
+    class ComparisonExample(Example):
+        comparison_a: str
+        comparison_b: str
+
+    # Create test examples
+    example1 = ComparisonExample(
+        comparison_a="Mike loves to play basketball because he passes with his teammates.",
+        comparison_b="Mike likes to play 1v1 basketball because he likes to show off his skills.",
+    )
+
+    example2 = ComparisonExample(
+        comparison_a="Mike loves to play singles tennis because he likes to show off his skills.",
+        comparison_b="Mike likes to play doubles tennis because he likes to pass with his partner.",
+    )
+
+    # Run evaluation
+    res = client.run_evaluation(
+        examples=[example1, example2],
+        scorers=[prompt_scorer],
+        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        project_name=project_name,
+        eval_run_name="test-run-helpfulness",
+        override=True,
+    )
+
+    # Verify results
+    assert res[0].success, "Example 1 should pass classification"
+    assert not res[1].success, "Example 2 should fail classification"
 
     # Print debug info if any test fails
     print_debug_on_failure(res[0])
