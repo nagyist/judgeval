@@ -19,7 +19,9 @@ class ExampleParams(str, Enum):
     ADDITIONAL_METADATA = "additional_metadata"
 
 
-class Example(BaseModel):
+class Example(
+    BaseModel
+):  # We don't inherit from ExampleJudgmentType because the data model is slightly different
     model_config = ConfigDict(extra="allow")
 
     created_at: str = datetime.now().isoformat()

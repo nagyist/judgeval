@@ -49,7 +49,6 @@ def run_eval_helper(client: JudgmentClient, project_name: str, eval_run_name: st
         model="Qwen/Qwen2.5-72B-Instruct-Turbo",
         project_name=project_name,
         eval_run_name=eval_run_name,
-        override=True,
     )
 
 
@@ -60,17 +59,14 @@ def test_run_eval(client: JudgmentClient, project_name: str, random_name: str):
     results = client.pull_eval(project_name=project_name, eval_run_name=random_name)
     assert results, f"No evaluation results found for {random_name}"
 
-    client.delete_project(project_name=project_name)
 
-
-def test_run_eval_append(client: JudgmentClient, project_name: str):
+def test_run_eval_append(client: JudgmentClient, project_name: str, random_name: str):
     """Test evaluation append behavior."""
-    EVAL_RUN_NAME = "ColdEmailGenerator-Improve-BasePrompt"
 
-    run_eval_helper(client, project_name, EVAL_RUN_NAME)
-    results = client.pull_eval(project_name=project_name, eval_run_name=EVAL_RUN_NAME)
+    run_eval_helper(client, project_name, random_name)
+    results = client.pull_eval(project_name=project_name, eval_run_name=random_name)
     results = results["examples"]
-    assert results, f"No evaluation results found for {EVAL_RUN_NAME}"
+    assert results, f"No evaluation results found for {random_name}"
     assert len(results) == 2
 
     example1 = JudgevalExample(
@@ -89,21 +85,21 @@ def test_run_eval_append(client: JudgmentClient, project_name: str):
         scorers=[scorer],
         model="Qwen/Qwen2.5-72B-Instruct-Turbo",
         project_name=project_name,
-        eval_run_name=EVAL_RUN_NAME,
+        eval_run_name=random_name,
         append=True,
     )
 
-    results = client.pull_eval(project_name=project_name, eval_run_name=EVAL_RUN_NAME)
-    assert results, f"No evaluation results found for {EVAL_RUN_NAME}"
+    results = client.pull_eval(project_name=project_name, eval_run_name=random_name)
+    assert results, f"No evaluation results found for {random_name}"
     results = results["examples"]
     assert len(results) == 3
     assert results[0]["scorer_data"][0]["score"] == 1.0
-    client.delete_project(project_name=project_name)
 
 
-def test_run_append_without_existing(client: JudgmentClient, project_name: str):
+def test_run_append_without_existing(
+    client: JudgmentClient, project_name: str, random_name: str
+):
     """Test evaluation append behavior when the eval run does not exist."""
-    EVAL_RUN_NAME = "ColdEmailGenerator-Improve-BasePrompt"
 
     example1 = JudgevalExample(
         input="Generate a cold outreach email for TechCorp. Facts: They recently launched an AI-powered analytics platform. Their CEO Sarah Chen previously worked at Google. They have 50+ enterprise clients.",
@@ -121,10 +117,10 @@ def test_run_append_without_existing(client: JudgmentClient, project_name: str):
         scorers=[scorer],
         model="gpt-4o-mini",
         project_name=project_name,
-        eval_run_name=EVAL_RUN_NAME,
+        eval_run_name=random_name,
         append=True,
     )
-    assert results, f"No evaluation results found for {EVAL_RUN_NAME}"
+    assert results, f"No evaluation results found for {random_name}"
     assert len(results) == 1
     print(results)
     assert results[0].success
