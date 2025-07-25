@@ -56,7 +56,6 @@ from together import Together, AsyncTogether
 from anthropic import Anthropic, AsyncAnthropic
 from google import genai
 
-from judgeval.judgment_client import JudgmentClient
 from judgeval.data import Example, Trace, TraceSpan, TraceUsage
 from judgeval.scorers import APIScorerConfig, BaseScorer, RewardScorer
 from judgeval.evaluation_run import EvaluationRun
@@ -961,7 +960,6 @@ class Tracer:
 
             self.offline_mode = False  # This is used to differentiate traces between online and offline (IE experiments vs monitoring page)
             self.deep_tracing: bool = deep_tracing
-            self.judgment_client = JudgmentClient(api_key=api_key, organization_id=organization_id)
 
             self.span_batch_size = span_batch_size
             self.span_flush_interval = span_flush_interval
@@ -1577,12 +1575,6 @@ class Tracer:
             except TypeError:
                 reward_score = await reward(*input)
             self.get_current_trace().set_reward_score(reward_score)
-            self.judgment_client.run_evaluation(
-                scorers=[RewardScorer()],
-                input="",
-                actual_output="",
-                additional_metadata={"reward_score": reward_score}
-            )
             return self.get_current_trace()
     
         import random
@@ -1599,7 +1591,6 @@ class Tracer:
             # `rollout_and_reward` concurrently, then gather the resulting
             # traces.  The outer gather lets all inputs run in parallel as
             # well, so the entire batch is processed concurrently.
-
             groups = await asyncio.gather(
                 *[
                     asyncio.gather(
