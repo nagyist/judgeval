@@ -43,10 +43,10 @@ def client(project_name: str) -> JudgmentClient:
     yield client
     # Teardown
     # Add more projects to delete as needed
-    # client.delete_project(project_name=project_name)
-    # client.delete_project(
-    #     project_name="e2e-tests-gkzqvtrbwnyl"
-    # )  # this is hard coded in test_tracer.py since we can't export fixture
+    client.delete_project(project_name=project_name)
+    client.delete_project(
+        project_name="e2e-tests-gkzqvtrbwnyl"
+    )  # this is hard coded in test_tracer.py since we can't export fixture
 
 
 @pytest.fixture

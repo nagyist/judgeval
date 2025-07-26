@@ -519,9 +519,9 @@ def run_eval(
         List[ScoringResult]: A list of ScoringResult objects
     """
     # Check that every example has the same keys
-    keys = evaluation_run.examples[0].model_dump().get("data").keys()
+    keys = evaluation_run.examples[0].get_fields().keys()
     for example in evaluation_run.examples:
-        current_keys = example.model_dump().get("data").keys()
+        current_keys = example.get_fields().keys()
         if current_keys != keys:
             raise ValueError(
                 f"All examples must have the same keys: {current_keys} != {keys}"

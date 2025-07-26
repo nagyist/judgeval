@@ -5,7 +5,7 @@ Classes for representing examples in a dataset.
 from enum import Enum
 from datetime import datetime
 from typing import Dict, Any, List, Optional
-from pydantic import BaseModel, ConfigDict
+from judgeval.data.judgment_types import ExampleJudgmentType
 
 
 class ExampleParams(str, Enum):
@@ -19,31 +19,18 @@ class ExampleParams(str, Enum):
     ADDITIONAL_METADATA = "additional_metadata"
 
 
-class Example(
-    BaseModel
-):  # We don't inherit from ExampleJudgmentType because the data model is slightly different
-    model_config = ConfigDict(extra="allow")
-
+class Example(ExampleJudgmentType):
+    example_id: str = ""
     created_at: str = datetime.now().isoformat()
     name: Optional[str] = None
-
-    # We use model dump for sending the data to the backend server
-    def model_dump(self, **kwargs) -> Dict[str, Any]:
-        data = super().model_dump(**kwargs)
-
-        created_at = data.pop("created_at")
-        name = data.pop("name")
-
-        return {
-            "example_id": "",
-            "created_at": created_at,
-            "name": name,
-            "data": data,
-        }
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().model_dump(warnings=False)
         return data
+
+    def get_fields(self):
+        excluded = {"example_id", "name", "created_at"}
+        return self.model_dump(exclude=excluded)
 
 
 class JudgevalExample(Example):
