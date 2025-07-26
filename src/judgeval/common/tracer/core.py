@@ -428,10 +428,19 @@ class TraceClient:
             "update_id": self.update_id,
         }
 
-        server_response = self.trace_manager_client.upsert_trace(
-            trace_data,
-            offline_mode=self.tracer.offline_mode,
-            show_link=not final_save,
+        # Create a callback function for the upsert operation
+        def upsert_callback(trace_data_inner: dict) -> dict:
+            return self.trace_manager_client.upsert_trace(
+                trace_data_inner,
+                offline_mode=self.tracer.offline_mode,
+                show_link=not final_save,
+                final_save=final_save,
+            )
+
+        # Queue the trace upsert for background processing
+        self.otel_span_processor.queue_trace_upsert(
+            trace_data=trace_data,
+            upsert_callback=upsert_callback,
             final_save=final_save,
         )
 
@@ -440,7 +449,9 @@ class TraceClient:
 
         self.update_id += 1
 
-        return self.trace_id, server_response
+        # Return trace_id and empty response since processing is now async
+        # Note: UI links and other server responses will now be handled in background
+        return self.trace_id, {}
 
     def delete(self):
         return self.trace_manager_client.delete_trace(self.trace_id)
@@ -1602,8 +1613,12 @@ class Tracer:
         return self.otel_span_processor
 
     def flush_background_spans(self, timeout_millis: int = 30000):
-        """Flush all pending spans in the background service."""
+        """Flush all pending spans and traces in the background service."""
         self.otel_span_processor.force_flush(timeout_millis)
+
+    def flush_background_traces(self):
+        """Flush all pending trace upserts in the background service."""
+        self.otel_span_processor.flush_pending_traces()
 
     def shutdown_background_service(self):
         """Shutdown the background span service."""
@@ -1611,9 +1626,9 @@ class Tracer:
         self.otel_span_processor = SpanProcessorBase()
 
     def _cleanup_on_exit(self):
-        """Cleanup handler called on application exit to ensure spans are flushed."""
+        """Cleanup handler called on application exit to ensure spans and traces are flushed."""
         try:
-            self.flush_background_spans()
+            self.flush_background_spans()  # This now flushes both spans and traces
         except Exception as e:
             judgeval_logger.warning(f"Error during tracer cleanup: {e}")
         finally:
