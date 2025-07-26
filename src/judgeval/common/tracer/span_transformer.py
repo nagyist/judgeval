@@ -4,7 +4,7 @@ import json
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Mapping, Optional, Union
 
 from opentelemetry.sdk.trace import ReadableSpan
 from pydantic import BaseModel
@@ -99,7 +99,9 @@ class SpanTransformer:
         return attributes
 
     @staticmethod
-    def otel_attributes_to_judgment_data(attributes: Dict[str, Any]) -> Dict[str, Any]:
+    def otel_attributes_to_judgment_data(
+        attributes: Mapping[str, Any],
+    ) -> Dict[str, Any]:
         judgment_data: Dict[str, Any] = {}
 
         for key, value in attributes.items():
