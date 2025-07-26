@@ -126,6 +126,9 @@ def patched_get_compute_loss_fn(trainer: "GRPOTrainer") -> Callable[..., torch.T
         prob_ratio = torch.exp(new_logprobs - old_logprobs)
         print(new_logprobs)
         print(old_logprobs)
+        # Count number of differences between new_logprobs and old_logprobs
+        diff_count = (new_logprobs != old_logprobs).sum()
+        print(f"Number of differences: {diff_count}")
         epsilon = _config.get("epsilon", 0.2)
         epsilon_high = _config.get("epsilon_high", epsilon)
         if epsilon_high is None:
