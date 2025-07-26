@@ -20,7 +20,7 @@ from judgeval.common.logger import judgeval_logger
 from judgeval.evaluation_run import EvaluationRun
 from judgeval.data.trace_run import TraceRun
 from judgeval.common.tracer import Tracer
-from langchain_core.callbacks import BaseCallbackHandler
+from judgeval.integrations.langgraph import JudgevalCallbackHandler
 
 
 def safe_run_async(coro):
@@ -280,7 +280,7 @@ def run_trace_eval(
     judgment_api_key: str,
     override: bool = False,
     function: Optional[Callable] = None,
-    tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
+    tracer: Optional[Union[Tracer, JudgevalCallbackHandler]] = None,
     examples: Optional[List[Example]] = None,
 ) -> List[ScoringResult]:
     # Call endpoint to check to see if eval run name exists (if we DON'T want to override and DO want to log results)
