@@ -176,20 +176,7 @@ class TraceSpan(TraceSpanJudgmentType):
                 elif isinstance(value, (list, tuple)):
                     # Recursively serialize list/tuple items
                     return [serialize_value(item, current_depth + 1) for item in value]
-                elif isinstance(value, (str, int, float, bool)) or value is None:
-                    # These types are always JSON serializable
-                    return value
                 else:
-                    # For other types, try to serialize them efficiently
-                    # Check if it's a basic type that's likely JSON serializable
-                    if hasattr(value, "__dict__") and not callable(value):
-                        try:
-                            # Try to serialize object's __dict__
-                            return serialize_value(value.__dict__, current_depth + 1)
-                        except Exception:
-                            pass
-
-                    # Test JSON serializability only once per value, using orjson
                     try:
                         orjson.dumps(value)
                         return value
