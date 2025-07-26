@@ -1,7 +1,7 @@
 from typing import Any
-import json
 import sys
 import threading
+import orjson
 from datetime import datetime, timezone
 from judgeval.data.judgment_types import (
     TraceUsageJudgmentType,
@@ -83,7 +83,7 @@ class TraceSpan(TraceSpanJudgmentType):
     def _is_json_serializable(self, obj: Any) -> bool:
         """Helper method to check if an object is JSON serializable."""
         try:
-            json.dumps(obj)
+            orjson.dumps(obj)
             return True
         except (TypeError, OverflowError, ValueError):
             return False
@@ -176,10 +176,22 @@ class TraceSpan(TraceSpanJudgmentType):
                 elif isinstance(value, (list, tuple)):
                     # Recursively serialize list/tuple items
                     return [serialize_value(item, current_depth + 1) for item in value]
+                elif isinstance(value, (str, int, float, bool)) or value is None:
+                    # These types are always JSON serializable
+                    return value
                 else:
-                    # Try direct JSON serialization first
+                    # For other types, try to serialize them efficiently
+                    # Check if it's a basic type that's likely JSON serializable
+                    if hasattr(value, "__dict__") and not callable(value):
+                        try:
+                            # Try to serialize object's __dict__
+                            return serialize_value(value.__dict__, current_depth + 1)
+                        except Exception:
+                            pass
+
+                    # Test JSON serializability only once per value, using orjson
                     try:
-                        json.dumps(value)
+                        orjson.dumps(value)
                         return value
                     except (TypeError, OverflowError, ValueError):
                         # Fallback to safe stringification

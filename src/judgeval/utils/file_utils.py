@@ -1,5 +1,5 @@
 import yaml
-import json
+import orjson
 from typing import List
 from judgeval.common.logger import judgeval_logger
 
@@ -53,12 +53,12 @@ def get_examples_from_json(file_path: str) -> List[Example] | None:
     ]
     """
     try:
-        with open(file_path, "r") as file:
-            payload = json.load(file)
+        with open(file_path, "rb") as file:
+            payload = orjson.loads(file.read())
     except FileNotFoundError:
         judgeval_logger.error(f"JSON file not found: {file_path}")
         raise FileNotFoundError(f"The file {file_path} was not found.")
-    except json.JSONDecodeError:
+    except orjson.JSONDecodeError:
         judgeval_logger.error(f"Invalid JSON file: {file_path}")
         raise ValueError(f"The file {file_path} is not a valid JSON file.")
 

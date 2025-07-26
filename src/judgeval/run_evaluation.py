@@ -1,7 +1,7 @@
 import asyncio
 import concurrent.futures
 import time
-import json
+import orjson
 import sys
 import threading
 from typing import List, Dict, Union, Optional, Callable, Tuple, Any
@@ -263,7 +263,9 @@ def check_examples(
                     f"[yellow]⚠️  WARNING:[/yellow] Example is missing required parameters for scorer [bold]{scorer.score_type.value}[/bold]"
                 )
                 rprint(f"Missing parameters: {', '.join(missing_params)}")
-                rprint(f"Example: {json.dumps(example.model_dump(), indent=2)}")
+                rprint(
+                    f"Example: {orjson.dumps(example.model_dump(), option=orjson.OPT_INDENT_2).decode('utf-8')}"
+                )
                 rprint("-" * 40)
                 prompt_user = True
 

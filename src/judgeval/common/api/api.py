@@ -54,6 +54,8 @@ from judgeval.common.api.constants import (
 )
 from judgeval.utils.requests import requests
 
+import orjson
+
 
 class JudgmentAPIException(exceptions.HTTPError):
     """
@@ -377,6 +379,5 @@ class JudgmentApiClient:
                 except Exception as e:
                     return f"<Unserializable object of type {type(obj).__name__}: {e}>"
 
-        import json
-
-        return json.dumps(data, default=fallback_encoder)
+        # orjson returns bytes, so we need to decode to str
+        return orjson.dumps(data, default=fallback_encoder).decode("utf-8")
