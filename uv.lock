@@ -951,6 +951,23 @@ wheels = [
 ]
 
 [[package]]
+name = "groq"
+version = "0.30.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a9/b1/72ca20dc9b977b7f604648e8944c77b267bddeb90d8e16bda0cf0e397844/groq-0.30.0.tar.gz", hash = "sha256:919466e48fcbebef08fed3f71debb0f96b0ea8d2ec77842c384aa843019f6e2c", size = 134928, upload-time = "2025-07-11T20:28:36.583Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/19/b8/5b90edf9fbd795597220e3d1b5534d845e69a73ffe1fdeb967443ed2a6cf/groq-0.30.0-py3-none-any.whl", hash = "sha256:6d9609a7778ba56432f45c1bac21b005f02c6c0aca9c1c094e65536f162c1e83", size = 131056, upload-time = "2025-07-11T20:28:35.591Z" },
+]
+
+[[package]]
 name = "grpcio"
 version = "1.73.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1317,6 +1334,7 @@ dependencies = [
     { name = "boto3" },
     { name = "datamodel-code-generator" },
     { name = "google-genai" },
+    { name = "groq" },
     { name = "langchain-anthropic" },
     { name = "langchain-core" },
     { name = "langchain-huggingface" },
@@ -1325,6 +1343,8 @@ dependencies = [
     { name = "matplotlib" },
     { name = "nest-asyncio" },
     { name = "openai" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-sdk" },
     { name = "pandas" },
     { name = "python-dotenv" },
     { name = "python-slugify" },
@@ -1376,6 +1396,7 @@ requires-dist = [
     { name = "boto3" },
     { name = "datamodel-code-generator", specifier = ">=0.31.1" },
     { name = "google-genai" },
+    { name = "groq", specifier = ">=0.30.0" },
     { name = "langchain-anthropic" },
     { name = "langchain-core" },
     { name = "langchain-huggingface" },
@@ -1384,6 +1405,8 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.3" },
     { name = "nest-asyncio" },
     { name = "openai" },
+    { name = "opentelemetry-api", specifier = ">=1.34.1" },
+    { name = "opentelemetry-sdk", specifier = ">=1.34.1" },
     { name = "pandas" },
     { name = "python-dotenv", specifier = "==1.0.1" },
     { name = "python-slugify", specifier = ">=8.0.4" },

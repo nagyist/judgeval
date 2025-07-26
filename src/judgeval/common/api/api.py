@@ -25,6 +25,8 @@ from judgeval.common.api.constants import (
     JUDGMENT_SCORER_SAVE_API_URL,
     JUDGMENT_SCORER_FETCH_API_URL,
     JUDGMENT_SCORER_EXISTS_API_URL,
+    JUDGMENT_DATASETS_APPEND_TRACES_API_URL,
+    JUDGMENT_CHECK_EXAMPLE_KEYS_API_URL,
 )
 from judgeval.common.api.constants import (
     TraceFetchPayload,
@@ -48,6 +50,7 @@ from judgeval.common.api.constants import (
     ScorerSavePayload,
     ScorerFetchPayload,
     ScorerExistsPayload,
+    CheckExampleKeysPayload,
 )
 from judgeval.utils.requests import requests
 
@@ -114,8 +117,15 @@ class JudgmentApiClient:
         try:
             r.raise_for_status()
         except exceptions.HTTPError as e:
+            try:
+                detail = r.json().get("detail", "")
+            except Exception:
+                detail = r.text
+
             raise JudgmentAPIException(
-                f"HTTP {r.status_code}: {r.reason}", response=r, request=e.request
+                f"HTTP {r.status_code}: {r.reason}, {detail}",
+                response=r,
+                request=e.request,
             )
 
         return r.json()
@@ -218,6 +228,14 @@ class JudgmentApiClient:
         }
         return self._do_request("POST", JUDGMENT_EVAL_RUN_NAME_EXISTS_API_URL, payload)
 
+    def check_example_keys(self, keys: List[str], eval_name: str, project_name: str):
+        payload: CheckExampleKeysPayload = {
+            "keys": keys,
+            "eval_name": eval_name,
+            "project_name": project_name,
+        }
+        return self._do_request("POST", JUDGMENT_CHECK_EXAMPLE_KEYS_API_URL, payload)
+
     def save_scorer(self, name: str, prompt: str, options: dict):
         payload: ScorerSavePayload = {
             "name": name,
@@ -279,7 +297,7 @@ class JudgmentApiClient:
         project_name: str,
         examples: List[Dict[str, Any]],
         traces: List[Dict[str, Any]],
-        overwrite: bool,
+        overwrite: bool = False,
     ):
         payload: DatasetPushPayload = {
             "dataset_alias": dataset_alias,
@@ -300,6 +318,18 @@ class JudgmentApiClient:
         }
         return self._do_request(
             "POST", JUDGMENT_DATASETS_APPEND_EXAMPLES_API_URL, payload
+        )
+
+    def append_traces(
+        self, dataset_alias: str, project_name: str, traces: List[Dict[str, Any]]
+    ):
+        payload: DatasetAppendPayload = {
+            "dataset_alias": dataset_alias,
+            "project_name": project_name,
+            "traces": traces,
+        }
+        return self._do_request(
+            "POST", JUDGMENT_DATASETS_APPEND_TRACES_API_URL, payload
         )
 
     def pull_dataset(self, dataset_alias: str, project_name: str):
