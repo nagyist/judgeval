@@ -7,7 +7,7 @@ import threading
 from typing import List, Dict, Union, Optional, Callable, Tuple, Any
 from rich import print as rprint
 
-from judgeval.data import ScorerData, ScoringResult, Example, Trace
+from judgeval.data import ScorerData, ScoringResult, Example, Trace, JudgevalExample
 from judgeval.scorers import BaseScorer, APIScorerConfig
 from judgeval.scorers.score import a_execute_scoring
 from judgeval.common.api import JudgmentApiClient
@@ -191,6 +191,24 @@ def check_eval_run_name_exists(
         raise JudgmentAPIError(f"Failed to check if eval run name exists: {str(e)}")
 
 
+def check_example_keys(
+    keys: List[str],
+    eval_name: str,
+    project_name: str,
+    judgment_api_key: str,
+    organization_id: str,
+) -> None:
+    """
+    Checks if the current experiment (if one exists) has the same keys for example
+    """
+    api_client = JudgmentApiClient(judgment_api_key, organization_id)
+    try:
+        api_client.check_example_keys(keys, eval_name, project_name)
+    except Exception as e:
+        judgeval_logger.error(f"Failed to check if example keys match: {str(e)}")
+        raise JudgmentAPIError(f"Failed to check if example keys match: {str(e)}")
+
+
 def log_evaluation_results(
     scoring_results: List[ScoringResult],
     run: Union[EvaluationRun, TraceRun],
@@ -228,7 +246,7 @@ def log_evaluation_results(
 
 
 def check_examples(
-    examples: List[Example], scorers: List[Union[APIScorerConfig, BaseScorer]]
+    examples: List[JudgevalExample], scorers: List[Union[APIScorerConfig, BaseScorer]]
 ) -> None:
     """
     Checks if the example contains the necessary parameters for the scorer.
@@ -500,6 +518,14 @@ def run_eval(
     Returns:
         List[ScoringResult]: A list of ScoringResult objects
     """
+    # Check that every example has the same keys
+    keys = evaluation_run.examples[0].get_fields().keys()
+    for example in evaluation_run.examples:
+        current_keys = example.get_fields().keys()
+        if current_keys != keys:
+            raise ValueError(
+                f"All examples must have the same keys: {current_keys} != {keys}"
+            )
 
     # Call endpoint to check to see if eval run name exists (if we DON'T want to override and DO want to log results)
     if not override and not evaluation_run.append:
@@ -520,9 +546,14 @@ def run_eval(
             False,
         )
 
-    # Set example IDs if not already set
-    for idx, example in enumerate(evaluation_run.examples):
-        example.example_index = idx  # Set numeric index
+        # Ensure that current experiment (if one exists) has the same keys for example
+        check_example_keys(
+            keys=list(keys),
+            eval_name=evaluation_run.eval_name,
+            project_name=evaluation_run.project_name,
+            judgment_api_key=judgment_api_key,
+            organization_id=evaluation_run.organization_id,
+        )
 
     judgment_scorers: List[APIScorerConfig] = []
     local_scorers: List[BaseScorer] = []
@@ -601,7 +632,6 @@ def run_eval(
         send_results = [
             scoring_result.model_dump(warnings=False) for scoring_result in results
         ]
-
         url = log_evaluation_results(send_results, evaluation_run, judgment_api_key)
     rprint(
         f"\n🔍 You can view your evaluation results here: [rgb(106,0,255)][link={url}]View Results[/link]\n"
