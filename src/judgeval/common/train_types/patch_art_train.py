@@ -48,9 +48,14 @@ def patched_get_compute_loss_fn(trainer: "GRPOTrainer") -> Callable[..., torch.T
             if param_groups := getattr(optimizer, "param_groups"):
                 for param_group in param_groups:
                     param_group["lr"] = config.learning_rate
+                    # param_group["betas"] = config.betas
+                    # if param_group.get("weight_decay"):
+                    #     param_group["weight_decay"] = config.weight_decay
 
+        # Move tensors to the correct device
         inputs = {key: tensor.to(trainer.accelerator.device) for key, tensor in inputs.items()}  # type: ignore
 
+        # Unsloth code
         autocast_dtype = (
             torch.float16
             if os.environ.get("ACCELERATE_MIXED_PRECISION", "fp16") == "fp16"
@@ -69,66 +74,84 @@ def patched_get_compute_loss_fn(trainer: "GRPOTrainer") -> Callable[..., torch.T
             autocast_dtype,
         )
 
-        lm_head_t = cast(torch.Tensor, trainer.model.get_output_embeddings().weight.t())
+        # Calculate log probabilities
+        lm_head_t = cast(
+            torch.Tensor, trainer.model.get_output_embeddings().weight.t()  # type: ignore
+        )  # Shape [H, V]
         next_input_ids = _art_train.shift_tensor(inputs["tokens"], 0)
         chunk_size = _config.get("logprob_calculation_chunk_size", 1024)
-        assert seq_len % chunk_size == 0, (
-            f"Sequence length ({seq_len}) must be evenly divisible by chunk size ({chunk_size})"
-        )
+        # Assert that sequence length is evenly divisible by the chunk size
+        assert (
+            seq_len % chunk_size == 0
+        ), f"Sequence length ({seq_len}) must be evenly divisible by chunk size ({chunk_size})"
         os.environ["UNSLOTH_RETURN_HIDDEN_STATES"] = "1"
         new_logprobs = _art_train.calculate_logprobs(
-            autocast_dtype, trainer, inputs["tokens"], attn_bias, next_input_ids, lm_head_t, chunk_size=chunk_size, reference_logprobs=False
+            autocast_dtype,
+            trainer,
+            inputs["tokens"],
+            attn_bias,
+            next_input_ids,
+            lm_head_t,
+            chunk_size=chunk_size,
+            reference_logprobs=False,
         )
         if config.beta > 0.0:
             ref_logprobs = _art_train.calculate_logprobs(
-                autocast_dtype, trainer, inputs["tokens"], attn_bias, next_input_ids, lm_head_t, chunk_size=chunk_size, reference_logprobs=True
+                autocast_dtype,
+                trainer,
+                inputs["tokens"],
+                attn_bias,
+                next_input_ids,
+                lm_head_t,
+                chunk_size=chunk_size,
+                reference_logprobs=True,
             )
         else:
             ref_logprobs = None
         del attn_bias
 
+        # Shift inputs for loss calculation
         old_logprobs = _art_train.shift_tensor(inputs["logprobs"], 0.0)
         advantages = _art_train.shift_tensor(inputs["advantages"], 0.0)
-        assistant_mask = _art_train.shift_tensor(inputs["assistant_mask"], False).to(new_logprobs.dtype)
+        assistant_mask = _art_train.shift_tensor(inputs["assistant_mask"], False).to(
+            new_logprobs.dtype
+        )
         weights = _art_train.shift_tensor(inputs["weights"], 0.0)
-        old_logprobs = torch.where(torch.isnan(old_logprobs), new_logprobs, old_logprobs)
+        # Assume missing old logprobs were sampled under the current policy
+        old_logprobs = torch.where(
+            torch.isnan(old_logprobs),
+            new_logprobs,
+            old_logprobs,
+        )
         prob_ratio = torch.exp(new_logprobs - old_logprobs)
+        print(new_logprobs)
+        print(old_logprobs)
         epsilon = _config.get("epsilon", 0.2)
-        epsilon_high = _config.get("epsilon_high", epsilon) or epsilon
-        policy_loss = -torch.min(prob_ratio * advantages, torch.clip(prob_ratio, 1 - epsilon, 1 + epsilon_high) * advantages)
-        kl_div = (torch.exp(ref_logprobs - new_logprobs) - (ref_logprobs - new_logprobs) - 1.0) if ref_logprobs is not None else torch.zeros_like(policy_loss)
-
-        policy_loss *= weights * assistant_mask
-        kl_div *= weights * assistant_mask
-        # Compute reduction based on loss_type --------------------------------
-        loss_type = getattr(trainer, "loss_type", config.get("loss_type", "grpo"))
-        if loss_type == "grpo":
-            # Per-sequence mean then batch mean (original GRPO)
-            mean_policy_loss = (
-                (policy_loss * assistant_mask).sum(-1)
-                / assistant_mask.sum(-1).clamp(min=1.0)
-            ).mean()
-        elif loss_type == "bnpo":
-            # Flatten over batch & sequence
-            mean_policy_loss = (policy_loss * assistant_mask).sum() / assistant_mask.sum().clamp(min=1.0)
-        elif loss_type == "dr_grpo":
-            max_len = config.get("max_completion_length", seq_len)
-            mean_policy_loss = (policy_loss * assistant_mask).sum() / (
-                policy_loss.size(0) * max_len
+        epsilon_high = _config.get("epsilon_high", epsilon)
+        if epsilon_high is None:
+            epsilon_high = epsilon
+        policy_loss = -torch.min(
+            prob_ratio * advantages,
+            torch.clip(prob_ratio, 1 - epsilon, 1 + epsilon_high) * advantages,
+        )
+        if ref_logprobs is not None:
+            kl_div = (
+                torch.exp(ref_logprobs - new_logprobs)
+                - (ref_logprobs - new_logprobs)
+                - 1.0
             )
         else:
-            # Fallback to previous behaviour (token-weighted mean)
-            mean_policy_loss = policy_loss.sum() / (assistant_mask.sum() + 1e-6)
+            kl_div = torch.zeros_like(policy_loss)
 
-        # KL term --------------------------------------------------------------
+        policy_loss = policy_loss * weights * assistant_mask
+        kl_div = kl_div * weights * assistant_mask
+        mean_policy_loss = policy_loss.sum() / (assistant_mask.sum() + 1e-6)
         mean_kl = kl_div.sum() / (assistant_mask.sum() + 1e-6)
 
-        # Log metrics
         trainer._metrics["learning_rate"].append(config.learning_rate)
         trainer._metrics["policy_loss"].append(mean_policy_loss.item())
         if config.beta > 0.0:
             trainer._metrics["kl_div"].append(mean_kl.item())
-
         return mean_policy_loss + config.beta * mean_kl
 
     return compute_loss
