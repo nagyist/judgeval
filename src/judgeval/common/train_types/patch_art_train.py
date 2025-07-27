@@ -132,6 +132,8 @@ def patched_get_compute_loss_fn(trainer: "GRPOTrainer") -> Callable[..., torch.T
         # Compute percentage of differences
         diff_percentage = diff_count / (new_logprobs == new_logprobs).sum()
         print(f"Percentage of differences: {diff_percentage}")
+        # Print the shape of new_logprobs and old_logprobs
+        print(f"Shape of new_logprobs: {new_logprobs.shape}")
         epsilon = _config.get("epsilon", 0.2)
         epsilon_high = _config.get("epsilon_high", epsilon)
         if epsilon_high is None:
