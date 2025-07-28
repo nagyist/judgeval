@@ -7,7 +7,7 @@ import threading
 from typing import List, Dict, Union, Optional, Callable, Tuple, Any
 from rich import print as rprint
 
-from judgeval.data import ScorerData, ScoringResult, Example, Trace, JudgevalExample
+from judgeval.data import ScorerData, ScoringResult, Example, Trace
 from judgeval.scorers import BaseScorer, APIScorerConfig
 from judgeval.scorers.score import a_execute_scoring
 from judgeval.common.api import JudgmentApiClient
@@ -246,7 +246,7 @@ def log_evaluation_results(
 
 
 def check_examples(
-    examples: List[JudgevalExample], scorers: List[Union[APIScorerConfig, BaseScorer]]
+    examples: List[Example], scorers: List[Union[APIScorerConfig, BaseScorer]]
 ) -> None:
     """
     Checks if the example contains the necessary parameters for the scorer.

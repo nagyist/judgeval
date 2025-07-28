@@ -4,7 +4,7 @@ Classes for representing examples in a dataset.
 
 from enum import Enum
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from judgeval.data.judgment_types import ExampleJudgmentType
 
 
@@ -31,12 +31,3 @@ class Example(ExampleJudgmentType):
     def get_fields(self):
         excluded = {"example_id", "name", "created_at"}
         return self.model_dump(exclude=excluded)
-
-
-class JudgevalExample(Example):
-    input: Optional[str] = None
-    actual_output: Optional[str | List[str]] = None
-    expected_output: Optional[str | List[str]] = None
-    retrieval_context: Optional[List[str]] = None
-    additional_metadata: Optional[Dict[str, Any]] = None
-    expected_tools: Optional[List[Dict[str, Any]]] = None
