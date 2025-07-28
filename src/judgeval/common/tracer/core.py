@@ -113,10 +113,6 @@ class TraceClient:
 
         self.otel_span_processor = tracer.otel_span_processor
 
-        judgeval_logger.info(
-            f"🎯 TraceClient using span processor for trace {self.trace_id}"
-        )
-
     def get_current_span(self):
         """Get the current span from the context var"""
         return self.tracer.get_current_span()

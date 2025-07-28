@@ -6,7 +6,6 @@ if TYPE_CHECKING:
 
 from judgeval.common.logger import judgeval_logger
 from judgeval.common.api import JudgmentApiClient
-from rich import print as rprint
 
 
 class TraceManagerClient:
@@ -68,8 +67,8 @@ class TraceManagerClient:
                 judgeval_logger.warning(f"Failed to save trace to S3: {str(e)}")
 
         if not offline_mode and show_link and "ui_results_url" in server_response:
-            pretty_str = f"\n🔍 You can view your trace data here: [rgb(106,0,255)][link={server_response['ui_results_url']}]View Trace[/link]\n"
-            rprint(pretty_str)
+            pretty_str = f"You can view your trace data here: [rgb(106,0,255)][link={server_response['ui_results_url']}]View Trace[/link]"
+            judgeval_logger.info(pretty_str, extra={"markup": True})
 
         return server_response
 
