@@ -8,7 +8,7 @@
     Enable self-learning agents with traces, evals, and environment data.
 </div>
 
-## [Docs](https://docs.judgmentlabs.ai/)  •  [Judgment Cloud](https://app.judgmentlabs.ai/register)  • [Self-Host](https://docs.judgmentlabs.ai/documentation/self-hosting/get-started)
+## [Docs](https://docs.judgmentlabs.ai/)  •  [Judgment Cloud](https://app.judgmentlabs.ai/register)  • [Self-Host](https://docs.judgmentlabs.ai/documentation/self-hosting/get-started)  • [Landing Page](https://judgmentlabs.ai/)
 
  [Demo](https://www.youtube.com/watch?v=1S4LixpVbcc) • [Bug Reports](https://github.com/JudgmentLabs/judgeval/issues) • [Changelog](https://docs.judgmentlabs.ai/changelog/2025-04-21)
 
@@ -108,7 +108,7 @@ run_agent("What is the capital of the United States?")
 ```
 You'll see your trace exported to the Judgment Platform:
 
-<p align="center"><img src="assets/trace_demo.png" alt="Judgment Platform Trace Example" width="800" /></p>
+<p align="center"><img src="assets/online_eval.png" alt="Judgment Platform Trace Example" width="1500" /></p>
 
 
 [Click here](https://docs.judgmentlabs.ai/documentation/tracing/introduction) for a more detailed explanation.
@@ -121,9 +121,9 @@ You'll see your trace exported to the Judgment Platform:
 
 |  |  |
 |:---|:---:|
-| <h3>🔍 Tracing</h3>Automatic agent tracing integrated with common frameworks (LangGraph, OpenAI, Anthropic). **Tracks inputs/outputs, agent tool calls, latency, cost, and custom metadata** at every step.<br><br>**Useful for:**<br>• 🐛 Debugging agent runs <br>• 📋 Collecting agent environment data <br>• 🔬 Pinpointing performance bottlenecks| <p align="center"><img src="assets/trace_screenshot.png" alt="Tracing visualization" width="1200"/></p> |
-| <h3>🧪 Evals</h3>Build custom evaluators on top of your agents. Judgeval supports LLM-as-a-judge, manual labeling, and code-based evaluators that connect with our metric-tracking infrastructure. <br><br>**Useful for:**<br>• ⚠️ Unit-testing <br>• 🔬 A/B testing <br>• 🛡️ Online guardrails | <p align="center"><img src="assets/experiments_page.png" alt="Evaluation metrics" width="800"/></p> |
-| <h3>📡 Monitoring</h3>Get Slack alerts for agent failures in production. Add custom hooks to address production regressions.<br><br> **Useful for:** <br>• 📉 Identifying degradation early <br>• 📈 Visualizing performance trends across agent versions and time | <p align="center"><img src="assets/error_analysis_dashboard.png" alt="Monitoring Dashboard" width="1200"/></p> |
+| <h3>🔍 Tracing</h3>Automatic agent tracing integrated with common frameworks (LangGraph, OpenAI, Anthropic). **Tracks inputs/outputs, agent tool calls, latency, cost, and custom metadata** at every step.<br><br>**Useful for:**<br>• 🐛 Debugging agent runs <br>• 📋 Collecting agent environment data <br>• 🔬 Pinpointing performance bottlenecks| <p align="center"><img src="assets/agent_trace_example.png" alt="Tracing visualization" width="1200"/></p> |
+| <h3>🧪 Evals</h3>Build custom evaluators on top of your agents. Judgeval supports LLM-as-a-judge, manual labeling, and code-based evaluators that connect with our metric-tracking infrastructure. <br><br>**Useful for:**<br>• ⚠️ Unit-testing <br>• 🔬 A/B testing <br>• 🛡️ Online guardrails | <p align="center"><img src="assets/test.png" alt="Evaluation metrics" width="800"/></p> |
+| <h3>📡 Monitoring</h3>Get Slack alerts for agent failures in production. Add custom hooks to address production regressions.<br><br> **Useful for:** <br>• 📉 Identifying degradation early <br>• 📈 Visualizing performance trends across agent versions and time | <p align="center"><img src="assets/errors.png" alt="Monitoring Dashboard" width="1200"/></p> |
 | <h3>📊 Datasets</h3>Export traces and test cases to datasets for scaled analysis and optimization. Move datasets to/from Parquet, S3, etc. <br><br>Run evals on datasets as unit tests or to A/B test different agent configurations, enabling continuous learning from production interactions. <br><br> **Useful for:**<br>• 🗃️ Agent environment interaction data for optimization<br>• 🔄 Scaled analysis for A/B tests | <p align="center"><img src="assets/datasets_preview_screenshot.png" alt="Dataset management" width="1200"/></p> |
 
 ## 🏢 Self-Hosting
