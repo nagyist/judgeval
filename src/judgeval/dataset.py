@@ -1,5 +1,5 @@
 import datetime
-import json
+import orjson
 import os
 import yaml
 from dataclasses import dataclass
@@ -151,13 +151,14 @@ class Dataset:
         )
         complete_path = os.path.join(dir_path, f"{file_name}.{file_type}")
         if file_type == "json":
-            with open(complete_path, "w") as file:
-                json.dump(
-                    {
-                        "examples": [e.to_dict() for e in self.examples],
-                    },
-                    file,
-                    indent=4,
+            with open(complete_path, "wb") as file:
+                file.write(
+                    orjson.dumps(
+                        {
+                            "examples": [e.to_dict() for e in self.examples],
+                        },
+                        option=orjson.OPT_INDENT_2,
+                    )
                 )
         elif file_type == "yaml":
             with open(complete_path, "w") as file:
