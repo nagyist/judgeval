@@ -66,8 +66,8 @@ class TraceManagerClient:
             except Exception as e:
                 judgeval_logger.warning(f"Failed to save trace to S3: {str(e)}")
 
-        del trace_data["trace_spans"]
-        del trace_data["evaluation_runs"]
+        trace_data.pop("trace_spans", None)
+        trace_data.pop("evaluation_runs", None)
 
         server_response = self.api_client.upsert_trace(trace_data)
 
