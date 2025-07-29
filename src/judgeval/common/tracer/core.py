@@ -55,8 +55,8 @@ from judgeval.evaluation_run import EvaluationRun
 from judgeval.common.utils import ExcInfo, validate_api_key
 from judgeval.common.logger import judgeval_logger
 
-from ..optimization.types import Trajectory, TrainConfig
-from ..optimization.model import TrainableModel
+from judgeval.optimization.types import Trajectory, TrainConfig
+from judgeval.optimization.model import TrainableModel
 
 
 current_trace_var = contextvars.ContextVar[Optional["TraceClient"]](
