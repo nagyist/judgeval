@@ -24,7 +24,7 @@ class TrainableModel:
 
     def __init__(
         self,
-        model_name: str = "lora_model",
+        name: str,
         *,
         max_seq_length: int = 4096,
         dtype: str | None = None,
@@ -36,7 +36,7 @@ class TrainableModel:
             config = {}
 
         self.model, self.tokenizer = FastLanguageModel.from_pretrained(
-            model_name=model_name,
+            model_name=name,
             max_seq_length=max_seq_length,
             dtype=dtype,
             load_in_4bit=load_in_4bit,
