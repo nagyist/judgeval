@@ -17,6 +17,7 @@ from judgeval.judgment_client import JudgmentClient
 from judgeval.scorers import (
     AnswerCorrectnessScorer,
 )
+from judgeval.constants import DEFAULT_TOGETHER_MODEL
 from e2etests.test_all_scorers import print_debug_on_failure
 from judgeval.tracer import Tracer, wrap
 from judgeval.data import Example
@@ -588,7 +589,7 @@ async def test_real_judgee_tracking(client, project_name: str):
         res = judgment_client.run_evaluation(
             examples=[example],
             scorers=[scorer],
-            model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+            model=DEFAULT_TOGETHER_MODEL,
             project_name=project_name,
             eval_run_name=EVAL_RUN_NAME,
             override=True,
@@ -701,7 +702,7 @@ async def test_real_trace_and_judgee_tracking(client, project_name: str):
                 res = judgment_client.run_evaluation(
                     examples=[example],
                     scorers=[scorer],
-                    model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+                    model=DEFAULT_TOGETHER_MODEL,
                     project_name=project_name,
                     eval_run_name=EVAL_RUN_NAME,
                     override=True,
