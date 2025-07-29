@@ -11,6 +11,7 @@ from judgeval.common.utils import (
     afetch_together_api_response,
 )
 from judgeval.common.logger import judgeval_logger
+from judgeval.constants import DEFAULT_TOGETHER_MODEL
 
 BASE_CONVERSATION = [
     {"role": "system", "content": "You are a helpful assistant."},
@@ -18,7 +19,7 @@ BASE_CONVERSATION = [
 
 
 class TogetherJudge(JudgevalJudge):
-    def __init__(self, model: str = "Qwen/Qwen2.5-72B-Instruct-Turbo", **kwargs):
+    def __init__(self, model: str = DEFAULT_TOGETHER_MODEL, **kwargs):
         self.model = model
         self.kwargs = kwargs
         super().__init__(model_name=model)
