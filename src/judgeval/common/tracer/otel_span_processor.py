@@ -11,11 +11,10 @@ import threading
 from typing import Any, Dict, Optional
 
 from opentelemetry.context import Context
-from opentelemetry.sdk.trace import ReadableSpan
+from opentelemetry.sdk.trace import ReadableSpan, Span
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanProcessor
-from opentelemetry.trace import Span, Status, StatusCode, SpanContext, TraceFlags
+from opentelemetry.trace import Status, StatusCode, SpanContext, TraceFlags
 from opentelemetry.trace.span import TraceState, INVALID_SPAN_CONTEXT
-from opentelemetry.util.types import Attributes
 
 from judgeval.common.logger import judgeval_logger
 from judgeval.common.tracer.otel_exporter import JudgmentAPISpanExporter
@@ -51,8 +50,8 @@ class SimpleReadableSpan(ReadableSpan):
             Status(StatusCode.ERROR) if trace_span.error else Status(StatusCode.OK)
         )
 
-        self._attributes = SpanTransformer.trace_span_to_otel_attributes(
-            trace_span, span_state
+        self._attributes: Dict[str, Any] = (
+            SpanTransformer.trace_span_to_otel_attributes(trace_span, span_state)
         )
 
         try:
@@ -81,52 +80,7 @@ class SimpleReadableSpan(ReadableSpan):
         self._parent: Optional[SpanContext] = None
         self._events: list[Any] = []
         self._links: list[Any] = []
-        self._resource: Optional[Any] = None
         self._instrumentation_info: Optional[Any] = None
-
-    @property
-    def name(self) -> str:
-        return self._name
-
-    @property
-    def context(self) -> SpanContext:
-        return self._context
-
-    @property
-    def parent(self) -> Optional[SpanContext]:
-        return self._parent
-
-    @property
-    def start_time(self) -> Optional[int]:
-        return self._start_time
-
-    @property
-    def end_time(self) -> Optional[int]:
-        return self._end_time
-
-    @property
-    def status(self) -> Status:
-        return self._status
-
-    @property
-    def attributes(self) -> Optional[Attributes]:
-        return self._attributes
-
-    @property
-    def events(self):
-        return self._events
-
-    @property
-    def links(self):
-        return self._links
-
-    @property
-    def resource(self) -> Optional[Any]:
-        return self._resource
-
-    @property
-    def instrumentation_info(self) -> Optional[Any]:
-        return self._instrumentation_info
 
 
 class JudgmentSpanProcessor(SpanProcessor, SpanProcessorBase):

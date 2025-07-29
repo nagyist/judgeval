@@ -32,6 +32,7 @@ from typing import (
 )
 import types
 
+
 from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
 
 from judgeval.common.tracer.otel_span_processor import JudgmentSpanProcessor
@@ -45,6 +46,7 @@ from openai.types.chat import ParsedChatCompletion
 from together import Together, AsyncTogether
 from anthropic import Anthropic, AsyncAnthropic
 from google import genai
+from groq import Groq, AsyncGroq
 
 from judgeval.data import Example, Trace, TraceSpan, TraceUsage
 from judgeval.scorers import APIScorerConfig, BaseScorer
@@ -67,6 +69,8 @@ ApiClient: TypeAlias = Union[
     AsyncTogether,
     genai.Client,
     genai.client.AsyncClient,
+    Groq,
+    AsyncGroq,
 ]
 SpanType: TypeAlias = str
 
@@ -79,7 +83,7 @@ class TraceClient:
         tracer: Tracer,
         trace_id: Optional[str] = None,
         name: str = "default",
-        project_name: str | None = None,
+        project_name: Union[str, None] = None,
         enable_monitoring: bool = True,
         enable_evaluations: bool = True,
         parent_trace_id: Optional[str] = None,
@@ -850,9 +854,9 @@ class Tracer:
 
     def __init__(
         self,
-        api_key: str | None = os.getenv("JUDGMENT_API_KEY"),
-        organization_id: str | None = os.getenv("JUDGMENT_ORG_ID"),
-        project_name: str | None = None,
+        api_key: Union[str, None] = os.getenv("JUDGMENT_API_KEY"),
+        organization_id: Union[str, None] = os.getenv("JUDGMENT_ORG_ID"),
+        project_name: Union[str, None] = None,
         deep_tracing: bool = False,  # Deep tracing is disabled by default
         enable_monitoring: bool = os.getenv("JUDGMENT_MONITORING", "true").lower()
         == "true",
@@ -905,8 +909,8 @@ class Tracer:
             self.class_identifiers: Dict[
                 str, str
             ] = {}  # Dictionary to store class identifiers
-            self.span_id_to_previous_span_id: Dict[str, str | None] = {}
-            self.trace_id_to_previous_trace: Dict[str, TraceClient | None] = {}
+            self.span_id_to_previous_span_id: Dict[str, Union[str, None]] = {}
+            self.trace_id_to_previous_trace: Dict[str, Union[TraceClient, None]] = {}
             self.current_span_id: Optional[str] = None
             self.current_trace: Optional[TraceClient] = None
             self.trace_across_async_contexts: bool = trace_across_async_contexts
@@ -958,7 +962,9 @@ class Tracer:
             self.enable_monitoring = False
             self.enable_evaluations = False
 
-    def set_current_span(self, span_id: str) -> Optional[contextvars.Token[str | None]]:
+    def set_current_span(
+        self, span_id: str
+    ) -> Optional[contextvars.Token[Union[str, None]]]:
         self.span_id_to_previous_span_id[span_id] = self.current_span_id
         self.current_span_id = span_id
         Tracer.current_span_id = span_id
@@ -981,7 +987,7 @@ class Tracer:
 
     def reset_current_span(
         self,
-        token: Optional[contextvars.Token[str | None]] = None,
+        token: Optional[contextvars.Token[Union[str, None]]] = None,
         span_id: Optional[str] = None,
     ):
         try:
@@ -997,7 +1003,7 @@ class Tracer:
 
     def set_current_trace(
         self, trace: TraceClient
-    ) -> Optional[contextvars.Token[TraceClient | None]]:
+    ) -> Optional[contextvars.Token[Union[TraceClient, None]]]:
         """
         Set the current trace context in contextvars
         """
@@ -1030,7 +1036,7 @@ class Tracer:
 
     def reset_current_trace(
         self,
-        token: Optional[contextvars.Token[TraceClient | None]] = None,
+        token: Optional[contextvars.Token[Union[TraceClient, None]]] = None,
         trace_id: Optional[str] = None,
     ):
         try:
@@ -1046,7 +1052,7 @@ class Tracer:
 
     @contextmanager
     def trace(
-        self, name: str, project_name: str | None = None
+        self, name: str, project_name: Union[str, None] = None
     ) -> Generator[TraceClient, None, None]:
         """Start a new trace context using a context manager"""
         trace_id = str(uuid.uuid4())
@@ -1692,25 +1698,31 @@ def wrap(
         return wrapper
 
     if isinstance(client, (OpenAI)):
-        client.chat.completions.create = wrapped(original_create)
-        client.responses.create = wrapped(original_responses_create)
-        client.beta.chat.completions.parse = wrapped(original_beta_parse)
+        setattr(client.chat.completions, "create", wrapped(original_create))
+        setattr(client.responses, "create", wrapped(original_responses_create))
+        setattr(client.beta.chat.completions, "parse", wrapped(original_beta_parse))
     elif isinstance(client, (AsyncOpenAI)):
-        client.chat.completions.create = wrapped_async(original_create)
-        client.responses.create = wrapped_async(original_responses_create)
-        client.beta.chat.completions.parse = wrapped_async(original_beta_parse)
+        setattr(client.chat.completions, "create", wrapped_async(original_create))
+        setattr(client.responses, "create", wrapped_async(original_responses_create))
+        setattr(
+            client.beta.chat.completions, "parse", wrapped_async(original_beta_parse)
+        )
     elif isinstance(client, (Together)):
-        client.chat.completions.create = wrapped(original_create)
+        setattr(client.chat.completions, "create", wrapped(original_create))
     elif isinstance(client, (AsyncTogether)):
-        client.chat.completions.create = wrapped_async(original_create)
+        setattr(client.chat.completions, "create", wrapped_async(original_create))
     elif isinstance(client, (Anthropic)):
-        client.messages.create = wrapped(original_create)
+        setattr(client.messages, "create", wrapped(original_create))
     elif isinstance(client, (AsyncAnthropic)):
-        client.messages.create = wrapped_async(original_create)
+        setattr(client.messages, "create", wrapped_async(original_create))
     elif isinstance(client, (genai.Client)):
-        client.models.generate_content = wrapped(original_create)
+        setattr(client.models, "generate_content", wrapped(original_create))
     elif isinstance(client, (genai.client.AsyncClient)):
-        client.models.generate_content = wrapped_async(original_create)
+        setattr(client.models, "generate_content", wrapped_async(original_create))
+    elif isinstance(client, (Groq)):
+        setattr(client.chat.completions, "create", wrapped(original_create))
+    elif isinstance(client, (AsyncGroq)):
+        setattr(client.chat.completions, "create", wrapped_async(original_create))
 
     return client
 
@@ -1745,6 +1757,8 @@ def _get_client_config(
             None,
             client.beta.chat.completions.parse,
         )
+    elif isinstance(client, (Groq, AsyncGroq)):
+        return "GROQ_API_CALL", client.chat.completions.create, None, None, None
     elif isinstance(client, (Together, AsyncTogether)):
         return "TOGETHER_API_CALL", client.chat.completions.create, None, None, None
     elif isinstance(client, (Anthropic, AsyncAnthropic)):
@@ -1783,9 +1797,17 @@ def _format_output_data(
     if isinstance(client, (OpenAI, AsyncOpenAI)):
         if isinstance(response, ChatCompletion):
             model_name = response.model
-            prompt_tokens = response.usage.prompt_tokens
-            completion_tokens = response.usage.completion_tokens
-            cache_read_input_tokens = response.usage.prompt_tokens_details.cached_tokens
+            prompt_tokens = response.usage.prompt_tokens if response.usage else 0
+            completion_tokens = (
+                response.usage.completion_tokens if response.usage else 0
+            )
+            cache_read_input_tokens = (
+                response.usage.prompt_tokens_details.cached_tokens
+                if response.usage
+                and response.usage.prompt_tokens_details
+                and response.usage.prompt_tokens_details.cached_tokens
+                else 0
+            )
 
             if isinstance(response, ParsedChatCompletion):
                 message_content = response.choices[0].message.parsed
@@ -1793,10 +1815,19 @@ def _format_output_data(
                 message_content = response.choices[0].message.content
         elif isinstance(response, Response):
             model_name = response.model
-            prompt_tokens = response.usage.input_tokens
-            completion_tokens = response.usage.output_tokens
-            cache_read_input_tokens = response.usage.input_tokens_details.cached_tokens
-            message_content = "".join(seg.text for seg in response.output[0].content)
+            prompt_tokens = response.usage.input_tokens if response.usage else 0
+            completion_tokens = response.usage.output_tokens if response.usage else 0
+            cache_read_input_tokens = (
+                response.usage.input_tokens_details.cached_tokens
+                if response.usage and response.usage.input_tokens_details
+                else 0
+            )
+            if hasattr(response.output[0], "content"):
+                message_content = "".join(
+                    seg.text
+                    for seg in response.output[0].content
+                    if hasattr(seg, "text")
+                )
 
         # Note: LiteLLM seems to use cache_read_input_tokens to calculate the cost for OpenAI
     elif isinstance(client, (Together, AsyncTogether)):
@@ -1821,6 +1852,11 @@ def _format_output_data(
         cache_read_input_tokens = response.usage.cache_read_input_tokens
         cache_creation_input_tokens = response.usage.cache_creation_input_tokens
         message_content = response.content[0].text
+    elif isinstance(client, (Groq, AsyncGroq)):
+        model_name = "groq/" + response.model
+        prompt_tokens = response.usage.prompt_tokens
+        completion_tokens = response.usage.completion_tokens
+        message_content = response.choices[0].message.content
     else:
         judgeval_logger.warning(f"Unsupported client type: {type(client)}")
         return None, None

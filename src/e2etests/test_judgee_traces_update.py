@@ -174,7 +174,7 @@ async def test_trace_save_increment(client, project_name: str):
         logger.debug(f"Created trace data: {trace_data}")
 
         response = await client.post(
-            f"{SERVER_URL}/traces/save/", json=trace_data, headers=get_headers()
+            f"{SERVER_URL}/traces/upsert/", json=trace_data, headers=get_headers()
         )
 
         logger.debug(f"Trace save response: {response.status_code}")
@@ -262,7 +262,9 @@ async def test_concurrent_trace_saves(client, project_name: str):
                 }
 
                 response = await client.post(
-                    f"{SERVER_URL}/traces/save/", json=trace_data, headers=get_headers()
+                    f"{SERVER_URL}/traces/upsert/",
+                    json=trace_data,
+                    headers=get_headers(),
                 )
                 return response.status_code
             except Exception as e:
@@ -329,7 +331,7 @@ async def test_failed_trace_counting(client, project_name: str):
 
     # This should fail but still increment the count
     response = await client.post(
-        f"{SERVER_URL}/traces/save/", json=trace_data, headers=get_headers()
+        f"{SERVER_URL}/traces/upsert/", json=trace_data, headers=get_headers()
     )
 
     # The request might fail with 400 or 422, but the trace count should still increment
@@ -460,7 +462,7 @@ async def test_burst_request_handling(client, project_name: str):
         local_trace_data["trace_spans"][0]["trace_id"] = local_trace_data["trace_id"]
 
         response = await client.post(
-            f"{SERVER_URL}/traces/save/", json=local_trace_data, headers=get_headers()
+            f"{SERVER_URL}/traces/upsert/", json=local_trace_data, headers=get_headers()
         )
         return response.status_code
 
