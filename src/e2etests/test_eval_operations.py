@@ -5,7 +5,7 @@ Tests for evaluation operations in the JudgmentClient.
 import pytest
 
 from judgeval.judgment_client import JudgmentClient
-from judgeval.data import Example, JudgevalExample
+from judgeval.data import Example
 from judgeval.scorers import (
     FaithfulnessScorer,
     AnswerRelevancyScorer,
@@ -19,7 +19,7 @@ from judgeval.tracer import Tracer
 def run_eval_helper(client: JudgmentClient, project_name: str, eval_run_name: str):
     """Helper function to run evaluation."""
     # Single step in our workflow, an outreach Sales Agent
-    example1 = JudgevalExample(
+    example1 = Example(
         input="Generate a cold outreach email for TechCorp. Facts: They recently launched an AI-powered analytics platform. Their CEO Sarah Chen previously worked at Google. They have 50+ enterprise clients.",
         actual_output="Dear Ms. Chen,\n\nI noticed TechCorp's recent launch of your AI analytics platform and was impressed by its enterprise-focused approach. Your experience from Google clearly shines through in building scalable solutions, as evidenced by your impressive 50+ enterprise client base.\n\nWould you be open to a brief call to discuss how we could potentially collaborate?\n\nBest regards,\nAlex",
         retrieval_context=[
@@ -29,10 +29,9 @@ def run_eval_helper(client: JudgmentClient, project_name: str, eval_run_name: st
         ],
     )
 
-    example2 = JudgevalExample(
+    example2 = Example(
         input="Generate a cold outreach email for GreenEnergy Solutions. Facts: They're developing solar panel technology that's 30% more efficient. They're looking to expand into the European market. They won a sustainability award in 2023.",
         actual_output="Dear GreenEnergy Solutions team,\n\nCongratulations on your 2023 sustainability award! Your innovative solar panel technology with 30% higher efficiency is exactly what the European market needs right now.\n\nI'd love to discuss how we could support your European expansion plans.\n\nBest regards,\nAlex",
-        expected_output="A professional cold email mentioning the sustainability award, solar technology innovation, and European expansion plans",
         retrieval_context=[
             "GreenEnergy Solutions won 2023 sustainability award",
             "New solar technology 30% more efficient",
@@ -69,7 +68,7 @@ def test_run_eval_append(client: JudgmentClient, project_name: str, random_name:
     assert results, f"No evaluation results found for {random_name}"
     assert len(results) == 2
 
-    example1 = JudgevalExample(
+    example1 = Example(
         input="Generate a cold outreach email for TechCorp. Facts: They recently launched an AI-powered analytics platform. Their CEO Sarah Chen previously worked at Google. They have 50+ enterprise clients.",
         actual_output="Dear Ms. Chen,\n\nI noticed TechCorp's recent launch of your AI analytics platform and was impressed by its enterprise-focused approach. Your experience from Google clearly shines through in building scalable solutions, as evidenced by your impressive 50+ enterprise client base.\n\nWould you be open to a brief call to discuss how we could potentially collaborate?\n\nBest regards,\nAlex",
         retrieval_context=[
@@ -101,7 +100,7 @@ def test_run_append_without_existing(
 ):
     """Test evaluation append behavior when the eval run does not exist."""
 
-    example1 = JudgevalExample(
+    example1 = Example(
         input="Generate a cold outreach email for TechCorp. Facts: They recently launched an AI-powered analytics platform. Their CEO Sarah Chen previously worked at Google. They have 50+ enterprise clients.",
         actual_output="Dear Ms. Chen,\n\nI noticed TechCorp's recent launch of your AI analytics platform and was impressed by its enterprise-focused approach. Your experience from Google clearly shines through in building scalable solutions, as evidenced by your impressive 50+ enterprise client base.\n\nWould you be open to a brief call to discuss how we could potentially collaborate?\n\nBest regards,\nAlex",
         retrieval_context=[
@@ -130,9 +129,10 @@ def test_run_mismatching_examples(
     client: JudgmentClient, project_name: str, random_name: str
 ):
     """Test running evaluation with mismatching examples."""
-    example1 = JudgevalExample(
+    example1 = Example(
         input="What is the capital of France?",
         actual_output="Paris",
+        expected_output="Paris",
     )
     example2 = Example(
         input="What is the capital of France?",
@@ -152,9 +152,10 @@ def test_run_mismatching_examples_append(
     client: JudgmentClient, project_name: str, random_name: str
 ):
     """Test running evaluation with mismatching examples."""
-    example1 = JudgevalExample(
+    example1 = Example(
         input="What is the capital of France?",
         actual_output="Paris",
+        expected_output="Paris",
     )
     example2 = Example(
         input="What is the capital of France?",
@@ -183,20 +184,17 @@ def test_run_mismatching_examples_append(
 async def test_assert_test(client: JudgmentClient, project_name: str):
     """Test assertion functionality."""
     # Create examples and scorers as before
-    example = JudgevalExample(
+    example = Example(
         input="What if these shoes don't fit?",
         actual_output="We offer a 30-day full refund at no extra cost.",
-        retrieval_context=[
-            "All customers are eligible for a 30 day full refund at no extra cost."
-        ],
     )
 
-    example1 = JudgevalExample(
+    example1 = Example(
         input="How much are your croissants?",
         actual_output="Sorry, we don't accept electronic returns.",
     )
 
-    example2 = JudgevalExample(
+    example2 = Example(
         input="Who is the best basketball player in the world?",
         actual_output="No, the room is too small.",
     )
@@ -216,20 +214,17 @@ async def test_assert_test(client: JudgmentClient, project_name: str):
 
 def test_evaluate_dataset(client: JudgmentClient, project_name: str, random_name: str):
     """Test dataset evaluation."""
-    example1 = JudgevalExample(
+    example1 = Example(
         input="What if these shoes don't fit?",
         actual_output="We offer a 30-day full refund at no extra cost.",
         retrieval_context=[
             "All customers are eligible for a 30 day full refund at no extra cost."
         ],
     )
-    example2 = JudgevalExample(
+    example2 = Example(
         input="How do I reset my password?",
         actual_output="You can reset your password by clicking on 'Forgot Password' at the login screen.",
-        expected_output="You can reset your password by clicking on 'Forgot Password' at the login screen.",
-        name="Password Reset",
         retrieval_context=["Password reset instructions"],
-        additional_metadata={"difficulty": "medium"},
     )
 
     Dataset.create(
@@ -372,7 +367,7 @@ async def test_run_trace_eval_with_project_mismatch(
 
 def test_override_eval(client: JudgmentClient, project_name: str, random_name: str):
     """Test evaluation override behavior."""
-    example1 = JudgevalExample(
+    example1 = Example(
         input="What if these shoes don't fit?",
         actual_output="We offer a 30-day full refund at no extra cost.",
         retrieval_context=[

@@ -6,7 +6,7 @@ import random
 import string
 import pytest
 from judgeval.judgment_client import JudgmentClient
-from judgeval.data import JudgevalExample
+from judgeval.data import Example
 from judgeval.dataset import Dataset
 
 
@@ -15,7 +15,7 @@ def test_create_dataset(client: JudgmentClient, project_name: str, random_name: 
     dataset = Dataset.create(
         name=random_name,
         project_name=project_name,
-        examples=[JudgevalExample(input="input 1", actual_output="output 1")],
+        examples=[Example(input="input 1", actual_output="output 1")],
     )
     assert dataset, "Failed to push dataset"
     dataset.delete()
@@ -29,7 +29,7 @@ def test_create_dataset_across_projects(
     dataset = Dataset.create(
         name=random_name,
         project_name=project_name,
-        examples=[JudgevalExample(input="input 1", actual_output="output 1")],
+        examples=[Example(input="input 1", actual_output="output 1")],
     )
 
     assert dataset, "Failed to push dataset"
@@ -37,7 +37,7 @@ def test_create_dataset_across_projects(
     dataset2 = Dataset.create(
         name=random_name,
         project_name=random_name,
-        examples=[JudgevalExample(input="input 1", actual_output="output 1")],
+        examples=[Example(input="input 1", actual_output="output 1")],
     )
 
     assert dataset2, "Failed to push dataset"
@@ -54,7 +54,7 @@ def test_create_dataset_error(
     dataset = Dataset.create(
         name=random_name,
         project_name=project_name,
-        examples=[JudgevalExample(input="input 1", actual_output="output 1")],
+        examples=[Example(input="input 1", actual_output="output 1")],
     )
     assert dataset
 
@@ -62,7 +62,7 @@ def test_create_dataset_error(
         Dataset.create(
             name=random_name,
             project_name=project_name,
-            examples=[JudgevalExample(input="input 1", actual_output="output 1")],
+            examples=[Example(input="input 1", actual_output="output 1")],
         )
     except Exception as e:
         assert "Dataset already exists" in str(e)
@@ -77,11 +77,11 @@ def test_get_dataset_error(client: JudgmentClient, project_name: str, random_nam
 def test_pull_dataset(client: JudgmentClient, project_name: str):
     """Test pulling statistics for all project datasets."""
     examples = [
-        JudgevalExample(input="input 1", actual_output="output 1"),
-        JudgevalExample(input="input 2", actual_output="output 2"),
-        JudgevalExample(input="input 3", actual_output="output 3"),
-        JudgevalExample(input="input 4", actual_output="output 4"),
-        JudgevalExample(input="input 5", actual_output="output 5"),
+        Example(input="input 1", actual_output="output 1"),
+        Example(input="input 2", actual_output="output 2"),
+        Example(input="input 3", actual_output="output 3"),
+        Example(input="input 4", actual_output="output 4"),
+        Example(input="input 5", actual_output="output 5"),
     ]
     random_name1 = "".join(random.choices(string.ascii_letters + string.digits, k=20))
     Dataset.create(name=random_name1, project_name=project_name, examples=examples[:3])
@@ -119,17 +119,17 @@ def test_pull_dataset(client: JudgmentClient, project_name: str):
 def test_append_dataset(client: JudgmentClient, project_name: str, random_name: str):
     """Test dataset editing."""
     examples = [
-        JudgevalExample(input="input 1", actual_output="output 1"),
-        JudgevalExample(input="input 2", actual_output="output 2"),
+        Example(input="input 1", actual_output="output 1"),
+        Example(input="input 2", actual_output="output 2"),
     ]
     Dataset.create(name=random_name, project_name=project_name, examples=examples)
     dataset = Dataset.get(name=random_name, project_name=project_name)
 
     initial_example_count = len(dataset.examples)
     examples = [
-        JudgevalExample(input="input 3", actual_output="output 3"),
-        JudgevalExample(input="input 4", actual_output="output 4"),
-        JudgevalExample(input="input 5", actual_output="output 5"),
+        Example(input="input 3", actual_output="output 3"),
+        Example(input="input 4", actual_output="output 4"),
+        Example(input="input 5", actual_output="output 5"),
     ]
     assert initial_example_count == 2, "Dataset should have 2 examples"
     dataset.add_examples(examples)
@@ -146,15 +146,15 @@ def test_append_dataset(client: JudgmentClient, project_name: str, random_name: 
 def test_overwrite_dataset(client: JudgmentClient, project_name: str, random_name: str):
     """Test dataset overwriting."""
     examples = [
-        JudgevalExample(input="input 1", actual_output="output 1"),
-        JudgevalExample(input="input 2", actual_output="output 2"),
+        Example(input="input 1", actual_output="output 1"),
+        Example(input="input 2", actual_output="output 2"),
     ]
     Dataset.create(name=random_name, project_name=project_name, examples=examples)
     dataset = Dataset.get(name=random_name, project_name=project_name)
 
     new_examples = [
-        JudgevalExample(input="input 3", actual_output="output 3"),
-        JudgevalExample(input="input 4", actual_output="output 4"),
+        Example(input="input 3", actual_output="output 3"),
+        Example(input="input 4", actual_output="output 4"),
     ]
     Dataset.create(
         name=random_name,
