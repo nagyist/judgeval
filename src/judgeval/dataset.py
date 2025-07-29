@@ -1,5 +1,5 @@
 import datetime
-import json
+import orjson
 import os
 import yaml
 from dataclasses import dataclass
@@ -112,20 +112,20 @@ class Dataset:
         examples = get_examples_from_yaml(file_path)
         self.add_examples(examples)
 
-    def add_examples(self, e: List[Example]) -> None:
+    def add_examples(self, examples: List[Example]) -> None:
         client = JudgmentApiClient(self.judgment_api_key, self.organization_id)
         client.append_examples(
             dataset_alias=self.name,
             project_name=self.project_name,
-            examples=[e.model_dump() for e in e],
+            examples=[e.model_dump() for e in examples],
         )
 
-    def add_traces(self, t: List[Trace]) -> None:
+    def add_traces(self, traces: List[Trace]) -> None:
         client = JudgmentApiClient(self.judgment_api_key, self.organization_id)
         client.append_traces(
             dataset_alias=self.name,
             project_name=self.project_name,
-            traces=[t.model_dump() for t in t],
+            traces=[t.model_dump() for t in traces],
         )
 
     def save_as(
@@ -151,13 +151,14 @@ class Dataset:
         )
         complete_path = os.path.join(dir_path, f"{file_name}.{file_type}")
         if file_type == "json":
-            with open(complete_path, "w") as file:
-                json.dump(
-                    {
-                        "examples": [e.to_dict() for e in self.examples],
-                    },
-                    file,
-                    indent=4,
+            with open(complete_path, "wb") as file:
+                file.write(
+                    orjson.dumps(
+                        {
+                            "examples": [e.to_dict() for e in self.examples],
+                        },
+                        option=orjson.OPT_INDENT_2,
+                    )
                 )
         elif file_type == "yaml":
             with open(complete_path, "w") as file:

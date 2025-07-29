@@ -1,13 +1,13 @@
 import asyncio
 import concurrent.futures
 import time
-import json
+import orjson
 import sys
 import threading
 from typing import List, Dict, Union, Optional, Callable, Tuple, Any
 from rich import print as rprint
 
-from judgeval.data import ScorerData, ScoringResult, Example, Trace, JudgevalExample
+from judgeval.data import ScorerData, ScoringResult, Example, Trace
 from judgeval.scorers import BaseScorer, APIScorerConfig
 from judgeval.scorers.score import a_execute_scoring
 from judgeval.common.api import JudgmentApiClient
@@ -246,7 +246,7 @@ def log_evaluation_results(
 
 
 def check_examples(
-    examples: List[JudgevalExample], scorers: List[Union[APIScorerConfig, BaseScorer]]
+    examples: List[Example], scorers: List[Union[APIScorerConfig, BaseScorer]]
 ) -> None:
     """
     Checks if the example contains the necessary parameters for the scorer.
@@ -263,7 +263,9 @@ def check_examples(
                     f"[yellow]⚠️  WARNING:[/yellow] Example is missing required parameters for scorer [bold]{scorer.score_type.value}[/bold]"
                 )
                 rprint(f"Missing parameters: {', '.join(missing_params)}")
-                rprint(f"Example: {json.dumps(example.model_dump(), indent=2)}")
+                rprint(
+                    f"Example: {orjson.dumps(example.model_dump(), option=orjson.OPT_INDENT_2).decode('utf-8')}"
+                )
                 rprint("-" * 40)
                 prompt_user = True
 

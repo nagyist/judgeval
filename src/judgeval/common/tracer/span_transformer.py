@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import json
 import time
 import uuid
+import orjson
 from datetime import datetime, timezone
 from typing import Any, Dict, Mapping, Optional, Union
 
@@ -16,11 +16,15 @@ from judgeval.evaluation_run import EvaluationRun
 class SpanTransformer:
     @staticmethod
     def _needs_json_serialization(value: Any) -> bool:
+        """
+        Check if the value needs JSON serialization.
+        Returns True if the value is complex and needs serialization.
+        """
         if value is None:
             return False
 
-        simple_types = (str, int, float, bool)
-        if isinstance(value, simple_types):
+        # Basic JSON-serializable types don't need serialization
+        if isinstance(value, (str, int, float, bool)):
             return False
 
         complex_types = (dict, list, tuple, set, BaseModel)
@@ -28,7 +32,7 @@ class SpanTransformer:
             return True
 
         try:
-            json.dumps(value)
+            orjson.dumps(value)
             return False
         except (TypeError, ValueError):
             return True
@@ -39,15 +43,15 @@ class SpanTransformer:
             if obj is None:
                 return None
             try:
-                return json.dumps(obj, default=str)
+                return orjson.dumps(obj, default=str).decode("utf-8")
             except Exception:
-                return json.dumps(str(obj))
+                return orjson.dumps(str(obj)).decode("utf-8")
         else:
             if not isinstance(obj, str):
                 return obj
             try:
-                return json.loads(obj)
-            except (json.JSONDecodeError, TypeError):
+                return orjson.loads(obj)
+            except (orjson.JSONDecodeError, TypeError, ValueError):
                 return obj
 
     @staticmethod

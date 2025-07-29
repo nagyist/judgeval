@@ -1,6 +1,6 @@
 import os
-import json
 import boto3
+import orjson
 from typing import Optional
 from datetime import datetime, UTC
 from botocore.exceptions import ClientError
@@ -85,8 +85,7 @@ class S3Storage:
         timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         s3_key = f"traces/{project_name}/{trace_id}_{timestamp}.json"
 
-        # Convert trace data to JSON string
-        trace_json = json.dumps(trace_data)
+        trace_json = orjson.dumps(trace_data).decode("utf-8")
 
         self.s3_client.put_object(
             Bucket=self.bucket_name,
