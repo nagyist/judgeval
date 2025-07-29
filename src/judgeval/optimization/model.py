@@ -25,6 +25,7 @@ class TrainableModel:
     def __init__(
         self,
         name: str,
+        model_name: str,
         *,
         max_seq_length: int = 4096,
         dtype: str | None = None,
@@ -36,7 +37,7 @@ class TrainableModel:
             config = {}
 
         self.model, self.tokenizer = FastLanguageModel.from_pretrained(
-            model_name=name,
+            model_name=model_name,
             max_seq_length=max_seq_length,
             dtype=dtype,
             load_in_4bit=load_in_4bit,
@@ -97,9 +98,10 @@ class TrainableModel:
         # Train the model using TRL's GRPOTrainer
         self.trainer.train()
 
-        # Update model with new LoRA weights for on-policy inference
-        output_dir = self.trainer.args.output_dir
-        await self._refresh_vllm(output_dir)
+        # Update model with new LoRA weights for on-policy inference    
+        model_dir = f"./lora/{self.name}"
+        self.model.save_pretrained(model_dir)
+        await self._refresh_vllm(model_dir)
 
     async def _refresh_vllm(self, adapter_path: str):
         """Reload the updated LoRA adapter inside the active vLLM runtime.
