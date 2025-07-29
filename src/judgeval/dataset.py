@@ -112,20 +112,20 @@ class Dataset:
         examples = get_examples_from_yaml(file_path)
         self.add_examples(examples)
 
-    def add_examples(self, e: List[Example]) -> None:
+    def add_examples(self, examples: List[Example]) -> None:
         client = JudgmentApiClient(self.judgment_api_key, self.organization_id)
         client.append_examples(
             dataset_alias=self.name,
             project_name=self.project_name,
-            examples=[e.model_dump() for e in e],
+            examples=[e.model_dump() for e in examples],
         )
 
-    def add_traces(self, t: List[Trace]) -> None:
+    def add_traces(self, traces: List[Trace]) -> None:
         client = JudgmentApiClient(self.judgment_api_key, self.organization_id)
         client.append_traces(
             dataset_alias=self.name,
             project_name=self.project_name,
-            traces=[t.model_dump() for t in t],
+            traces=[t.model_dump() for t in traces],
         )
 
     def save_as(
