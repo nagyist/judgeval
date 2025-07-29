@@ -414,7 +414,7 @@ def _poll_evaluation_until_complete(
     expected_scorer_data_count: int,
     poll_interval_seconds: float = 5,
     max_failures: int = 5,
-    max_poll_count: int = 24,  # This should be equivalent to 120 seconds
+    max_poll_count: int = 60,  # This should be equivalent to 5 minutes
 ) -> Tuple[List[ScoringResult], str]:
     """
     Polls until the evaluation is complete and returns the results.
