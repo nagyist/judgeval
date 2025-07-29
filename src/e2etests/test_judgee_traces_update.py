@@ -167,7 +167,6 @@ async def test_trace_save_increment(client, project_name: str):
             "duration": 0.1,
             "token_counts": {"total": 10},
             "empty_save": False,
-            "overwrite": False,
             "update_id": 1,
             "evaluation_runs": [],
         }
@@ -256,7 +255,6 @@ async def test_concurrent_trace_saves(client, project_name: str):
                     "duration": 0.1,
                     "token_counts": {"total": 10},
                     "empty_save": False,
-                    "overwrite": False,
                     "update_id": 1,
                     "evaluation_runs": [],
                 }
@@ -326,7 +324,6 @@ async def test_failed_trace_counting(client, project_name: str):
         "duration": 0.1,
         "token_counts": {"total": 10},
         "empty_save": False,
-        "overwrite": False,
     }
 
     # This should fail but still increment the count
@@ -449,7 +446,6 @@ async def test_burst_request_handling(client, project_name: str):
         "duration": 0.1,
         "token_counts": {"total": 10},
         "empty_save": False,
-        "overwrite": False,
         "update_id": 1,
         "evaluation_runs": [],
     }
@@ -697,7 +693,7 @@ async def test_real_trace_and_judgee_tracking(client, project_name: str):
         )
 
         # Start a trace
-        with tracer.trace(name="test_trace_with_eval", overwrite=True) as trace:
+        with tracer.trace(name="test_trace_with_eval") as trace:
             print("Trace started, running evaluation within trace...")
 
             # Run evaluation within the trace
