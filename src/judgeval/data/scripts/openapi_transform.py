@@ -1,7 +1,7 @@
-import json
+import orjson
 import sys
 from typing import Any, Dict, Generator, List
-from judgeval.utils.requests import requests
+import requests
 
 spec_file = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000/openapi.json"
 
@@ -10,8 +10,8 @@ if spec_file.startswith("http"):
     r.raise_for_status()
     SPEC = r.json()
 else:
-    with open(spec_file, "r") as f:
-        SPEC = json.load(f)
+    with open(spec_file, "rb") as f:
+        SPEC = orjson.loads(f.read())
 
 JUDGEVAL_PATHS: List[str] = [
     "/log_eval_results/",
@@ -120,4 +120,4 @@ spec = {
     },
 }
 
-print(json.dumps(spec, indent=4))
+print(orjson.dumps(spec, option=orjson.OPT_INDENT_2).decode("utf-8"))

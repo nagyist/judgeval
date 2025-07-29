@@ -5,7 +5,7 @@
 uv run judgeval/data/scripts/openapi_transform.py > judgeval/data/openapi_new.json
 
 # Then, datamodel-codegen will generate the judgment_types.py file based on the schema in openapi_new.json.
-datamodel-codegen --input judgeval/data/openapi_new.json --output judgeval/data/judgment_types.py --use-annotated
+datamodel-codegen --input judgeval/data/openapi_new.json --output judgeval/data/judgment_types.py --use-annotated --output-model-type pydantic_v2.BaseModel
 
 # Post-process the generated file to fix mutable defaults
 uv run judgeval/data/scripts/fix_default_factory.py judgeval/data/judgment_types.py

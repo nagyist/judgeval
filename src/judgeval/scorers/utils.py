@@ -4,7 +4,7 @@ Util functions for Scorer objects
 
 import asyncio
 import nest_asyncio
-import json
+import orjson
 import re
 from typing import List, Optional
 
@@ -48,8 +48,8 @@ def parse_response_json(llm_response: str, scorer: Optional[BaseScorer] = None) 
     )  # Remove trailing comma if present
 
     try:
-        return json.loads(json_str)
-    except json.JSONDecodeError:
+        return orjson.loads(json_str)
+    except orjson.JSONDecodeError:
         error_str = "Evaluation LLM outputted an invalid JSON. Please use a stronger evaluation model."
         if scorer is not None:
             scorer.error = error_str
