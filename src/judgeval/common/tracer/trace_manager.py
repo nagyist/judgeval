@@ -54,7 +54,6 @@ class TraceManagerClient:
         Returns:
             dict: Server response containing UI URL and other metadata
         """
-        server_response = self.api_client.upsert_trace(trace_data)
 
         if self.tracer and self.tracer.use_s3 and final_save:
             try:
@@ -66,6 +65,11 @@ class TraceManagerClient:
                 judgeval_logger.info(f"Trace also saved to S3 at key: {s3_key}")
             except Exception as e:
                 judgeval_logger.warning(f"Failed to save trace to S3: {str(e)}")
+
+        trace_data.pop("trace_spans", None)
+        trace_data.pop("evaluation_runs", None)
+
+        server_response = self.api_client.upsert_trace(trace_data)
 
         if not offline_mode and show_link and "ui_results_url" in server_response:
             pretty_str = f"\n🔍 You can view your trace data here: [rgb(106,0,255)][link={server_response['ui_results_url']}]View Trace[/link]\n"
