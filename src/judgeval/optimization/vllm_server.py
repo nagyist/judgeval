@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import threading
 from typing import Any, Optional
 
 from openai import AsyncOpenAI
@@ -11,67 +10,76 @@ from fastapi import FastAPI
 from vllm.entrypoints.openai.cli_args import make_arg_parser, validate_parsed_serve_args
 from vllm.utils import FlexibleArgumentParser
 
-__all__ = ["launch_openai_server", "wait_until_ready"]
+
+# -----------------------------------------------------------------------------
+# Public helper: launch_openai_server
+# -----------------------------------------------------------------------------
 
 
-def launch_openai_server(
+async def _wait_for_port(host: str, port: int, *, timeout: float = 30.0) -> None:
+    """Poll *host:port* until it becomes reachable or *timeout* expires.
+
+    Raises
+    ------
+    TimeoutError
+        If the server does not accept TCP connections within *timeout* seconds.
+    """
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+
+    while True:
+        try:
+            reader, writer = await asyncio.open_connection(host, port)
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()
+            return  # Success.
+        except (ConnectionRefusedError, OSError):
+            if loop.time() >= deadline:
+                raise TimeoutError(
+                    f"vLLM OpenAI server not reachable on {host}:{port} within {timeout} seconds"
+                )
+            await asyncio.sleep(0.1)
+
+
+async def launch_openai_server(
     engine,
     *,
     host: str = "0.0.0.0",
     port: int = 8000,
-    ready_event: Optional[threading.Event] = None,
-    disable_log_arguments: bool = True,
-) -> threading.Thread:
+    ready_timeout: float = 180.0,
+):
+    """Launch the vLLM OpenAI-compatible server as a background task.
 
-    def _run_server() -> None:
-        @contextlib.asynccontextmanager
-        async def build_async_engine_client(*_a: Any, **_kw: Any):
-            yield engine
+    The coroutine returns once the TCP port is reachable, allowing the caller
+    to proceed with requests. The returned *asyncio.Task* keeps the server
+    running; you may `await task` to block until the server shuts down, or
+    `task.cancel()` to stop it.
+    """
 
-        api_server.build_async_engine_client = build_async_engine_client
+    @contextlib.asynccontextmanager
+    async def build_async_engine_client(*_a: Any, **_kw: Any):
+        yield engine
 
-        if ready_event is not None:
-            try:
-                app: FastAPI = api_server.app
+    # Inject our custom engine factory.
+    api_server.build_async_engine_client = build_async_engine_client
 
-                @app.on_event("startup")
-                async def _notify_ready():
-                    ready_event.set()
-            except Exception:
-                pass
+    # Build CLI namespace (only host/port are overridden here; model options
+    # are expected to be provided via *engine* config or env vars).
+    parser = FlexibleArgumentParser()
+    parser = make_arg_parser(parser)
+    args_list = [f"--host={host}", f"--port={port}"]
+    namespace = parser.parse_args(args_list)
+    validate_parsed_serve_args(namespace)
 
-        parser = FlexibleArgumentParser()
-        parser = make_arg_parser(parser)
-        args_list = [f"--host={host}", f"--port={port}"]
-        if disable_log_arguments:
-            args_list.append("--disable-log-arguments")
-        namespace = parser.parse_args(args_list)
-        validate_parsed_serve_args(namespace)
+    # Start the server coroutine in the current event loop.
+    server_task = asyncio.create_task(
+        api_server.run_server(namespace), name="vLLMOpenAIServer"
+    )
 
-        asyncio.run(api_server.run_server(namespace))
+    # Wait until the server is actually listening.
+    connect_host = "127.0.0.1" if host == "0.0.0.0" else host
+    await _wait_for_port(connect_host, port, timeout=ready_timeout)
 
-    thread = threading.Thread(target=_run_server, name="vllm-openai-server", daemon=True)
-    thread.start()
-    return thread
-
-
-async def wait_until_ready(
-    *,
-    base_url: str,
-    api_key: str,
-    ready_event: Optional[threading.Event] = None,
-    timeout: float = 10.0,
-) -> None:
-    if ready_event is not None and ready_event.wait(timeout=timeout):
-        return
-
-    async def _probe() -> None:
-        client = AsyncOpenAI(base_url=base_url, api_key=api_key)
-        async for _ in client.models.list():
-            return
-        raise RuntimeError()
-
-    try:
-        await asyncio.wait_for(_probe(), timeout=timeout)
-    except asyncio.TimeoutError as exc:
-        raise TimeoutError() from exc 
+    return ("127.0.0.1" if host == "0.0.0.0" else host), port
