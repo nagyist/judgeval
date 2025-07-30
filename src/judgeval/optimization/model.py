@@ -44,9 +44,6 @@ class TrainableModel:
             fast_inference=fast_inference,
         )
 
-        # Enable native 2× faster inference kernels on the model
-        FastLanguageModel.for_inference(self.model)
-
         self.peft_model = cast(
             PeftModelForCausalLM,
             FastLanguageModel.get_peft_model(
@@ -98,7 +95,7 @@ class TrainableModel:
         # Train the model using TRL's GRPOTrainer
         self.trainer.train()
 
-        # Update model with new LoRA weights for on-policy inference    
+        # Update model with new LoRA weights for on-policy inference
         model_dir = f"./lora/{self.name}"
         self.model.save_pretrained(model_dir)
         await self._refresh_vllm(model_dir)
