@@ -418,8 +418,6 @@ class TraceClient:
                 self.start_time or time.time(), timezone.utc
             ).isoformat(),
             "duration": total_duration,
-            "trace_spans": [span.model_dump() for span in self.trace_spans],
-            "evaluation_runs": [run.model_dump() for run in self.evaluation_runs],
             "offline_mode": self.tracer.offline_mode,
             "parent_trace_id": self.parent_trace_id,
             "parent_name": self.parent_name,
