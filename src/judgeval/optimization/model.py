@@ -36,6 +36,7 @@ class TrainableModel:
         if config is None:
             config = {}
 
+        self.name = name
         self.model, self.tokenizer = FastLanguageModel.from_pretrained(
             model_name=model_name,
             max_seq_length=max_seq_length,
