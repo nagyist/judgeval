@@ -79,6 +79,8 @@ class TrainableModel:
             ),
         )
 
+        self.step = 0
+
     async def delete_checkpoints(self):
         """Delete old checkpoints - no-op for now"""
 
@@ -96,9 +98,10 @@ class TrainableModel:
         self.trainer.train()
 
         # Update model with new LoRA weights for on-policy inference
-        model_dir = f"./lora/{self.name}"
+        model_dir = f"./lora/{self.name}/{self.step}"
         self.model.save_pretrained(model_dir)
         await self._refresh_vllm(model_dir)
+        self.step += 1
 
     async def _refresh_vllm(self, adapter_path: str):
         """Reload the updated LoRA adapter inside the active vLLM runtime.
@@ -125,3 +128,7 @@ class TrainableModel:
         """Return the `openai.AsyncOpenAI` client that targets the local server."""
 
         return self._openai_client
+
+
+    def get_step(self):
+        return self.step

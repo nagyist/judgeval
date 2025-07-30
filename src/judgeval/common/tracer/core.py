@@ -1611,7 +1611,7 @@ class Tracer:
     
         import random
         # Inference-training loop
-        for _ in range(await model.get_step(), config.steps):
+        for _ in range(model.get_step(), config.steps):
             # Inference
             groups = []
             if config.batch_size > 0:
