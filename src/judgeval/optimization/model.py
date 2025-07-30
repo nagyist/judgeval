@@ -19,7 +19,7 @@ from datasets import Dataset
 
 import httpx
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
-
+from .vllm_server import launch_openai_server, wait_until_ready
 
 class TrainableModel:
     """Minimal wrapper around an Unsloth `FastLanguageModel` for inference.
@@ -47,6 +47,8 @@ class TrainableModel:
             load_in_4bit=load_in_4bit,
             fast_inference=fast_inference,
         )
+
+        launch_openai_server(self.model.vllm_engine)
 
         self.peft_model = cast(
             PeftModelForCausalLM,
@@ -109,8 +111,13 @@ class TrainableModel:
             except Exception as exc:  # pylint: disable=broad-except
                 print("[TrainableModel] Colocated vLLM reload failed:", exc)
 
-    def openai_client(self):
+    async def openai_client(self):
         """Return the `openai.AsyncOpenAI` client that targets the local server."""
+
+        await wait_until_ready(
+            base_url="http://localhost:8000/v1",
+            api_key="default",
+        )
 
         # The local vLLM service started by Unsloth exposes an OpenAI interface.
         self.inference_base_url = "http://localhost:8000/v1"
