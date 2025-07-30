@@ -17,6 +17,9 @@ from trl.trainer.grpo_config import GRPOConfig
 
 from datasets import Dataset
 
+import httpx
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient
+
 
 class TrainableModel:
     """Minimal wrapper around an Unsloth `FastLanguageModel` for inference.
@@ -59,25 +62,6 @@ class TrainableModel:
             args=GRPOConfig(**config.get("trainer_args", {})),
             train_dataset=Dataset.from_list([{"prompt": ""} for _ in range(10_000_000)]),
             processing_class=self.tokenizer,
-        )
-
-        import httpx
-        from openai import AsyncOpenAI, DefaultAsyncHttpxClient
-
-        # The local vLLM service started by Unsloth exposes an OpenAI interface.
-        self.inference_base_url = "http://localhost:8000/v1"
-        self.inference_api_key = "default"
-
-        self._openai_client = AsyncOpenAI(
-            base_url=self.inference_base_url,
-            api_key=self.inference_api_key,
-            http_client=DefaultAsyncHttpxClient(
-                timeout=httpx.Timeout(timeout=1200, connect=5.0),
-                limits=httpx.Limits(
-                    max_connections=10_000,
-                    max_keepalive_connections=10_000,
-                ),
-            ),
         )
 
         self.step = 0
@@ -128,6 +112,21 @@ class TrainableModel:
     def openai_client(self):
         """Return the `openai.AsyncOpenAI` client that targets the local server."""
 
+        # The local vLLM service started by Unsloth exposes an OpenAI interface.
+        self.inference_base_url = "http://localhost:8000/v1"
+        self.inference_api_key = "default"
+
+        self._openai_client = AsyncOpenAI(
+            base_url=self.inference_base_url,
+            api_key=self.inference_api_key,
+            http_client=DefaultAsyncHttpxClient(
+                timeout=httpx.Timeout(timeout=1200, connect=5.0),
+                limits=httpx.Limits(
+                    max_connections=10_000,
+                    max_keepalive_connections=10_000,
+                ),
+            ),
+        )
         return self._openai_client
 
 
