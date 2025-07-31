@@ -104,6 +104,8 @@ TOGETHER_SUPPORTED_MODELS = [
     "mistralai/Mistral-7B-Instruct-v0.1",
 ]
 
+DEFAULT_TOGETHER_MODEL = "meta-llama/Meta-Llama-3-8B-Instruct-Lite"
+
 JUDGMENT_SUPPORTED_MODELS = {"osiris-large", "osiris-mini", "osiris"}
 
 ACCEPTABLE_MODELS = (

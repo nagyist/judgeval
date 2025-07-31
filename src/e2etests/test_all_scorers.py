@@ -13,6 +13,7 @@ from judgeval.scorers import (
 )
 from uuid import uuid4
 from judgeval.data import Example
+from judgeval.constants import DEFAULT_TOGETHER_MODEL
 
 
 def test_ac_scorer(client: JudgmentClient, project_name: str):
@@ -28,7 +29,7 @@ def test_ac_scorer(client: JudgmentClient, project_name: str):
     res = client.run_evaluation(
         examples=[example],
         scorers=[scorer],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
         eval_run_name=EVAL_RUN_NAME,
         override=True,
@@ -54,7 +55,7 @@ def test_ar_scorer(client: JudgmentClient, project_name: str):
     res = client.run_evaluation(
         examples=[example_1, example_2],
         scorers=[scorer],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
         eval_run_name=EVAL_RUN_NAME,
         override=True,
@@ -97,7 +98,7 @@ def test_faithfulness_scorer(client: JudgmentClient, project_name: str):
     res = client.run_evaluation(
         examples=[faithful_example, contradictory_example],
         scorers=[scorer],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
         eval_run_name=EVAL_RUN_NAME,
         override=True,
@@ -123,7 +124,7 @@ def test_instruction_adherence_scorer(client: JudgmentClient, project_name: str)
     res = client.run_evaluation(
         examples=[example_1],
         scorers=[scorer],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
         eval_run_name=EVAL_RUN_NAME,
         override=True,
@@ -197,7 +198,7 @@ def test_prompt_scorer(client: JudgmentClient, project_name: str):
     res = client.run_evaluation(
         examples=[helpful_example, unhelpful_example],
         scorers=[prompt_scorer],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
         eval_run_name="test-run-helpfulness",
         override=True,
@@ -248,7 +249,7 @@ def test_custom_prompt_scorer(client: JudgmentClient, project_name: str):
     res = client.run_evaluation(
         examples=[example1, example2],
         scorers=[prompt_scorer],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
         eval_run_name="test-run-helpfulness",
         override=True,
