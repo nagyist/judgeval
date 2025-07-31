@@ -24,6 +24,15 @@ from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.engine.arg_utils import AsyncEngineArgs
 from dataclasses import replace
 
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+from transformers.utils.dummy_pt_objects import (
+    PreTrainedModel,
+    GenerationMixin,
+)
+
+class CausallLM(PreTrainedModel, GenerationMixin):
+    vllm_engine: AsyncLLMEngine
+
 class TrainableModel:
     """Minimal wrapper around an Unsloth `FastLanguageModel` for inference.
     """
@@ -42,8 +51,6 @@ class TrainableModel:
         if config is None:
             config = {}
 
-        
-
         self.name = name
 
         from_engine_args = AsyncLLMEngine.from_engine_args
@@ -58,12 +65,9 @@ class TrainableModel:
             )
 
         AsyncLLMEngine.from_engine_args = _from_engine_args
-        self.model, self.tokenizer = FastLanguageModel.from_pretrained(
-            model_name=model_name,
-            max_seq_length=max_seq_length,
-            dtype=dtype,
-            load_in_4bit=load_in_4bit,
-            fast_inference=fast_inference,
+        self.model, self.tokenizer = cast(
+            tuple[CausallLM, PreTrainedTokenizerBase],
+            FastLanguageModel.from_pretrained(**config.get("init_args", {})),
         )
         AsyncLLMEngine.from_engine_args = from_engine_args
 
