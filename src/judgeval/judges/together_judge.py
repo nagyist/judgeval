@@ -11,6 +11,7 @@ from judgeval.common.utils import (
     afetch_together_api_response,
 )
 from judgeval.common.logger import judgeval_logger
+from judgeval.constants import DEFAULT_TOGETHER_MODEL
 
 BASE_CONVERSATION = [
     {"role": "system", "content": "You are a helpful assistant."},
@@ -18,13 +19,15 @@ BASE_CONVERSATION = [
 
 
 class TogetherJudge(JudgevalJudge):
-    def __init__(self, model: str = "Qwen/Qwen2.5-72B-Instruct-Turbo", **kwargs):
+    def __init__(self, model: str = DEFAULT_TOGETHER_MODEL, **kwargs):
         self.model = model
         self.kwargs = kwargs
         super().__init__(model_name=model)
 
     # TODO: Fix cost for generate and a_generate
-    def generate(self, input: Union[str, List[dict]], schema: BaseModel = None) -> str:
+    def generate(
+        self, input: Union[str, List[dict]], schema: Union[BaseModel, None] = None
+    ) -> str:
         if isinstance(input, str):
             convo = BASE_CONVERSATION + [{"role": "user", "content": input}]
             return fetch_together_api_response(
@@ -40,7 +43,7 @@ class TogetherJudge(JudgevalJudge):
             raise TypeError("Input must be a string or a list of dictionaries.")
 
     async def a_generate(
-        self, input: Union[str, List[dict]], schema: BaseModel = None
+        self, input: Union[str, List[dict]], schema: Union[BaseModel, None] = None
     ) -> str:
         if isinstance(input, str):
             convo = BASE_CONVERSATION + [{"role": "user", "content": input}]

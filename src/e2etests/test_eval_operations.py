@@ -11,8 +11,10 @@ from judgeval.scorers import (
     AnswerRelevancyScorer,
     ToolOrderScorer,
 )
-from judgeval.data.datasets.dataset import EvalDataset
+from judgeval.scorers.example_scorer import ExampleScorer
+from judgeval.dataset import Dataset
 from judgeval.tracer import Tracer
+from judgeval.constants import DEFAULT_TOGETHER_MODEL
 
 
 def run_eval_helper(client: JudgmentClient, project_name: str, eval_run_name: str):
@@ -31,8 +33,6 @@ def run_eval_helper(client: JudgmentClient, project_name: str, eval_run_name: st
     example2 = Example(
         input="Generate a cold outreach email for GreenEnergy Solutions. Facts: They're developing solar panel technology that's 30% more efficient. They're looking to expand into the European market. They won a sustainability award in 2023.",
         actual_output="Dear GreenEnergy Solutions team,\n\nCongratulations on your 2023 sustainability award! Your innovative solar panel technology with 30% higher efficiency is exactly what the European market needs right now.\n\nI'd love to discuss how we could support your European expansion plans.\n\nBest regards,\nAlex",
-        expected_output="A professional cold email mentioning the sustainability award, solar technology innovation, and European expansion plans",
-        context=["Business Development"],
         retrieval_context=[
             "GreenEnergy Solutions won 2023 sustainability award",
             "New solar technology 30% more efficient",
@@ -46,34 +46,27 @@ def run_eval_helper(client: JudgmentClient, project_name: str, eval_run_name: st
     client.run_evaluation(
         examples=[example1, example2],
         scorers=[scorer, scorer2],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
         eval_run_name=eval_run_name,
-        override=True,
     )
 
 
-def test_run_eval(client: JudgmentClient):
+def test_run_eval(client: JudgmentClient, project_name: str, random_name: str):
     """Test basic evaluation workflow."""
-    PROJECT_NAME = "OutreachWorkflow"
-    EVAL_RUN_NAME = "ColdEmailGenerator-Improve-BasePrompt"
 
-    run_eval_helper(client, PROJECT_NAME, EVAL_RUN_NAME)
-    results = client.pull_eval(project_name=PROJECT_NAME, eval_run_name=EVAL_RUN_NAME)
-    assert results, f"No evaluation results found for {EVAL_RUN_NAME}"
-
-    client.delete_project(project_name=PROJECT_NAME)
+    run_eval_helper(client, project_name, random_name)
+    results = client.pull_eval(project_name=project_name, eval_run_name=random_name)
+    assert results, f"No evaluation results found for {random_name}"
 
 
-def test_run_eval_append(client: JudgmentClient):
+def test_run_eval_append(client: JudgmentClient, project_name: str, random_name: str):
     """Test evaluation append behavior."""
-    PROJECT_NAME = "OutreachWorkflow"
-    EVAL_RUN_NAME = "ColdEmailGenerator-Improve-BasePrompt"
 
-    run_eval_helper(client, PROJECT_NAME, EVAL_RUN_NAME)
-    results = client.pull_eval(project_name=PROJECT_NAME, eval_run_name=EVAL_RUN_NAME)
+    run_eval_helper(client, project_name, random_name)
+    results = client.pull_eval(project_name=project_name, eval_run_name=random_name)
     results = results["examples"]
-    assert results, f"No evaluation results found for {EVAL_RUN_NAME}"
+    assert results, f"No evaluation results found for {random_name}"
     assert len(results) == 2
 
     example1 = Example(
@@ -90,23 +83,23 @@ def test_run_eval_append(client: JudgmentClient):
     client.run_evaluation(
         examples=[example1],
         scorers=[scorer],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
-        project_name=PROJECT_NAME,
-        eval_run_name=EVAL_RUN_NAME,
+        model=DEFAULT_TOGETHER_MODEL,
+        project_name=project_name,
+        eval_run_name=random_name,
         append=True,
     )
 
-    results = client.pull_eval(project_name=PROJECT_NAME, eval_run_name=EVAL_RUN_NAME)
-    assert results, f"No evaluation results found for {EVAL_RUN_NAME}"
+    results = client.pull_eval(project_name=project_name, eval_run_name=random_name)
+    assert results, f"No evaluation results found for {random_name}"
     results = results["examples"]
     assert len(results) == 3
     assert results[0]["scorer_data"][0]["score"] == 1.0
-    client.delete_project(project_name=PROJECT_NAME)
 
 
-def test_run_append_without_existing(client: JudgmentClient, project_name: str):
+def test_run_append_without_existing(
+    client: JudgmentClient, project_name: str, random_name: str
+):
     """Test evaluation append behavior when the eval run does not exist."""
-    EVAL_RUN_NAME = "ColdEmailGenerator-Improve-BasePrompt"
 
     example1 = Example(
         input="Generate a cold outreach email for TechCorp. Facts: They recently launched an AI-powered analytics platform. Their CEO Sarah Chen previously worked at Google. They have 50+ enterprise clients.",
@@ -124,13 +117,68 @@ def test_run_append_without_existing(client: JudgmentClient, project_name: str):
         scorers=[scorer],
         model="gpt-4o-mini",
         project_name=project_name,
-        eval_run_name=EVAL_RUN_NAME,
+        eval_run_name=random_name,
         append=True,
     )
-    assert results, f"No evaluation results found for {EVAL_RUN_NAME}"
+    assert results, f"No evaluation results found for {random_name}"
     assert len(results) == 1
     print(results)
     assert results[0].success
+
+
+def test_run_mismatching_examples(
+    client: JudgmentClient, project_name: str, random_name: str
+):
+    """Test running evaluation with mismatching examples."""
+    example1 = Example(
+        input="What is the capital of France?",
+        actual_output="Paris",
+        expected_output="Paris",
+    )
+    example2 = Example(
+        input="What is the capital of France?",
+        actual_output="Paris",
+    )
+    scorer = AnswerRelevancyScorer(threshold=0.5)
+    with pytest.raises(Exception):
+        client.run_evaluation(
+            examples=[example1, example2],
+            scorers=[scorer],
+            project_name=project_name,
+            eval_run_name=random_name,
+        )
+
+
+def test_run_mismatching_examples_append(
+    client: JudgmentClient, project_name: str, random_name: str
+):
+    """Test running evaluation with mismatching examples."""
+    example1 = Example(
+        input="What is the capital of France?",
+        actual_output="Paris",
+        expected_output="Paris",
+    )
+    example2 = Example(
+        input="What is the capital of France?",
+        actual_output="Paris",
+    )
+    scorer = AnswerRelevancyScorer(threshold=0.5)
+    client.run_evaluation(
+        examples=[example1],
+        scorers=[scorer],
+        project_name=project_name,
+        eval_run_name=random_name,
+        append=True,
+    )
+
+    with pytest.raises(Exception):
+        client.run_evaluation(
+            examples=[example2],
+            scorers=[scorer],
+            project_name=project_name,
+            eval_run_name=random_name,
+            append=True,
+        )
 
 
 @pytest.mark.asyncio
@@ -140,9 +188,6 @@ async def test_assert_test(client: JudgmentClient, project_name: str):
     example = Example(
         input="What if these shoes don't fit?",
         actual_output="We offer a 30-day full refund at no extra cost.",
-        retrieval_context=[
-            "All customers are eligible for a 30 day full refund at no extra cost."
-        ],
     )
 
     example1 = Example(
@@ -163,12 +208,12 @@ async def test_assert_test(client: JudgmentClient, project_name: str):
             project_name=project_name,
             examples=[example, example1, example2],
             scorers=[scorer],
-            model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+            model=DEFAULT_TOGETHER_MODEL,
             override=True,
         )
 
 
-def test_evaluate_dataset(client: JudgmentClient, project_name: str):
+def test_evaluate_dataset(client: JudgmentClient, project_name: str, random_name: str):
     """Test dataset evaluation."""
     example1 = Example(
         input="What if these shoes don't fit?",
@@ -177,27 +222,76 @@ def test_evaluate_dataset(client: JudgmentClient, project_name: str):
             "All customers are eligible for a 30 day full refund at no extra cost."
         ],
     )
-
     example2 = Example(
         input="How do I reset my password?",
         actual_output="You can reset your password by clicking on 'Forgot Password' at the login screen.",
-        expected_output="You can reset your password by clicking on 'Forgot Password' at the login screen.",
-        name="Password Reset",
-        context=["User Account"],
         retrieval_context=["Password reset instructions"],
-        additional_metadata={"difficulty": "medium"},
     )
 
-    dataset = EvalDataset(examples=[example1, example2])
+    Dataset.create(
+        name=random_name, project_name=project_name, examples=[example1, example2]
+    )
+    dataset = Dataset.get(name=random_name, project_name=project_name)
     res = client.run_evaluation(
         examples=dataset.examples,
         scorers=[FaithfulnessScorer(threshold=0.5)],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
-        eval_run_name="test_eval_run",
-        override=True,
+        eval_run_name=random_name,
     )
     assert res, "Dataset evaluation failed"
+
+    dataset.delete()
+
+
+def test_evaluate_dataset_custom(
+    client: JudgmentClient, project_name: str, random_name: str
+):
+    """Test dataset evaluation with custom scorers."""
+
+    class CustomExample(Example):
+        unique_field: str
+        unique_number: int
+
+    class CustomScorer(ExampleScorer):
+        async def a_score_example(self, example: CustomExample):
+            if example.unique_field == "test":
+                if example.unique_number == 1:
+                    return 1
+                elif example.unique_number == 2:
+                    return 0.75
+                else:
+                    return 0.5
+            else:
+                return 0
+
+    examples = [
+        CustomExample(unique_field="test", unique_number=1),
+        CustomExample(unique_field="test", unique_number=2),
+        CustomExample(unique_field="test", unique_number=3),
+        CustomExample(unique_field="not_test", unique_number=1),
+    ]
+    Dataset.create(name=random_name, project_name=project_name, examples=examples)
+    dataset = Dataset.get(name=random_name, project_name=project_name)
+    res = client.run_evaluation(
+        examples=dataset.examples,
+        scorers=[CustomScorer()],
+        model=DEFAULT_TOGETHER_MODEL,
+        project_name=project_name,
+        eval_run_name=random_name,
+    )
+
+    assert res[0].success
+    assert res[1].success
+    assert res[2].success
+    assert not res[3].success
+
+    assert res[0].scorers_data[0].score == 1
+    assert res[1].scorers_data[0].score == 0.75
+    assert res[2].scorers_data[0].score == 0.5
+    assert res[3].scorers_data[0].score == 0
+
+    dataset.delete()
 
 
 @pytest.mark.asyncio
@@ -290,7 +384,7 @@ def test_override_eval(client: JudgmentClient, project_name: str, random_name: s
     client.run_evaluation(
         examples=[example1],
         scorers=[scorer],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
         eval_run_name=EVAL_RUN_NAME,
         override=False,
@@ -301,7 +395,7 @@ def test_override_eval(client: JudgmentClient, project_name: str, random_name: s
         client.run_evaluation(
             examples=[example1],
             scorers=[scorer],
-            model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+            model=DEFAULT_TOGETHER_MODEL,
             project_name=project_name,
             eval_run_name=EVAL_RUN_NAME,
             override=False,
@@ -312,7 +406,7 @@ def test_override_eval(client: JudgmentClient, project_name: str, random_name: s
         client.run_evaluation(
             examples=[example1],
             scorers=[scorer],
-            model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+            model=DEFAULT_TOGETHER_MODEL,
             project_name=project_name,
             eval_run_name=EVAL_RUN_NAME,
             override=True,
@@ -326,7 +420,7 @@ def test_override_eval(client: JudgmentClient, project_name: str, random_name: s
         client.run_evaluation(
             examples=[example1],
             scorers=[scorer],
-            model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+            model=DEFAULT_TOGETHER_MODEL,
             project_name=project_name,
             eval_run_name=EVAL_RUN_NAME,
             override=False,

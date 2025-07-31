@@ -1,7 +1,7 @@
 import asyncio
 import concurrent.futures
 import time
-import json
+import orjson
 import sys
 import threading
 from typing import List, Dict, Union, Optional, Callable, Tuple, Any
@@ -20,7 +20,7 @@ from judgeval.common.logger import judgeval_logger
 from judgeval.evaluation_run import EvaluationRun
 from judgeval.data.trace_run import TraceRun
 from judgeval.common.tracer import Tracer
-from langchain_core.callbacks import BaseCallbackHandler
+from judgeval.integrations.langgraph import JudgevalCallbackHandler
 
 
 def safe_run_async(coro):
@@ -191,6 +191,24 @@ def check_eval_run_name_exists(
         raise JudgmentAPIError(f"Failed to check if eval run name exists: {str(e)}")
 
 
+def check_example_keys(
+    keys: List[str],
+    eval_name: str,
+    project_name: str,
+    judgment_api_key: str,
+    organization_id: str,
+) -> None:
+    """
+    Checks if the current experiment (if one exists) has the same keys for example
+    """
+    api_client = JudgmentApiClient(judgment_api_key, organization_id)
+    try:
+        api_client.check_example_keys(keys, eval_name, project_name)
+    except Exception as e:
+        judgeval_logger.error(f"Failed to check if example keys match: {str(e)}")
+        raise JudgmentAPIError(f"Failed to check if example keys match: {str(e)}")
+
+
 def log_evaluation_results(
     scoring_results: List[ScoringResult],
     run: Union[EvaluationRun, TraceRun],
@@ -245,7 +263,9 @@ def check_examples(
                     f"[yellow]⚠️  WARNING:[/yellow] Example is missing required parameters for scorer [bold]{scorer.score_type.value}[/bold]"
                 )
                 rprint(f"Missing parameters: {', '.join(missing_params)}")
-                rprint(f"Example: {json.dumps(example.model_dump(), indent=2)}")
+                rprint(
+                    f"Example: {orjson.dumps(example.model_dump(), option=orjson.OPT_INDENT_2).decode('utf-8')}"
+                )
                 rprint("-" * 40)
                 prompt_user = True
 
@@ -262,7 +282,7 @@ def run_trace_eval(
     judgment_api_key: str,
     override: bool = False,
     function: Optional[Callable] = None,
-    tracer: Optional[Union[Tracer, BaseCallbackHandler]] = None,
+    tracer: Optional[Union[Tracer, JudgevalCallbackHandler]] = None,
     examples: Optional[List[Example]] = None,
 ) -> List[ScoringResult]:
     # Call endpoint to check to see if eval run name exists (if we DON'T want to override and DO want to log results)
@@ -394,7 +414,7 @@ def _poll_evaluation_until_complete(
     expected_scorer_data_count: int,
     poll_interval_seconds: float = 5,
     max_failures: int = 5,
-    max_poll_count: int = 24,  # This should be equivalent to 120 seconds
+    max_poll_count: int = 60,  # This should be equivalent to 5 minutes
 ) -> Tuple[List[ScoringResult], str]:
     """
     Polls until the evaluation is complete and returns the results.
@@ -500,6 +520,14 @@ def run_eval(
     Returns:
         List[ScoringResult]: A list of ScoringResult objects
     """
+    # Check that every example has the same keys
+    keys = evaluation_run.examples[0].get_fields().keys()
+    for example in evaluation_run.examples:
+        current_keys = example.get_fields().keys()
+        if current_keys != keys:
+            raise ValueError(
+                f"All examples must have the same keys: {current_keys} != {keys}"
+            )
 
     # Call endpoint to check to see if eval run name exists (if we DON'T want to override and DO want to log results)
     if not override and not evaluation_run.append:
@@ -520,9 +548,14 @@ def run_eval(
             False,
         )
 
-    # Set example IDs if not already set
-    for idx, example in enumerate(evaluation_run.examples):
-        example.example_index = idx  # Set numeric index
+        # Ensure that current experiment (if one exists) has the same keys for example
+        check_example_keys(
+            keys=list(keys),
+            eval_name=evaluation_run.eval_name,
+            project_name=evaluation_run.project_name,
+            judgment_api_key=judgment_api_key,
+            organization_id=evaluation_run.organization_id,
+        )
 
     judgment_scorers: List[APIScorerConfig] = []
     local_scorers: List[BaseScorer] = []
@@ -601,7 +634,6 @@ def run_eval(
         send_results = [
             scoring_result.model_dump(warnings=False) for scoring_result in results
         ]
-
         url = log_evaluation_results(send_results, evaluation_run, judgment_api_key)
     rprint(
         f"\n🔍 You can view your evaluation results here: [rgb(106,0,255)][link={url}]View Results[/link]\n"

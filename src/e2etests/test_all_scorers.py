@@ -13,6 +13,7 @@ from judgeval.scorers import (
 )
 from uuid import uuid4
 from judgeval.data import Example
+from judgeval.constants import DEFAULT_TOGETHER_MODEL
 
 
 def test_ac_scorer(client: JudgmentClient, project_name: str):
@@ -28,7 +29,7 @@ def test_ac_scorer(client: JudgmentClient, project_name: str):
     res = client.run_evaluation(
         examples=[example],
         scorers=[scorer],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
         eval_run_name=EVAL_RUN_NAME,
         override=True,
@@ -54,7 +55,7 @@ def test_ar_scorer(client: JudgmentClient, project_name: str):
     res = client.run_evaluation(
         examples=[example_1, example_2],
         scorers=[scorer],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
         eval_run_name=EVAL_RUN_NAME,
         override=True,
@@ -97,7 +98,7 @@ def test_faithfulness_scorer(client: JudgmentClient, project_name: str):
     res = client.run_evaluation(
         examples=[faithful_example, contradictory_example],
         scorers=[scorer],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
         eval_run_name=EVAL_RUN_NAME,
         override=True,
@@ -123,7 +124,7 @@ def test_instruction_adherence_scorer(client: JudgmentClient, project_name: str)
     res = client.run_evaluation(
         examples=[example_1],
         scorers=[scorer],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
         eval_run_name=EVAL_RUN_NAME,
         override=True,
@@ -185,7 +186,7 @@ def test_prompt_scorer(client: JudgmentClient, project_name: str):
     # Create test examples
     helpful_example = Example(
         input="What's the capital of France?",
-        actual_output="The capital of France is Paris. It's one of the most populous cities in Europe and is known for landmarks like the Eiffel Tower and the Louvre Museum.",
+        actual_output="The capital of France is Paris.",
     )
 
     unhelpful_example = Example(
@@ -197,7 +198,7 @@ def test_prompt_scorer(client: JudgmentClient, project_name: str):
     res = client.run_evaluation(
         examples=[helpful_example, unhelpful_example],
         scorers=[prompt_scorer],
-        model="Qwen/Qwen2.5-72B-Instruct-Turbo",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
         eval_run_name="test-run-helpfulness",
         override=True,
@@ -212,6 +213,57 @@ def test_prompt_scorer(client: JudgmentClient, project_name: str):
     print_debug_on_failure(res[1])
 
 
+def test_custom_prompt_scorer(client: JudgmentClient, project_name: str):
+    """Test custom prompt scorer functionality."""
+    # Creating a custom prompt scorer from SDK
+    # Creating a prompt scorer from SDK
+    prompt_scorer = PromptScorer.create(
+        name=f"Test Prompt Scorer {uuid4()}",
+        prompt="Comparison A: {{comparison_a}}\n Comparison B: {{comparison_b}}\n\n Which candidate is better for a teammate?",
+        options={"comparison_a": 1.0, "comparison_b": 0.0},
+    )
+
+    prompt_scorer.set_options(
+        {
+            "comparison_a": 1.0,
+            "comparison_b": 0.0,
+        }
+    )
+
+    class ComparisonExample(Example):
+        comparison_a: str
+        comparison_b: str
+
+    # Create test examples
+    example1 = ComparisonExample(
+        comparison_a="Mike loves to play basketball because he passes with his teammates.",
+        comparison_b="Mike likes to play 1v1 basketball because he likes to show off his skills.",
+    )
+
+    example2 = ComparisonExample(
+        comparison_a="Mike loves to play singles tennis because he likes to show off his skills.",
+        comparison_b="Mike likes to play doubles tennis because he likes to pass with his partner.",
+    )
+
+    # Run evaluation
+    res = client.run_evaluation(
+        examples=[example1, example2],
+        scorers=[prompt_scorer],
+        model=DEFAULT_TOGETHER_MODEL,
+        project_name=project_name,
+        eval_run_name="test-run-helpfulness",
+        override=True,
+    )
+
+    # Verify results
+    assert res[0].success, "Example 1 should pass classification"
+    assert not res[1].success, "Example 2 should fail classification"
+
+    # Print debug info if any test fails
+    print_debug_on_failure(res[0])
+    print_debug_on_failure(res[1])
+
+
 def print_debug_on_failure(result) -> bool:
     """
     Helper function to print debug info only on test failure
@@ -220,12 +272,7 @@ def print_debug_on_failure(result) -> bool:
         bool: True if the test passed, False if it failed
     """
     if not result.success:
-        print("\n=== Test Failure Details ===")
-        print(f"Input: {result.data_object.input}")
-        print(f"Output: {result.data_object.actual_output}")
-        print(f"Success: {result.success}")
-        if hasattr(result.data_object, "retrieval_context"):
-            print(f"Retrieval Context: {result.data_object.retrieval_context}")
+        print(result.data_object.model_dump())
         print("\nScorer Details:")
         for scorer_data in result.scorers_data:
             print(f"- Name: {scorer_data.name}")

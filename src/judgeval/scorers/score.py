@@ -30,15 +30,19 @@ async def safe_a_score_example(
     Args:
         scorer (BaseScorer): The `BaseScorer` to use for scoring the example.
         example (Example): The `Example` to be scored.
-
-        ignore_errors (bool): Whether to ignore errors during the evaluation.
-        If set to false, any error will be raised and stop the evaluation.
-        If set to true, the error will be stored in the `error` attribute of the `BaseScorer` and the `success` attribute will be set to False.
-
-        skip_on_missing_params (bool): Whether to skip the test case if required parameters are missing.
     """
     try:
-        scorer.score = await scorer.a_score_example(example)
+        score = await scorer.a_score_example(example)
+        if score is None:
+            raise Exception("a_score_example need to return a score")
+        elif score < 0:
+            judgeval_logger.warning("score cannot be less than 0 , setting to 0")
+            score = 0
+        elif score > 1:
+            judgeval_logger.warning("score cannot be greater than 1 , setting to 1")
+            score = 1
+        else:
+            scorer.score = score
         scorer.success = scorer.success_check()
     except Exception as e:
         judgeval_logger.error(f"Error during scoring: {str(e)}")

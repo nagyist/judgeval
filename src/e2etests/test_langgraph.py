@@ -5,7 +5,7 @@ import warnings
 import time
 
 from langgraph.graph import StateGraph
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from langchain_openai import ChatOpenAI
 
 from judgeval.common.tracer import Tracer, TraceManagerClient, TraceClient
@@ -20,7 +20,7 @@ llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0)
 
 
 class SimpleState(TypedDict):
-    messages: List[HumanMessage | AIMessage]
+    messages: List[BaseMessage]
     result: str
 
 

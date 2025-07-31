@@ -51,6 +51,7 @@ JUDGMENT_ADD_TO_RUN_EVAL_QUEUE_API_URL = f"{ROOT_API}/add_to_run_eval_queue/"
 JUDGMENT_GET_EVAL_STATUS_API_URL = f"{ROOT_API}/get_evaluation_status/"
 JUDGMENT_CHECK_EXPERIMENT_TYPE_API_URL = f"{ROOT_API}/check_experiment_type/"
 JUDGMENT_EVAL_RUN_NAME_EXISTS_API_URL = f"{ROOT_API}/eval-run-name-exists/"
+JUDGMENT_CHECK_EXAMPLE_KEYS_API_URL = f"{ROOT_API}/check_example_keys/"
 
 
 # Evaluation API Payloads
@@ -90,9 +91,16 @@ class EvalRunNameExistsPayload(TypedDict):
     judgment_api_key: str
 
 
+class CheckExampleKeysPayload(TypedDict):
+    keys: List[str]
+    eval_name: str
+    project_name: str
+
+
 # Datasets API
 JUDGMENT_DATASETS_PUSH_API_URL = f"{ROOT_API}/datasets/push/"
 JUDGMENT_DATASETS_APPEND_EXAMPLES_API_URL = f"{ROOT_API}/datasets/insert_examples/"
+JUDGMENT_DATASETS_APPEND_TRACES_API_URL = f"{ROOT_API}/traces/add_to_dataset/"
 JUDGMENT_DATASETS_PULL_API_URL = f"{ROOT_API}/datasets/pull_for_judgeval/"
 JUDGMENT_DATASETS_DELETE_API_URL = f"{ROOT_API}/datasets/delete/"
 JUDGMENT_DATASETS_EXPORT_JSONL_API_URL = f"{ROOT_API}/datasets/export_jsonl/"
@@ -134,7 +142,7 @@ class DatasetStatsPayload(TypedDict):
 
 
 # Projects API
-JUDGMENT_PROJECT_DELETE_API_URL = f"{ROOT_API}/projects/delete/"
+JUDGMENT_PROJECT_DELETE_API_URL = f"{ROOT_API}/projects/delete_from_judgeval/"
 JUDGMENT_PROJECT_CREATE_API_URL = f"{ROOT_API}/projects/add/"
 
 

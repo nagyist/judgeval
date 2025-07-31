@@ -39,6 +39,7 @@ def client(project_name: str) -> JudgmentClient:
     """Create a single JudgmentClient instance for all tests."""
     # Setup
     client = JudgmentClient(api_key=API_KEY, organization_id=ORGANIZATION_ID)
+    client.create_project(project_name=project_name)
     yield client
     # Teardown
     # Add more projects to delete as needed
