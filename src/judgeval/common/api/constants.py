@@ -1,7 +1,7 @@
 import os
 from typing import Optional, TypedDict, List, Dict, Any
 
-ROOT_API = os.getenv("JUDGMENT_API_URL", "https://api.judgmentlabs.ai")
+ROOT_API = os.getenv("JUDGMENT_API_URL", "https://staging.api.judgmentlabs.ai")
 
 # Traces API
 JUDGMENT_TRACES_FETCH_API_URL = f"{ROOT_API}/traces/fetch/"

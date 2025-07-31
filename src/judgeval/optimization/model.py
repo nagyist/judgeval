@@ -70,8 +70,8 @@ class TrainableModel:
         self.model, self.tokenizer = unsloth.FastLanguageModel.from_pretrained(
             model_name = model_name,
             max_seq_length=32768,
-            load_in_4bit=True,  # False for LoRA 16bit
-            fast_inference=True,  # Enable vLLM fast inference
+            load_in_4bit=load_in_4bit,  # False for LoRA 16bit
+            fast_inference=fast_inference,  # Enable vLLM fast inference
             gpu_memory_utilization=0.79,
             max_lora_rank=8,
             use_async=True
@@ -157,7 +157,7 @@ class TrainableModel:
             base_url=self.inference_base_url,
             api_key=self.inference_api_key,
             http_client=DefaultAsyncHttpxClient(
-                timeout=httpx.Timeout(timeout=40, connect=5.0),
+                timeout=httpx.Timeout(timeout=1200, connect=5.0),
                 limits=httpx.Limits(
                     max_connections=10_000,
                     max_keepalive_connections=10_000,

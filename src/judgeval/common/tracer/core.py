@@ -1619,7 +1619,6 @@ class Tracer:
             else:
                 batch_inputs = inputs
             for input in batch_inputs:
-                print(input)
                 await asyncio.gather(
                     *[rollout_and_reward(func, reward, copy.deepcopy(input)) for _ in range(config.num_rollouts)]
                 )
@@ -1627,13 +1626,13 @@ class Tracer:
                 self.traces = []
 
             # Train
-            async def create_trajectory_group(group):
+            def create_trajectory_group(group):
                 trajectories = await asyncio.gather(
                     *[self.trace_to_trajectory(trace) for trace in group]
                 )
                 return trajectories
 
-            trajectory_groups = await [create_trajectory_group(group) for group in groups]
+            trajectory_groups = [create_trajectory_group(group) for group in groups]
             await model.delete_checkpoints()
             await model.train(
                 trajectory_groups, config=config
