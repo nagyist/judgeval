@@ -1626,13 +1626,13 @@ class Tracer:
                 self.traces = []
 
             # Train
-            def create_trajectory_group(group):
+            async def create_trajectory_group(group):
                 trajectories = await asyncio.gather(
                     *[self.trace_to_trajectory(trace) for trace in group]
                 )
                 return trajectories
 
-            trajectory_groups = [create_trajectory_group(group) for group in groups]
+            trajectory_groups = await asyncio.gather(*[create_trajectory_group(group) for group in groups])
             await model.delete_checkpoints()
             await model.train(
                 trajectory_groups, config=config

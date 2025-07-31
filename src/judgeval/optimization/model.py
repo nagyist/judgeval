@@ -7,7 +7,7 @@ It also supports model checkpointing to update the model after each training ste
 '''
 import unsloth
 import unsloth_zoo
-from .types import TrainConfig
+from .types import TrainConfig, Trajectory
 
 from typing import cast, Any
 from peft import PeftModelForCausalLM
@@ -101,8 +101,9 @@ class TrainableModel:
     async def delete_checkpoints(self):
         """Delete old checkpoints - no-op for now"""
 
-    async def train(self, config: TrainConfig):
-        """Fine-tune the policy using TRL’s GRPOTrainer."""
+    async def train(self, trajectory_groups: list[list[Trajectory]], config: TrainConfig):
+        """Fine-tune the policy using TRL's GRPOTrainer with multi-turn support."""
+        from .grpo_patch import apply_multi_turn_patches
 
         # Map our simple TrainConfig fields on to GRPOConfig if provided.
         if config.learning_rate is not None:
@@ -110,15 +111,22 @@ class TrainableModel:
         if config.steps is not None:
             self.trainer.args.max_steps = config.steps
 
-        # TODO: Patch prepare_inputs and compute_loss
-        # Train the model using TRL's GRPOTrainer
-        self.trainer.train()
+        # Apply patches to handle multi-turn trajectories
+        # This modifies trainer._prepare_inputs and trainer.compute_loss
+        restore_functions = apply_multi_turn_patches(self, trajectory_groups, config)
+        
+        try:
+            # Train the model using patched GRPO trainer
+            self.trainer.train()
 
-        # Update model with new LoRA weights for on-policy inference
-        model_dir = f"./lora/{self.name}/{self.step}"
-        self.model.save_pretrained(model_dir)
-        await self._refresh_vllm(model_dir)
-        self.step += 1
+            # Update model with new LoRA weights for on-policy inference
+            model_dir = f"./lora/{self.name}/{self.step}"
+            self.model.save_pretrained(model_dir)
+            await self._refresh_vllm(model_dir)
+            self.step += 1
+        finally:
+            # Restore original trainer methods
+            restore_functions()
 
     async def _refresh_vllm(self, adapter_path: str):
         """Reload the updated LoRA adapter inside the active vLLM runtime.
