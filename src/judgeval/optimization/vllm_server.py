@@ -9,7 +9,7 @@ from vllm.entrypoints.openai import api_server
 from fastapi import FastAPI
 from vllm.entrypoints.openai.cli_args import make_arg_parser, validate_parsed_serve_args
 from vllm.utils import FlexibleArgumentParser
-
+from .server_types import OpenAIServerConfig, ServerArgs, EngineArgs
 
 # -----------------------------------------------------------------------------
 # Public helper: launch_openai_server
@@ -48,6 +48,7 @@ async def launch_openai_server(
     *,
     host: str = "0.0.0.0",
     port: int = 8000,
+    config: OpenAIServerConfig | None = None,
     ready_timeout: float = 180.0,
 ):
     """Launch the vLLM OpenAI-compatible server as a background task.
@@ -65,17 +66,8 @@ async def launch_openai_server(
     # Inject our custom engine factory.
     api_server.build_async_engine_client = build_async_engine_client
 
-    # Build CLI namespace (only host/port are overridden here; model options
-    # are expected to be provided via *engine* config or env vars).
-    parser = FlexibleArgumentParser()
-    parser = make_arg_parser(parser)
-    args_list = [f"--host={host}", f"--port={port}"]
-    namespace = parser.parse_args(args_list)
-    validate_parsed_serve_args(namespace)
-
-    # Start the server coroutine in the current event loop.
     server_task = asyncio.create_task(
-        api_server.run_server(namespace), name="vLLMOpenAIServer"
+        start_server_coroutine(config), name="vLLMOpenAIServer"
     )
 
     # Wait until the server is actually listening.
@@ -83,3 +75,62 @@ async def launch_openai_server(
     await _wait_for_port(connect_host, port, timeout=ready_timeout)
 
     return ("127.0.0.1" if host == "0.0.0.0" else host), port
+
+def start_server_coroutine(config: dict):
+    parser = FlexibleArgumentParser(
+        description="vLLM OpenAI-Compatible RESTful API server."
+    )
+    parser = make_arg_parser(parser)
+    engine_args = config.get("engine_args", {})
+    server_args = config.get("server_args", {})
+    args = [
+        *[
+            f"--{key.replace('_', '-')}{f'={item}' if item is not True else ''}"
+            for args in [engine_args, server_args]
+            for key, value in args.items()
+            for item in (value if isinstance(value, list) else [value])
+            if item is not None
+        ],
+    ]
+    namespace = parser.parse_args(args)
+    assert namespace is not None
+    validate_parsed_serve_args(namespace)
+    return api_server.run_server(
+        namespace
+    )
+
+
+def get_openai_server_config(
+    model_name: str,
+    base_model: str,
+    log_file: str,
+    lora_path: str | None = None,
+    config: "OpenAIServerConfig | None" = None,
+) -> "OpenAIServerConfig":
+    if config is None:
+        config = OpenAIServerConfig()
+    log_file = config.get("log_file", log_file)
+    server_args = ServerArgs(
+        api_key="default",
+        lora_modules=(
+            [f'{{"name": "{model_name}", "path": "{lora_path}"}}']
+            if lora_path
+            else None
+        ),
+        return_tokens_as_token_ids=True,
+        enable_auto_tool_choice=True,
+        tool_call_parser="hermes",
+    )
+    server_args.update(config.get("server_args", {}))
+    engine_args = EngineArgs(
+        model=base_model,
+        num_scheduler_steps=16 if lora_path else 1,
+        served_model_name=base_model if lora_path else model_name,
+        disable_log_requests=True,
+        generation_config="vllm",
+    )
+    engine_args.update(config.get("engine_args", {}))
+    return OpenAIServerConfig(
+        log_file=log_file, server_args=server_args, engine_args=engine_args
+    )
+

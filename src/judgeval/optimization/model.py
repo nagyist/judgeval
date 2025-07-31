@@ -23,6 +23,7 @@ from .vllm_server import launch_openai_server
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.engine.arg_utils import AsyncEngineArgs
 from dataclasses import replace
+from .vllm_server import get_openai_server_config
 
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.dummy_pt_objects import (
@@ -52,6 +53,12 @@ class TrainableModel:
             config = {}
 
         self.name = name
+
+        self.config = get_openai_server_config(
+            model_name = self.name,
+            base_model = model_name,
+            log_file = "vllm.log"
+        )
 
         from_engine_args = AsyncLLMEngine.from_engine_args
 
@@ -135,7 +142,7 @@ class TrainableModel:
     async def openai_client(self):
         """Return the `openai.AsyncOpenAI` client that targets the local server."""
 
-        host, port = await launch_openai_server(self.model.vllm_engine)
+        host, port = await launch_openai_server(self.model.vllm_engine, config=self.config)
 
         # The local vLLM service started by Unsloth exposes an OpenAI interface.
         self.inference_base_url = f"http://{host}:{port}/v1"
