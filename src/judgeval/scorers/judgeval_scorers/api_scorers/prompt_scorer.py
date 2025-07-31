@@ -1,21 +1,22 @@
 from judgeval.scorers.api_scorer import APIScorerConfig
 from judgeval.constants import APIScorerType
-from typing import Mapping, Dict, Any
+from typing import Dict, Any, Optional
 from judgeval.common.api import JudgmentApiClient, JudgmentAPIException
 import os
 from judgeval.common.exceptions import JudgmentAPIError
+from copy import copy
 
 
 def push_prompt_scorer(
     name: str,
     prompt: str,
-    options: Mapping[str, float],
+    options: Optional[Dict[str, float]] = None,
     judgment_api_key: str = os.getenv("JUDGMENT_API_KEY") or "",
     organization_id: str = os.getenv("JUDGMENT_ORG_ID") or "",
 ) -> str:
     client = JudgmentApiClient(judgment_api_key, organization_id)
     try:
-        r = client.save_scorer(name, prompt, dict(options))
+        r = client.save_scorer(name, prompt, options)
     except JudgmentAPIException as e:
         if e.status_code == 500:
             raise JudgmentAPIError(
@@ -32,7 +33,7 @@ def fetch_prompt_scorer(
 ):
     client = JudgmentApiClient(judgment_api_key, organization_id)
     try:
-        scorer_config = client.fetch_scorer(name)
+        scorer_config = client.fetch_scorer(name)["scorer"]
         scorer_config.pop("created_at")
         scorer_config.pop("updated_at")
         return scorer_config
@@ -72,7 +73,7 @@ class PromptScorer(APIScorerConfig):
     """
 
     prompt: str
-    options: Mapping[str, float]
+    options: Optional[Dict[str, float]] = None
     score_type: APIScorerType = APIScorerType.PROMPT_SCORER
     judgment_api_key: str = os.getenv("JUDGMENT_API_KEY") or ""
     organization_id: str = os.getenv("JUDGMENT_ORG_ID") or ""
@@ -88,7 +89,7 @@ class PromptScorer(APIScorerConfig):
         return cls(
             name=name,
             prompt=scorer_config["prompt"],
-            options=scorer_config["options"],
+            options=scorer_config.get("options"),
             judgment_api_key=judgment_api_key,
             organization_id=organization_id,
         )
@@ -98,7 +99,7 @@ class PromptScorer(APIScorerConfig):
         cls,
         name: str,
         prompt: str,
-        options: Mapping[str, float],
+        options: Optional[Dict[str, float]] = None,
         judgment_api_key: str = os.getenv("JUDGMENT_API_KEY") or "",
         organization_id: str = os.getenv("JUDGMENT_ORG_ID") or "",
     ):
@@ -117,13 +118,6 @@ class PromptScorer(APIScorerConfig):
             )
 
     # Setter functions. Each setter function pushes the scorer to the DB.
-    def set_name(self, name: str):
-        """
-        Updates the name of the scorer.
-        """
-        self.name = name
-        self.push_prompt_scorer()
-
     def set_threshold(self, threshold: float):
         """
         Updates the threshold of the scorer.
@@ -141,7 +135,7 @@ class PromptScorer(APIScorerConfig):
         self.prompt = prompt
         self.push_prompt_scorer()
 
-    def set_options(self, options: Mapping[str, float]):
+    def set_options(self, options: Dict[str, float]):
         """
         Updates the options with the new options.
 
@@ -165,11 +159,11 @@ class PromptScorer(APIScorerConfig):
         """
         return self.prompt
 
-    def get_options(self) -> Mapping[str, float] | None:
+    def get_options(self) -> Dict[str, float] | None:
         """
         Returns the options of the scorer.
         """
-        return self.options
+        return copy(self.options) if self.options is not None else None
 
     def get_name(self) -> str | None:
         """
