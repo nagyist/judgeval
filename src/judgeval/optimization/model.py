@@ -17,7 +17,7 @@ from trl.trainer.grpo_config import GRPOConfig
 from datasets import Dataset
 
 import httpx
-from openai import OpenAI, DefaultHttpxClient
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 from .vllm_server import launch_openai_server
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.engine.arg_utils import AsyncEngineArgs
@@ -77,6 +77,8 @@ class TrainableModel:
             use_async=True
         ) 
         AsyncLLMEngine.from_engine_args = from_engine_args
+
+        self.patch_get_lora_tokenizer_async()
 
         self.peft_model = cast(
             PeftModelForCausalLM,
@@ -148,14 +150,14 @@ class TrainableModel:
         )
 
         # The local vLLM service started by Unsloth exposes an OpenAI interface.
-        self.inference_base_url = f"http://{host}:{port}/v1"
+        self.inference_base_url = f"http://0.0.0.0:8000/v1"
         self.inference_api_key = "default"
 
-        self._openai_client = OpenAI(
+        self._openai_client = AsyncOpenAI(
             base_url=self.inference_base_url,
             api_key=self.inference_api_key,
-            http_client=DefaultHttpxClient(
-                timeout=httpx.Timeout(timeout=1200, connect=5.0),
+            http_client=DefaultAsyncHttpxClient(
+                timeout=httpx.Timeout(timeout=40, connect=5.0),
                 limits=httpx.Limits(
                     max_connections=10_000,
                     max_keepalive_connections=10_000,
@@ -167,3 +169,26 @@ class TrainableModel:
 
     def get_step(self):
         return self.step
+
+    def patch_get_lora_tokenizer_async(self) -> None:
+        """
+        Patches an Unsloth patch that causes issues with vLLM.
+
+        Specifically, Unsloth patches get_lora_tokenizer_async with a non-async function, which causes issues.
+        """
+        import vllm.transformers_utils.tokenizer
+        import vllm.transformers_utils.tokenizer_group
+
+        async def _return_nothing(*_, **__) -> None:
+            return None
+
+        async def get_self_lora_tokenizer_async(self, *args, **kwargs):
+            return self.tokenizer
+
+        vllm.transformers_utils.tokenizer.get_lora_tokenizer_async = _return_nothing  # type: ignore
+        vllm.transformers_utils.tokenizer_group.get_lora_tokenizer_async = (  # type: ignore
+            _return_nothing
+        )
+        vllm.transformers_utils.tokenizer_group.TokenizerGroup.get_lora_tokenizer_async = (
+            get_self_lora_tokenizer_async  # type: ignore
+        )
