@@ -1619,6 +1619,7 @@ class Tracer:
             else:
                 batch_inputs = inputs
             for input in batch_inputs:
+                print(input)
                 await asyncio.gather(
                     *[rollout_and_reward(func, reward, copy.deepcopy(input)) for _ in range(config.num_rollouts)]
                 )

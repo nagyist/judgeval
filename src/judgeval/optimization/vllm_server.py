@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any, Optional
+from typing import Any, Optional, AsyncIterator
 
 from openai import AsyncOpenAI
-from vllm.entrypoints.openai import api_server
 from fastapi import FastAPI
 from vllm.entrypoints.openai.cli_args import make_arg_parser, validate_parsed_serve_args
 from vllm.utils import FlexibleArgumentParser
 from .server_types import OpenAIServerConfig, ServerArgs, EngineArgs
+from vllm.engine.protocol import EngineClient
 
 # -----------------------------------------------------------------------------
 # Public helper: launch_openai_server
@@ -44,12 +44,12 @@ async def _wait_for_port(host: str, port: int, *, timeout: float = 30.0) -> None
 
 
 async def launch_openai_server(
-    engine,
+    engine: EngineClient,
     *,
     host: str = "0.0.0.0",
     port: int = 8000,
     config: OpenAIServerConfig | None = None,
-    ready_timeout: float = 180.0,
+    ready_timeout: float = 30.0,
 ):
     """Launch the vLLM OpenAI-compatible server as a background task.
 
@@ -58,9 +58,14 @@ async def launch_openai_server(
     running; you may `await task` to block until the server shuts down, or
     `task.cancel()` to stop it.
     """
+    from vllm.entrypoints.openai import api_server
 
     @contextlib.asynccontextmanager
-    async def build_async_engine_client(*_a: Any, **_kw: Any):
+    async def build_async_engine_client(*_a: Any, **_kw: Any) -> AsyncIterator[EngineClient]:
+        print("build_async_engine_client")
+        print(engine)
+        print(type(engine))
+        print(dir(engine))
         yield engine
 
     # Inject our custom engine factory.
@@ -77,6 +82,9 @@ async def launch_openai_server(
     return ("127.0.0.1" if host == "0.0.0.0" else host), port
 
 def start_server_coroutine(config: dict):
+    """Start the vLLM OpenAI-compatible server as a background task."""
+    from vllm.entrypoints.openai import api_server
+
     parser = FlexibleArgumentParser(
         description="vLLM OpenAI-Compatible RESTful API server."
     )

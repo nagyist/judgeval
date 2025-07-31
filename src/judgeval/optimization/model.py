@@ -5,10 +5,9 @@ This class is used to run vLLM-supported inference on a chosen Unsloth model.
 It exposes an OpenAI client interface to do inference.
 It also supports model checkpointing to update the model after each training step.
 '''
-
+import unsloth
+import unsloth_zoo
 from .types import TrainConfig
-
-from unsloth import FastLanguageModel 
 
 from typing import cast, Any
 from peft import PeftModelForCausalLM
@@ -18,21 +17,13 @@ from trl.trainer.grpo_config import GRPOConfig
 from datasets import Dataset
 
 import httpx
-from openai import AsyncOpenAI, DefaultAsyncHttpxClient
+from openai import OpenAI, DefaultHttpxClient
 from .vllm_server import launch_openai_server
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.engine.arg_utils import AsyncEngineArgs
 from dataclasses import replace
 from .vllm_server import get_openai_server_config
-
-from transformers.tokenization_utils_base import PreTrainedTokenizerBase
-from transformers.utils.dummy_pt_objects import (
-    PreTrainedModel,
-    GenerationMixin,
-)
-
-class CausallLM(PreTrainedModel, GenerationMixin):
-    vllm_engine: AsyncLLMEngine
+import os
 
 class TrainableModel:
     """Minimal wrapper around an Unsloth `FastLanguageModel` for inference.
@@ -43,10 +34,11 @@ class TrainableModel:
         name: str,
         model_name: str,
         *,
-        max_seq_length: int = 4096,
+        max_seq_length: int = 2048,
         dtype: str | None = None,
-        load_in_4bit: bool = True,
+        load_in_4bit: bool = False,
         fast_inference: bool = True,
+        lora_rank: int = 32,
         config: dict | None = None,
     ) -> None:
         if config is None:
@@ -60,6 +52,9 @@ class TrainableModel:
             log_file = "vllm.log"
         )
 
+
+        os.environ["VLLM_USE_V1"] = "0"
+
         from_engine_args = AsyncLLMEngine.from_engine_args
 
         # NOTE: We also have to patch from_engine_args to control the engine args
@@ -72,15 +67,20 @@ class TrainableModel:
             )
 
         AsyncLLMEngine.from_engine_args = _from_engine_args
-        self.model, self.tokenizer = cast(
-            tuple[CausallLM, PreTrainedTokenizerBase],
-            FastLanguageModel.from_pretrained(**config.get("init_args", {})),
-        )
+        self.model, self.tokenizer = unsloth.FastLanguageModel.from_pretrained(
+            model_name = model_name,
+            max_seq_length=32768,
+            load_in_4bit=True,  # False for LoRA 16bit
+            fast_inference=True,  # Enable vLLM fast inference
+            gpu_memory_utilization=0.79,
+            max_lora_rank=8,
+            use_async=True
+        ) 
         AsyncLLMEngine.from_engine_args = from_engine_args
 
         self.peft_model = cast(
             PeftModelForCausalLM,
-            FastLanguageModel.get_peft_model(
+            unsloth.FastLanguageModel.get_peft_model(
                 self.model,
                 **config.get("peft_args", {}),
             ),
@@ -140,18 +140,21 @@ class TrainableModel:
                 print("[TrainableModel] Colocated vLLM reload failed:", exc)
 
     async def openai_client(self):
-        """Return the `openai.AsyncOpenAI` client that targets the local server."""
+        """Return the `openai.OpenAI` client that targets the local server."""
 
-        host, port = await launch_openai_server(self.model.vllm_engine, config=self.config)
+        host, port = await launch_openai_server(
+            self.model.vllm_engine,
+            config=self.config
+        )
 
         # The local vLLM service started by Unsloth exposes an OpenAI interface.
         self.inference_base_url = f"http://{host}:{port}/v1"
         self.inference_api_key = "default"
 
-        self._openai_client = AsyncOpenAI(
+        self._openai_client = OpenAI(
             base_url=self.inference_base_url,
             api_key=self.inference_api_key,
-            http_client=DefaultAsyncHttpxClient(
+            http_client=DefaultHttpxClient(
                 timeout=httpx.Timeout(timeout=1200, connect=5.0),
                 limits=httpx.Limits(
                     max_connections=10_000,
