@@ -5,6 +5,7 @@ from judgeval.common.api import JudgmentApiClient, JudgmentAPIException
 import os
 from judgeval.common.exceptions import JudgmentAPIError
 from copy import copy
+from judgeval.common.logger import judgeval_logger
 
 
 def push_prompt_scorer(
@@ -22,7 +23,7 @@ def push_prompt_scorer(
             raise JudgmentAPIError(
                 f"The server is temporarily unavailable. Please try your request again in a few moments. Error details: {e.error_detail}"
             )
-        raise JudgmentAPIError(f"Failed to save classifier scorer: {e.error_detail}")
+        raise JudgmentAPIError(f"Failed to save prompt scorer: {e.error_detail}")
     return r["name"]
 
 
@@ -43,7 +44,7 @@ def fetch_prompt_scorer(
                 f"The server is temporarily unavailable. Please try your request again in a few moments. Error details: {e.error_detail}"
             )
         raise JudgmentAPIError(
-            f"Failed to fetch classifier scorer '{name}': {e.error_detail}"
+            f"Failed to fetch prompt scorer '{name}': {e.error_detail}"
         )
 
 
@@ -105,6 +106,7 @@ class PromptScorer(APIScorerConfig):
     ):
         if not scorer_exists(name, judgment_api_key, organization_id):
             push_prompt_scorer(name, prompt, options, judgment_api_key, organization_id)
+            judgeval_logger.info(f"Successfully created PromptScorer: {name}")
             return cls(
                 name=name,
                 prompt=prompt,
@@ -134,6 +136,7 @@ class PromptScorer(APIScorerConfig):
         """
         self.prompt = prompt
         self.push_prompt_scorer()
+        judgeval_logger.info(f"Successfully updated prompt for {self.name}")
 
     def set_options(self, options: Dict[str, float]):
         """
@@ -144,6 +147,7 @@ class PromptScorer(APIScorerConfig):
         """
         self.options = options
         self.push_prompt_scorer()
+        judgeval_logger.info(f"Successfully updated options for {self.name}")
 
     def append_to_prompt(self, prompt_addition: str):
         """
@@ -151,6 +155,7 @@ class PromptScorer(APIScorerConfig):
         """
         self.prompt += prompt_addition
         self.push_prompt_scorer()
+        judgeval_logger.info(f"Successfully appended to prompt for {self.name}")
 
     # Getters
     def get_prompt(self) -> str | None:
