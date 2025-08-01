@@ -7,6 +7,7 @@ from judgeval.common.utils import (
     fetch_litellm_api_response,
 )
 from judgeval.common.logger import judgeval_logger
+from judgeval.constants import DEFAULT_GPT_MODEL
 
 BASE_CONVERSATION = [
     {"role": "system", "content": "You are a helpful assistant."},
@@ -14,7 +15,7 @@ BASE_CONVERSATION = [
 
 
 class LiteLLMJudge(JudgevalJudge):
-    def __init__(self, model: str = "gpt-4.1-mini", **kwargs):
+    def __init__(self, model: str = DEFAULT_GPT_MODEL, **kwargs):
         self.model = model
         self.kwargs = kwargs
         super().__init__(model_name=model)

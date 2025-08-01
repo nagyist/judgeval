@@ -175,7 +175,7 @@ async def make_upper(input: str) -> str:
     )
 
     judgment.async_evaluate(
-        scorers=[FaithfulnessScorer(threshold=0.5)],
+        scorer=FaithfulnessScorer(threshold=0.5),
         example=example,
         model="gpt-4.1-mini",
     )
@@ -198,7 +198,7 @@ async def make_lower(input):
     )
 
     judgment.async_evaluate(
-        scorers=[AnswerRelevancyScorer(threshold=0.5)],
+        scorer=AnswerRelevancyScorer(threshold=0.5),
         example=example,
         model="gpt-4.1-mini",
     )
@@ -226,7 +226,7 @@ async def answer_user_question(input):
     )
 
     judgment.async_evaluate(
-        scorers=[AnswerRelevancyScorer(threshold=0.5)],
+        scorer=AnswerRelevancyScorer(threshold=0.5),
         example=example,
         model="gpt-4.1-mini",
     )
@@ -255,7 +255,7 @@ async def make_poem(input: str) -> str:
         example = Example(input=input, actual_output=anthropic_result)
 
         judgment.async_evaluate(
-            scorers=[AnswerRelevancyScorer(threshold=0.5)],
+            scorer=AnswerRelevancyScorer(threshold=0.5),
             example=example,
             model="gpt-4.1-mini",
         )
@@ -323,7 +323,7 @@ async def make_poem_with_async_clients(input: str) -> str:
         # --- End Important ---
 
         judgment.async_evaluate(
-            scorers=[AnswerRelevancyScorer(threshold=0.5)],
+            scorer=AnswerRelevancyScorer(threshold=0.5),
             input=input,
             actual_output=anthropic_result,
             model="gpt-4.1-mini",
