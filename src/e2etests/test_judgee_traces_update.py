@@ -168,7 +168,7 @@ async def test_trace_save_increment(client, project_name: str):
             "duration": 0.1,
             "token_counts": {"total": 10},
             "empty_save": False,
-            "update_id": 1,
+            "update_id": 0,
             "evaluation_runs": [],
         }
         logger.debug(f"Created trace data: {trace_data}")
