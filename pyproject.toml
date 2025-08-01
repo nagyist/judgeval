@@ -16,6 +16,7 @@ classifiers = [
 license = "Apache-2.0"
 license-files = ["LICENSE.md"]
 dependencies = [
+    "rich",
     "litellm>=1.61.15",
     "python-dotenv",
     "requests",
@@ -38,16 +39,22 @@ build-backend = "hatchling.build"
 packages = ["src/judgeval"]
 include = ["/src/judgeval", "/src/judgeval/**/*.py"]
 
+[project.optional-dependencies]
+langchain = [
+    "langchain-huggingface",
+    "langchain-openai",
+    "langchain-anthropic",
+    "langchain-core",
+]
+
 [dependency-groups]
 dev = [
     "chromadb>=1.0.12",
-    "langchain-community>=0.3.24",
     "pytest>=8.4.0",
     "pytest-asyncio>=1.0.0",
     "pytest-cov>=6.1.1",
     "pytest-mock>=3.14.1",
     "tavily-python>=0.7.5",
-    "langgraph>=0.4.3",
     "pre-commit>=4.2.0",
     "types-requests>=2.32.4.20250611",
     "mypy>=1.17.0",
@@ -79,10 +86,6 @@ dev = [
     "together",
     "anthropic",
     "google-genai",
-    "langchain-huggingface",
-    "langchain-openai",
-    "langchain-anthropic",
-    "langchain-core",
     "groq",
 ]
 
