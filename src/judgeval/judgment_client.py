@@ -4,7 +4,7 @@ Implements the JudgmentClient to interact with the Judgment API.
 
 import os
 from uuid import uuid4
-from typing import Optional, List, Dict, Any, Union, Callable
+from typing import Optional, List, Dict, Any, Union, Callable, TypeAlias
 
 from judgeval.data import (
     ScoringResult,
@@ -29,6 +29,10 @@ from judgeval.common.utils import validate_api_key
 from pydantic import BaseModel
 from judgeval.common.logger import judgeval_logger
 from judgeval.integrations.langgraph import JudgevalCallbackHandler
+
+
+Scorer: TypeAlias = Union[APIScorerConfig, BaseScorer]
+ScorersInput: TypeAlias = Union[Scorer, List[Scorer]]
 
 
 class EvalRunRequestBody(BaseModel):
@@ -81,9 +85,7 @@ class JudgmentClient(metaclass=SingletonMeta):
 
     def run_trace_evaluation(
         self,
-        scorers: Union[
-            Union[APIScorerConfig, BaseScorer], List[Union[APIScorerConfig, BaseScorer]]
-        ],
+        scorers: ScorersInput,
         examples: Optional[List[Example]] = None,
         function: Optional[Callable] = None,
         tracer: Optional[Union[Tracer, JudgevalCallbackHandler]] = None,
@@ -132,9 +134,7 @@ class JudgmentClient(metaclass=SingletonMeta):
     def run_evaluation(
         self,
         examples: List[Example],
-        scorers: Union[
-            Union[APIScorerConfig, BaseScorer], List[Union[APIScorerConfig, BaseScorer]]
-        ],
+        scorers: ScorersInput,
         model: Optional[str] = "gpt-4.1",
         project_name: str = "default_project",
         eval_run_name: str = "default_eval_run",
@@ -146,7 +146,7 @@ class JudgmentClient(metaclass=SingletonMeta):
 
         Args:
             examples (List[Example]): The examples to evaluate
-            scorers (Union[APIScorerConfig, BaseScorer, List[Union[APIScorerConfig, BaseScorer]]]): A single scorer or list of scorers to use for evaluation
+            scorers (ScorersInput): A single scorer or list of scorers to use for evaluation
             model (str): The model used as a judge when using LLM as a Judge
             project_name (str): The name of the project the evaluation results belong to
             eval_run_name (str): A name for this evaluation run
@@ -225,9 +225,7 @@ class JudgmentClient(metaclass=SingletonMeta):
     def assert_test(
         self,
         examples: List[Example],
-        scorers: Union[
-            Union[APIScorerConfig, BaseScorer], List[Union[APIScorerConfig, BaseScorer]]
-        ],
+        scorers: ScorersInput,
         model: Optional[str] = "gpt-4.1",
         project_name: str = "default_test",
         eval_run_name: str = str(uuid4()),
@@ -239,7 +237,7 @@ class JudgmentClient(metaclass=SingletonMeta):
 
         Args:
             examples (List[Example]): The examples to evaluate.
-            scorers (Union[APIScorerConfig, BaseScorer, List[Union[APIScorerConfig, BaseScorer]]]): A single scorer or list of scorers to use for evaluation
+            scorers (ScorersInput): A single scorer or list of scorers to use for evaluation
             model (str): The model used as a judge when using LLM as a Judge
             project_name (str): The name of the project the evaluation results belong to
             eval_run_name (str): A name for this evaluation run
@@ -263,9 +261,7 @@ class JudgmentClient(metaclass=SingletonMeta):
 
     def assert_trace_test(
         self,
-        scorers: Union[
-            Union[APIScorerConfig, BaseScorer], List[Union[APIScorerConfig, BaseScorer]]
-        ],
+        scorers: ScorersInput,
         examples: Optional[List[Example]] = None,
         function: Optional[Callable] = None,
         tracer: Optional[Union[Tracer, JudgevalCallbackHandler]] = None,
@@ -283,7 +279,7 @@ class JudgmentClient(metaclass=SingletonMeta):
 
         Args:
             examples (List[Example]): The examples to evaluate.
-            scorers (Union[APIScorerConfig, BaseScorer, List[Union[APIScorerConfig, BaseScorer]]]): A single scorer or list of scorers to use for evaluation
+            scorers (ScorersInput): A single scorer or list of scorers to use for evaluation
             model (str): The model used as a judge when using LLM as a Judge
             project_name (str): The name of the project the evaluation results belong to
             eval_run_name (str): A name for this evaluation run
@@ -294,6 +290,9 @@ class JudgmentClient(metaclass=SingletonMeta):
             tools (Optional[List[Dict[str, Any]]]): A list of tools to use for evaluation
             async_execution (bool): Whether to run the evaluation asynchronously
         """
+
+        if not isinstance(scorers, list):
+            scorers = [scorers]
 
         # Check for enable_param_checking and tools
         for scorer in scorers:
