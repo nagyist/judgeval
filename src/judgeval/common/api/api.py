@@ -1,4 +1,4 @@
-from typing import Literal, List, Dict, Any, Union
+from typing import Literal, List, Dict, Any, Union, Optional
 from requests import exceptions
 from judgeval.common.api.constants import (
     JUDGMENT_TRACES_FETCH_API_URL,
@@ -53,8 +53,7 @@ from judgeval.common.api.constants import (
     CheckExampleKeysPayload,
 )
 from judgeval.utils.requests import requests
-
-import orjson
+from judgeval.common.api.json_encoder import json_encoder
 
 
 class JudgmentAPIException(exceptions.HTTPError):
@@ -111,7 +110,7 @@ class JudgmentApiClient:
             r = requests.request(
                 method,
                 url,
-                data=self._serialize(payload),
+                json=json_encoder(payload),
                 headers=self._headers(),
                 **self._request_kwargs(),
             )
@@ -238,7 +237,7 @@ class JudgmentApiClient:
         }
         return self._do_request("POST", JUDGMENT_CHECK_EXAMPLE_KEYS_API_URL, payload)
 
-    def save_scorer(self, name: str, prompt: str, options: dict):
+    def save_scorer(self, name: str, prompt: str, options: Optional[dict] = None):
         payload: ScorerSavePayload = {
             "name": name,
             "prompt": prompt,
@@ -368,16 +367,3 @@ class JudgmentApiClient:
             "verify": True,
             "timeout": 30,
         }
-
-    def _serialize(self, data: Any) -> str:
-        def fallback_encoder(obj):
-            try:
-                return repr(obj)
-            except Exception:
-                try:
-                    return str(obj)
-                except Exception as e:
-                    return f"<Unserializable object of type {type(obj).__name__}: {e}>"
-
-        # orjson returns bytes, so we need to decode to str
-        return orjson.dumps(data, default=fallback_encoder).decode("utf-8")
