@@ -11,6 +11,17 @@ from judgeval.dataset import Dataset
 
 
 def test_create_dataset(client: JudgmentClient, project_name: str, random_name: str):
+    """Test dataset creation"""
+    dataset = Dataset.create(
+        name=random_name,
+        project_name=project_name,
+    )
+    dataset.delete()
+
+
+def test_create_dataset_with_example(
+    client: JudgmentClient, project_name: str, random_name: str
+):
     """Test dataset creation and manipulation."""
     dataset = Dataset.create(
         name=random_name,
