@@ -44,6 +44,9 @@ class EvaluationRun(BaseModel):
     def validate_examples(cls, v):
         if not v:
             raise ValueError("Examples cannot be empty.")
+        for item in v:
+            if not isinstance(item, Example):
+                raise ValueError(f"Item of type {type(item)} is not a Example")
         return v
 
     @field_validator("scorers", mode="before")
