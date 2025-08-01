@@ -1761,9 +1761,10 @@ def wrap(
 
     def process_span(span, response):
         """Format and record the output in the span"""
-        output, usage = _format_output_data(client, response)
+        output, usage, choice = _format_output_data(client, response)
         span.record_output(output)
         span.record_usage(usage)
+        span.record_additional_metadata({"choice": choice})
 
         return response
 
@@ -1919,6 +1920,8 @@ def _format_output_data(
                 message_content = response.choices[0].message.parsed
             else:
                 message_content = response.choices[0].message.content
+            
+            choice = response.choices[0]
         elif isinstance(response, Response):
             model_name = response.model
             prompt_tokens = response.usage.input_tokens if response.usage else 0
@@ -1934,6 +1937,7 @@ def _format_output_data(
                     for seg in response.output[0].content
                     if hasattr(seg, "text")
                 )
+            choice = response.choices[0]
 
         # Note: LiteLLM seems to use cache_read_input_tokens to calculate the cost for OpenAI
     elif isinstance(client, (Together, AsyncTogether)):
@@ -1941,6 +1945,7 @@ def _format_output_data(
         prompt_tokens = response.usage.prompt_tokens
         completion_tokens = response.usage.completion_tokens
         message_content = response.choices[0].message.content
+        choice = response.choices[0]
 
         # As of 2025-07-14, Together does not do any input cache token tracking
     elif isinstance(client, (genai.Client, genai.client.AsyncClient)):
@@ -1948,7 +1953,7 @@ def _format_output_data(
         prompt_tokens = response.usage_metadata.prompt_token_count
         completion_tokens = response.usage_metadata.candidates_token_count
         message_content = response.candidates[0].content.parts[0].text
-
+        choice = response.candidates[0]
         if hasattr(response.usage_metadata, "cached_content_token_count"):
             cache_read_input_tokens = response.usage_metadata.cached_content_token_count
     elif isinstance(client, (Anthropic, AsyncAnthropic)):
@@ -1958,14 +1963,16 @@ def _format_output_data(
         cache_read_input_tokens = response.usage.cache_read_input_tokens
         cache_creation_input_tokens = response.usage.cache_creation_input_tokens
         message_content = response.content[0].text
+        choice = response.content[0]
     elif isinstance(client, (Groq, AsyncGroq)):
         model_name = "groq/" + response.model
         prompt_tokens = response.usage.prompt_tokens
         completion_tokens = response.usage.completion_tokens
         message_content = response.choices[0].message.content
+        choice = response.choices[0]
     else:
         judgeval_logger.warning(f"Unsupported client type: {type(client)}")
-        return None, None
+        return None, None, None
 
     prompt_cost, completion_cost = cost_per_token(
         model=model_name,
@@ -1988,7 +1995,7 @@ def _format_output_data(
         total_cost_usd=total_cost_usd,
         model_name=model_name,
     )
-    return message_content, usage
+    return message_content, usage, choice
 
 
 def combine_args_kwargs(func, args, kwargs):
