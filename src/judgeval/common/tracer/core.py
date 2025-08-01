@@ -1764,7 +1764,7 @@ def wrap(
         output, usage, choice = _format_output_data(client, response)
         span.record_output(output)
         span.record_usage(usage)
-        span.record_additional_metadata({"choice": choice})
+        span.update_metadata({"choice": choice})
 
         return response
 

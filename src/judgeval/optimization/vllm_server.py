@@ -58,6 +58,7 @@ async def launch_openai_server(
     running; you may `await task` to block until the server shuts down, or
     `task.cancel()` to stop it.
     """
+    patch_chat_completion_request()
     from vllm.entrypoints.openai import api_server
 
     @contextlib.asynccontextmanager
@@ -142,3 +143,17 @@ def get_openai_server_config(
         log_file=log_file, server_args=server_args, engine_args=engine_args
     )
 
+def patch_chat_completion_request():
+    """
+    Patch the ChatCompletionRequest class so that logprobs are always returned.
+    """
+    import vllm.entrypoints.openai.protocol
+
+    class ChatCompletionRequest(vllm.entrypoints.openai.protocol.ChatCompletionRequest):
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            super().__init__(*args, **kwargs)
+            self.logprobs = True
+            if self.top_logprobs is None:
+                self.top_logprobs = 0
+
+    vllm.entrypoints.openai.protocol.ChatCompletionRequest = ChatCompletionRequest
