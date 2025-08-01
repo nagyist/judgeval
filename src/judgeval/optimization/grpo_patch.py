@@ -215,19 +215,20 @@ def tokenize_trajectory(trajectory: Trajectory, tokenizer) -> Dict[str, Any]:
         elif isinstance(msg_or_choice, dict):
             messages.append(msg_or_choice)
     
-    # Find the last assistant message
-    last_assistant_idx = -1
+    # Find the first assistant message
+    first_assistant_idx = -1
     for i, msg in enumerate(messages):
         if msg.get("role") == "assistant":
-            last_assistant_idx = i
+            first_assistant_idx = i
+            break
     
-    if last_assistant_idx == -1:
+    if first_assistant_idx == -1:
         return None
     
-    # Split: everything up to last assistant = prompt
-    prompt_messages = messages[:last_assistant_idx]
-    # Everything from last assistant onwards = completion (may include tool responses after)
-    completion_messages = messages[last_assistant_idx:]
+    # Split: everything up to first assistant = prompt
+    prompt_messages = messages[:first_assistant_idx]
+    # Everything from first assistant onwards = completion (may include tool responses after)
+    completion_messages = messages[first_assistant_idx:]
     
     # Tokenize prompt
     if prompt_messages:
