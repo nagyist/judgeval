@@ -209,18 +209,6 @@ class TraceClient:
                     self.otel_span_processor.queue_evaluation_run(
                         eval_run, span_id=span_id, span_data=current_span
                     )
-        elif isinstance(scorer, BaseScorer):
-            from judgeval.run_evaluation import run_eval
-
-            eval_run = EvaluationRun(
-                organization_id=self.tracer.organization_id,
-                project_name=self.project_name,
-                eval_name=eval_run_name,
-                examples=[example],
-                scorers=[scorer],
-                trace_span_id=span_id,
-            )
-            run_eval(eval_run, self.tracer.api_key)
 
     def add_eval_run(self, eval_run: EvaluationRun, start_time: float):
         current_span_id = eval_run.trace_span_id
@@ -1505,6 +1493,12 @@ class Tracer:
             if not self.enable_monitoring or not self.enable_evaluations:
                 return
 
+            if isinstance(scorer, BaseScorer):
+                judgeval_logger.warning(
+                    "Custom Scorers are not currently supported for async_evaluate, skipping evaluation"
+                )
+                return
+
             if not isinstance(scorer, (APIScorerConfig, BaseScorer)):
                 judgeval_logger.warning(
                     f"Scorer must be an instance of APIScorerConfig or BaseScorer, got {type(scorer)}, skipping evaluation"
@@ -1517,11 +1511,12 @@ class Tracer:
                 )
                 return
 
-            if background and isinstance(scorer, BaseScorer):
-                judgeval_logger.warning(
-                    "Background evaluation is not supported for Custom Scorers, please set background to 'False' and it will run asynchronously"
-                )
-                return
+            # TODO: Add support for custom scorers
+            # if background and isinstance(scorer, BaseScorer):
+            #     judgeval_logger.warning(
+            #         "Background evaluation is not supported for Custom Scorers, please set background to 'False' and it will run asynchronously"
+            #     )
+            #     return
 
             if sampling_rate < 0:
                 judgeval_logger.warning(
