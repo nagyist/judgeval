@@ -902,9 +902,9 @@ class Tracer:
             self.traces: List[Trace] = []
             self.enable_monitoring: bool = enable_monitoring
             self.enable_evaluations: bool = enable_evaluations
-            self.class_identifiers: Dict[str, str] = (
-                {}
-            )  # Dictionary to store class identifiers
+            self.class_identifiers: Dict[
+                str, str
+            ] = {}  # Dictionary to store class identifiers
             self.span_id_to_previous_span_id: Dict[str, Union[str, None]] = {}
             self.trace_id_to_previous_trace: Dict[str, Union[TraceClient, None]] = {}
             self.current_span_id: Optional[str] = None
@@ -1759,9 +1759,9 @@ def wrap(
         )
 
         assert google_genai_Client is not None, "Google GenAI client not found"
-        assert (
-            google_genai_AsyncClient is not None
-        ), "Google GenAI async client not found"
+        assert google_genai_AsyncClient is not None, (
+            "Google GenAI async client not found"
+        )
         if isinstance(client, (google_genai_Client)):
             setattr(client.models, "generate_content", wrapped(original_create))
         elif isinstance(client, (google_genai_AsyncClient)):
@@ -1866,9 +1866,9 @@ def _get_client_config(
         )
 
         assert google_genai_Client is not None, "Google GenAI client not found"
-        assert (
-            google_genai_AsyncClient is not None
-        ), "Google GenAI async client not found"
+        assert google_genai_AsyncClient is not None, (
+            "Google GenAI async client not found"
+        )
         if isinstance(client, (google_genai_Client)):
             return "GOOGLE_API_CALL", client.models.generate_content, None, None, None
         elif isinstance(client, (google_genai_AsyncClient)):
@@ -1918,9 +1918,9 @@ def _format_output_data(
         assert openai_AsyncOpenAI is not None, "OpenAI async client not found"
         assert openai_ChatCompletion is not None, "OpenAI chat completion not found"
         assert openai_Response is not None, "OpenAI response not found"
-        assert (
-            openai_ParsedChatCompletion is not None
-        ), "OpenAI parsed chat completion not found"
+        assert openai_ParsedChatCompletion is not None, (
+            "OpenAI parsed chat completion not found"
+        )
 
         if isinstance(client, (openai_OpenAI, openai_AsyncOpenAI)):
             if isinstance(response, openai_ChatCompletion):
@@ -1998,9 +1998,9 @@ def _format_output_data(
         )
 
         assert google_genai_Client is not None, "Google GenAI client not found"
-        assert (
-            google_genai_AsyncClient is not None
-        ), "Google GenAI async client not found"
+        assert google_genai_AsyncClient is not None, (
+            "Google GenAI async client not found"
+        )
         if isinstance(client, (google_genai_Client, google_genai_AsyncClient)):
             model_name = response.model_version
             prompt_tokens = response.usage_metadata.prompt_token_count
