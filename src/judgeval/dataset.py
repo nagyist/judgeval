@@ -35,6 +35,7 @@ class Dataset:
         for e in examples:
             if isinstance(e, dict) and isinstance(e.get("data"), dict):
                 e.update(e.pop("data"))
+        judgeval_logger.info(f"Succesfully retrieved dataset {name}!")
         return cls(
             name=name,
             project_name=project_name,
@@ -68,6 +69,7 @@ class Dataset:
             traces=[t.model_dump() for t in traces],
             overwrite=overwrite,
         )
+        judgeval_logger.info(f"Succesfull created dataset {name}!")
         return cls(
             name=name,
             project_name=project_name,
