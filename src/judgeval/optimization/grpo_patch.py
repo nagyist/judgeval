@@ -76,6 +76,7 @@ def apply_multi_turn_patches(model, trajectory_groups: List[List[Trajectory]], c
         - advantages: trajectory reward
         """
         device = trainer.accelerator.device
+        print(batch)
         
         # Stack tensors for batch processing
         prompt_ids = torch.stack([torch.tensor(item["prompt_ids"]) for item in batch["prompt_ids"]]).to(device)
