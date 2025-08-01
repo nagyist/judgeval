@@ -12,7 +12,7 @@ from .types import TrainConfig, Trajectory
 from typing import cast, Any
 from peft import PeftModelForCausalLM
 from trl.trainer.grpo_trainer import GRPOTrainer
-from trl.trainer.grpo_config import GRPOConfig
+from unsloth_compiled_cache.UnslothGRPOTrainer import UnslothGRPOConfig
 
 from datasets import Dataset
 
@@ -91,7 +91,7 @@ class TrainableModel:
         self.trainer = GRPOTrainer(
             model=self.peft_model,
             reward_funcs=[],
-            args=GRPOConfig(**config.get("trainer_args", {})),
+            args=UnslothGRPOConfig(**config.get("trainer_args", {})),
             train_dataset=Dataset.from_list([{"prompt": ""} for _ in range(10_000_000)]),
             processing_class=self.tokenizer,
         )

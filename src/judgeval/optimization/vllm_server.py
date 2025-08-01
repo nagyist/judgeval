@@ -63,10 +63,6 @@ async def launch_openai_server(
 
     @contextlib.asynccontextmanager
     async def build_async_engine_client(*_a: Any, **_kw: Any) -> AsyncIterator[EngineClient]:
-        print("build_async_engine_client")
-        print(engine)
-        print(type(engine))
-        print(dir(engine))
         yield engine
 
     # Inject our custom engine factory.

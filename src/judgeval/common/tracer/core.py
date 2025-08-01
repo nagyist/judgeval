@@ -1326,6 +1326,7 @@ class Tracer:
                                 "offline_mode": self.offline_mode,
                                 "parent_trace_id": current_trace.parent_trace_id,
                                 "parent_name": current_trace.parent_name,
+                                "metadata": current_trace.metadata,
                             }
 
                             trace_id, server_response = current_trace.save(
@@ -1455,6 +1456,7 @@ class Tracer:
                                 "offline_mode": self.offline_mode,
                                 "parent_trace_id": current_trace.parent_trace_id,
                                 "parent_name": current_trace.parent_name,
+                                "metadata": current_trace.metadata,
                             }
                             self.traces.append(complete_trace_data)
                             self.reset_current_trace(trace_token)
