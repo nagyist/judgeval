@@ -36,24 +36,12 @@ def apply_multi_turn_patches(model, trajectory_groups: List[List[Trajectory]], c
     dataset_items = []
     
     for group in trajectory_groups:
-        trajectories = group
+        # Normalize rewards within group
+        avg_reward = sum(traj.reward for traj in group) / len(group)
+        for traj in group:
+            traj.advantage = traj.reward - avg_reward
         
-        if config.comparative_reward:
-            # Sort by reward for comparative evaluation
-            trajectories = sorted(trajectories, key=lambda t: t.reward, reverse=True)
-            
-            # Normalize rewards within group
-            if len(trajectories) > 1:
-                max_reward = trajectories[0].reward
-                min_reward = trajectories[-1].reward
-                reward_range = max_reward - min_reward
-                
-                if reward_range > 0:
-                    for traj in trajectories:
-                        normalized_reward = (traj.reward - min_reward) / reward_range
-                        traj.reward = normalized_reward
-        
-        for trajectory in trajectories:
+        for trajectory in group:
             # Convert trajectory to tokenized format
             tokenized = tokenize_trajectory(trajectory, tokenizer)
             if tokenized:
@@ -79,14 +67,14 @@ def apply_multi_turn_patches(model, trajectory_groups: List[List[Trajectory]], c
         print(batch)
         
         # Stack tensors for batch processing
-        prompt_ids = torch.stack([torch.tensor(item["prompt_ids"]) for item in batch["prompt_ids"]]).to(device)
-        prompt_mask = torch.stack([torch.tensor(item["prompt_mask"]) for item in batch["prompt_mask"]]).to(device)
-        completion_ids = torch.stack([torch.tensor(item["completion_ids"]) for item in batch["completion_ids"]]).to(device)
-        completion_mask = torch.stack([torch.tensor(item["completion_mask"]) for item in batch["completion_mask"]]).to(device)
-        advantages = torch.tensor(batch["advantages"]).to(device)
+        prompt_ids = torch.stack([torch.tensor(item["prompt_ids"]) for item in batch]).to(device)
+        prompt_mask = torch.stack([torch.tensor(item["prompt_mask"]) for item in batch]).to(device)
+        completion_ids = torch.stack([torch.tensor(item["completion_ids"]) for item in batch]).to(device)
+        completion_mask = torch.stack([torch.tensor(item["completion_mask"]) for item in batch]).to(device)
+        advantages = torch.stack([torch.tensor(item["advantages"]) for item in batch]).to(device)
         
         # Process assistant_mask
-        assistant_mask = torch.stack([torch.tensor(item["assistant_mask"]) for item in batch["assistant_mask"]]).to(device)
+        assistant_mask = torch.stack([torch.tensor(item["assistant_mask"]) for item in batch]).to(device)
         
         # Return in GRPO expected format with assistant_mask
         return {
@@ -278,6 +266,6 @@ def tokenize_trajectory(trajectory: Trajectory, tokenizer) -> Dict[str, Any]:
         "completion_ids": completion_ids,
         "completion_mask": completion_mask,
         "assistant_mask": assistant_mask,  # Which completion tokens to train on
-        "advantages": trajectory.reward,
+        "advantages": trajectory.advantage,
         "prompt": "dummy",  # Required by GRPO dataset format
     }

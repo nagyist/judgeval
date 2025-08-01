@@ -1564,6 +1564,8 @@ class Tracer:
         trajectory = Trajectory(
             messages_and_choices=[],
             reward=trace.metadata.get("reward_score", 0),
+            # This gets set later when we have the entire groups' rewards
+            advantage=0.0,
         )
 
         # Get the current trace's spans

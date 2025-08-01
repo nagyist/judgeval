@@ -24,5 +24,6 @@ class TrainConfig(pydantic.BaseModel):
 class Trajectory(pydantic.BaseModel):
     messages_and_choices: MessagesAndChoices
     reward: float
+    advantage: float
 
 Verbosity = Literal[0, 1, 2]
