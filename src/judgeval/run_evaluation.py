@@ -537,7 +537,12 @@ def run_eval(
             judgment_api_key,
             evaluation_run.organization_id,
         )
-
+    if override:
+        api_client = JudgmentApiClient(judgment_api_key, evaluation_run.organization_id)
+        api_client.delete_evaluation_results(
+            project_name=evaluation_run.project_name,
+            eval_names=[evaluation_run.eval_name],
+        )
     if evaluation_run.append:
         # Check that the current experiment, if one exists, has the same type (examples of traces)
         check_experiment_type(
