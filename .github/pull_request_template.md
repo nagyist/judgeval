@@ -10,14 +10,7 @@
 -->
 - [ ] 1. ...
 
-## 🎥 Demo of Changes
-
-<!-- Add a short 1-3 minute video describing/demoing the changes -->
-
 ## ✅ Checklist
 
-- [ ] Tagged Linear ticket in PR title. Ie. PR Title (JUD-XXXX)
-- [ ] Video demo of changes
-- [ ] Reviewers assigned
 - [ ] Docs updated ([if necessary](https://github.com/JudgmentLabs/docs))
-- [ ] Cookbooks updated ([if necessary](https://github.com/JudgmentLabs/judgment-cookbook))
+- [ ] Changelogs are updated ([if necessary](https://github.com/JudgmentLabs/docs/tree/main/content/docs/changelog/%28weekly%29))
