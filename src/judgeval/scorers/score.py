@@ -48,6 +48,7 @@ async def safe_a_score_example(
         judgeval_logger.error(f"Error during scoring: {str(e)}")
         scorer.error = str(e)
         scorer.success = False
+        scorer.score = 0
         return
 
 

@@ -166,7 +166,43 @@ def test_execution_order_scorer(client: JudgmentClient, project_name: str):
     assert not res[0].success
 
 
-def test_prompt_scorer(client: JudgmentClient, project_name: str):
+def test_prompt_scorer_without_options(client: JudgmentClient, project_name: str):
+    """Test prompt scorer functionality."""
+
+    prompt_scorer = PromptScorer.create(
+        name=f"Test Prompt Scorer Without Options {uuid4()}",
+        prompt="Question: {{input}}\nResponse: {{actual_output}}\n\nIs this response relevant to the question?",
+    )
+
+    relevant_example = Example(
+        input="What's the weather in New York?",
+        actual_output="The weather in New York is sunny.",
+    )
+
+    irrelevant_example = Example(
+        input="What's the capital of France?",
+        actual_output="The mitochondria is the powerhouse of the cell, and did you know that honey never spoils?",
+    )
+
+    # Run evaluation
+    res = client.run_evaluation(
+        examples=[relevant_example, irrelevant_example],
+        scorers=[prompt_scorer],
+        model=DEFAULT_TOGETHER_MODEL,
+        project_name=project_name,
+        eval_run_name="test-run-prompt-scorer-without-options",
+        override=True,
+    )
+
+    # Verify results
+    assert res[0].success, "Relevant example should pass classification"
+    assert not res[1].success, "Irrelevant example should fail classification"
+
+    print_debug_on_failure(res[0])
+    print_debug_on_failure(res[1])
+
+
+def test_prompt_scorer_with_options(client: JudgmentClient, project_name: str):
     """Test prompt scorer functionality."""
     # Creating a prompt scorer from SDK
     prompt_scorer = PromptScorer.create(
@@ -200,7 +236,7 @@ def test_prompt_scorer(client: JudgmentClient, project_name: str):
         scorers=[prompt_scorer],
         model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
-        eval_run_name="test-run-helpfulness",
+        eval_run_name="test-run-prompt-scorer-with-options",
         override=True,
     )
 
@@ -241,8 +277,8 @@ def test_custom_prompt_scorer(client: JudgmentClient, project_name: str):
     )
 
     example2 = ComparisonExample(
-        comparison_a="Mike loves to play singles tennis because he likes to show off his skills.",
-        comparison_b="Mike likes to play doubles tennis because he likes to pass with his partner.",
+        comparison_a="Mike loves to play singles tennis because he likes to only hit by himself and not with a partner and is selfish.",
+        comparison_b="Mike likes to play doubles tennis because he likes to coordinate with his partner.",
     )
 
     # Run evaluation
@@ -251,7 +287,7 @@ def test_custom_prompt_scorer(client: JudgmentClient, project_name: str):
         scorers=[prompt_scorer],
         model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
-        eval_run_name="test-run-helpfulness",
+        eval_run_name="test-custom-prompt-scorer",
         override=True,
     )
 
