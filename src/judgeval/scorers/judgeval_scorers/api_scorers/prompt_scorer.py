@@ -155,7 +155,7 @@ class PromptScorer(APIScorerConfig):
         """
         self.prompt += prompt_addition
         self.push_prompt_scorer()
-        judgeval_logger.info(f"Successfully updated prompt for {self.name}")
+        judgeval_logger.info(f"Successfully appended to prompt for {self.name}")
 
     # Getters
     def get_prompt(self) -> str | None:
