@@ -81,7 +81,9 @@ class JudgmentClient(metaclass=SingletonMeta):
 
     def run_trace_evaluation(
         self,
-        scorers: List[Union[APIScorerConfig, BaseScorer]],
+        scorers: Union[
+            Union[APIScorerConfig, BaseScorer], List[Union[APIScorerConfig, BaseScorer]]
+        ],
         examples: Optional[List[Example]] = None,
         function: Optional[Callable] = None,
         tracer: Optional[Union[Tracer, JudgevalCallbackHandler]] = None,
@@ -102,6 +104,10 @@ class JudgmentClient(metaclass=SingletonMeta):
 
             if examples and traces:
                 raise ValueError("Cannot pass in both examples and traces")
+
+            # Handle single scorer - wrap in list for user convenience
+            if not isinstance(scorers, list):
+                scorers = [scorers]
 
             trace_run = TraceRun(
                 project_name=project_name,
@@ -126,7 +132,9 @@ class JudgmentClient(metaclass=SingletonMeta):
     def run_evaluation(
         self,
         examples: List[Example],
-        scorers: List[Union[APIScorerConfig, BaseScorer]],
+        scorers: Union[
+            Union[APIScorerConfig, BaseScorer], List[Union[APIScorerConfig, BaseScorer]]
+        ],
         model: Optional[str] = "gpt-4.1",
         project_name: str = "default_project",
         eval_run_name: str = "default_eval_run",
@@ -138,7 +146,7 @@ class JudgmentClient(metaclass=SingletonMeta):
 
         Args:
             examples (List[Example]): The examples to evaluate
-            scorers (List[Union[APIScorerConfig, BaseScorer]]): A list of scorers to use for evaluation
+            scorers (Union[APIScorerConfig, BaseScorer, List[Union[APIScorerConfig, BaseScorer]]]): A single scorer or list of scorers to use for evaluation
             model (str): The model used as a judge when using LLM as a Judge
             project_name (str): The name of the project the evaluation results belong to
             eval_run_name (str): A name for this evaluation run
@@ -152,6 +160,10 @@ class JudgmentClient(metaclass=SingletonMeta):
             raise ValueError(
                 "Cannot set both override and append to True. Please choose one."
             )
+
+        # Handle single scorer - wrap in list for user convenience
+        if not isinstance(scorers, list):
+            scorers = [scorers]
 
         try:
             eval = EvaluationRun(
@@ -213,7 +225,9 @@ class JudgmentClient(metaclass=SingletonMeta):
     def assert_test(
         self,
         examples: List[Example],
-        scorers: List[Union[APIScorerConfig, BaseScorer]],
+        scorers: Union[
+            Union[APIScorerConfig, BaseScorer], List[Union[APIScorerConfig, BaseScorer]]
+        ],
         model: Optional[str] = "gpt-4.1",
         project_name: str = "default_test",
         eval_run_name: str = str(uuid4()),
@@ -225,7 +239,7 @@ class JudgmentClient(metaclass=SingletonMeta):
 
         Args:
             examples (List[Example]): The examples to evaluate.
-            scorers (List[Union[APIScorerConfig, BaseScorer]]): A list of scorers to use for evaluation
+            scorers (Union[APIScorerConfig, BaseScorer, List[Union[APIScorerConfig, BaseScorer]]]): A single scorer or list of scorers to use for evaluation
             model (str): The model used as a judge when using LLM as a Judge
             project_name (str): The name of the project the evaluation results belong to
             eval_run_name (str): A name for this evaluation run
@@ -249,7 +263,9 @@ class JudgmentClient(metaclass=SingletonMeta):
 
     def assert_trace_test(
         self,
-        scorers: List[Union[APIScorerConfig, BaseScorer]],
+        scorers: Union[
+            Union[APIScorerConfig, BaseScorer], List[Union[APIScorerConfig, BaseScorer]]
+        ],
         examples: Optional[List[Example]] = None,
         function: Optional[Callable] = None,
         tracer: Optional[Union[Tracer, JudgevalCallbackHandler]] = None,
@@ -267,7 +283,7 @@ class JudgmentClient(metaclass=SingletonMeta):
 
         Args:
             examples (List[Example]): The examples to evaluate.
-            scorers (List[Union[APIScorerConfig, BaseScorer]]): A list of scorers to use for evaluation
+            scorers (Union[APIScorerConfig, BaseScorer, List[Union[APIScorerConfig, BaseScorer]]]): A single scorer or list of scorers to use for evaluation
             model (str): The model used as a judge when using LLM as a Judge
             project_name (str): The name of the project the evaluation results belong to
             eval_run_name (str): A name for this evaluation run

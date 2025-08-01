@@ -181,7 +181,9 @@ class TraceClient:
 
     def async_evaluate(
         self,
-        scorers: List[Union[APIScorerConfig, BaseScorer]],
+        scorers: Union[
+            Union[APIScorerConfig, BaseScorer], List[Union[APIScorerConfig, BaseScorer]]
+        ],
         example: Optional[Example] = None,
         input: Optional[str] = None,
         actual_output: Optional[Union[str, List[str]]] = None,
@@ -196,6 +198,10 @@ class TraceClient:
     ):
         if not self.enable_evaluations:
             return
+
+        # Handle single scorer - wrap in list for user convenience
+        if not isinstance(scorers, list):
+            scorers = [scorers]
 
         start_time = time.time()
 
