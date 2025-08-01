@@ -13,5 +13,4 @@
 ## ✅ Checklist
 
 - [ ] Docs updated ([if necessary](https://github.com/JudgmentLabs/docs))
-- [ ] Changelogs are updated ([if necessary](https://github.com/JudgmentLabs/docs/tree/main/content/docs/changelog/(weekly)))
-- [ ] 
+- [ ] Changelogs are updated ([if necessary](https://github.com/JudgmentLabs/docs/tree/main/content/docs/changelog/%28weekly%29))
