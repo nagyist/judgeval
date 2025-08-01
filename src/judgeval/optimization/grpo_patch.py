@@ -72,6 +72,7 @@ def apply_multi_turn_patches(model, trajectory_groups: List[List[Trajectory]], c
         The batch contains items from our dataset where each item has:
         - prompt_ids, prompt_mask: tokenized context (all messages except last assistant)
         - completion_ids, completion_mask: tokenized last assistant message to train on
+        - assistant_mask: mask indicating which completion tokens are assistant tokens
         - advantages: trajectory reward
         """
         device = trainer.accelerator.device
@@ -83,87 +84,133 @@ def apply_multi_turn_patches(model, trajectory_groups: List[List[Trajectory]], c
         completion_mask = torch.stack([torch.tensor(item["completion_mask"]) for item in batch["completion_mask"]]).to(device)
         advantages = torch.tensor(batch["advantages"]).to(device)
         
-        # Return in GRPO expected format
+        # Process assistant_mask
+        assistant_mask = torch.stack([torch.tensor(item["assistant_mask"]) for item in batch["assistant_mask"]]).to(device)
+        
+        # Return in GRPO expected format with assistant_mask
         return {
             "prompt_ids": prompt_ids,
             "prompt_mask": prompt_mask,
             "completion_ids": completion_ids,
             "completion_mask": completion_mask,
             "advantages": advantages,
+            "assistant_mask": assistant_mask,
         }
     
-    # Apply patch - only need to patch _prepare_inputs
-    # compute_loss works as-is with our prepared inputs
-    trainer._prepare_inputs = prepare_trajectory_inputs
+    # Store original _compute_loss method (internal method that compute_loss calls)
+    original_compute_loss = trainer._compute_loss
     
-    # Return function to restore original method
+    def compute_loss_with_assistant_mask(model, inputs):
+        """
+        Modified _compute_loss that applies assistant_mask.
+        Following ART's pattern: only train on assistant tokens.
+        """
+        # Extract assistant_mask before passing to original compute_loss
+        assistant_mask = inputs.pop("assistant_mask", None)
+        
+        if assistant_mask is not None:
+            # Modify completion_mask to incorporate assistant_mask
+            # This way GRPO's loss computation automatically only trains on assistant tokens
+            original_completion_mask = inputs["completion_mask"]
+            inputs["completion_mask"] = original_completion_mask * assistant_mask
+        
+        # Call original loss computation with modified mask
+        loss = original_compute_loss(model, inputs)
+        
+        return loss
+    
+    # Apply patches
+    trainer._prepare_inputs = prepare_trajectory_inputs
+    trainer._compute_loss = compute_loss_with_assistant_mask
+    
+    # Return function to restore original methods
     def restore_original_methods():
         trainer._prepare_inputs = original_prepare_inputs
+        trainer._compute_loss = original_compute_loss
     
     return restore_original_methods
 
 
 def tokenize_trajectory(trajectory: Trajectory, tokenizer) -> Dict[str, Any]:
     """
-    Tokenize a trajectory into GRPO-compatible format.
+    Tokenize a trajectory with proper assistant masking for multi-turn conversations.
     
-    Only assistant messages are marked for training.
-    Tool/user responses are included for context but not trained.
+    Key idea: Split at last assistant message, then create mask to identify
+    which tokens in the completion are actually from the assistant (not tool responses).
     """
+    # Convert messages to standard format
     messages = []
-    assistant_indices = []
-    
-    # Convert messages_and_choices to standard message format
-    for i, msg_or_choice in enumerate(trajectory.messages_and_choices):
+    for msg_or_choice in trajectory.messages_and_choices:
         if isinstance(msg_or_choice, Choice):
-            # Choice object from OpenAI
             messages.append({
                 "role": "assistant",
                 "content": msg_or_choice.message.content or ""
             })
-            assistant_indices.append(len(messages) - 1)
         elif isinstance(msg_or_choice, dict):
             messages.append(msg_or_choice)
-            if msg_or_choice.get("role") == "assistant":
-                assistant_indices.append(len(messages) - 1)
-    
-    # No assistant messages to train on
-    if not assistant_indices:
-        return None
     
     # Find the last assistant message
-    last_assistant_idx = assistant_indices[-1]
+    last_assistant_idx = -1
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "assistant":
+            last_assistant_idx = i
     
-    # Split into prompt (everything before last assistant) and completion (last assistant)
+    if last_assistant_idx == -1:
+        return None
+    
+    # Split: everything up to last assistant = prompt
     prompt_messages = messages[:last_assistant_idx]
-    completion_text = messages[last_assistant_idx]["content"]
+    # Everything from last assistant onwards = completion (may include tool responses after)
+    completion_messages = messages[last_assistant_idx:]
     
-    # Tokenize prompt using chat template
+    # Tokenize prompt
     if prompt_messages:
-        prompt_text = tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
-        prompt_encoding = tokenizer(prompt_text, truncation=True, max_length=2048)
-        prompt_ids = prompt_encoding["input_ids"]
-        prompt_mask = prompt_encoding["attention_mask"]
+        prompt_text = tokenizer.apply_chat_template(
+            prompt_messages, 
+            tokenize=False,
+            add_generation_prompt=True
+        )
+        prompt_tokens = tokenizer(prompt_text, truncation=True, max_length=3584)
+        prompt_ids = prompt_tokens["input_ids"]
+        prompt_mask = prompt_tokens["attention_mask"]
     else:
-        # Empty prompt
-        prompt_ids = [tokenizer.bos_token_id] if tokenizer.bos_token_id else []
-        prompt_mask = [1] * len(prompt_ids)
+        prompt_ids = []
+        prompt_mask = []
     
-    # Tokenize completion (without special tokens as it continues from prompt)
-    completion_encoding = tokenizer(completion_text, add_special_tokens=False, truncation=True, max_length=512)
-    completion_ids = completion_encoding["input_ids"]
-    completion_mask = completion_encoding["attention_mask"]
+    # Tokenize completion messages and create assistant mask
+    completion_text = tokenizer.apply_chat_template(
+        completion_messages,
+        tokenize=False,
+        add_generation_prompt=False
+    )
+    completion_tokens = tokenizer(completion_text, truncation=True, max_length=512)
+    completion_ids = completion_tokens["input_ids"]
+    completion_mask = completion_tokens["attention_mask"]
     
-    # Add EOS token to completion if not already there
-    if tokenizer.eos_token_id and (not completion_ids or completion_ids[-1] != tokenizer.eos_token_id):
-        completion_ids.append(tokenizer.eos_token_id)
-        completion_mask.append(1)
+    # Create assistant mask - marks which tokens in completion are assistant tokens
+    # Start with all zeros
+    assistant_mask = [0] * len(completion_ids)
+    
+    # Mark tokens from assistant messages as 1
+    current_pos = 0
+    for msg in completion_messages:
+        # Tokenize this message alone to find its length
+        msg_text = tokenizer.apply_chat_template([msg], tokenize=False, add_generation_prompt=False)
+        msg_ids = tokenizer(msg_text, add_special_tokens=False)["input_ids"]
+        
+        if msg.get("role") == "assistant":
+            # Mark these tokens as assistant tokens
+            for i in range(current_pos, min(current_pos + len(msg_ids), len(assistant_mask))):
+                assistant_mask[i] = 1
+        
+        current_pos += len(msg_ids)
     
     return {
         "prompt_ids": prompt_ids,
         "prompt_mask": prompt_mask,
         "completion_ids": completion_ids,
         "completion_mask": completion_mask,
+        "assistant_mask": assistant_mask,  # Which completion tokens to train on
         "advantages": trajectory.reward,
         "prompt": "dummy",  # Required by GRPO dataset format
     }
