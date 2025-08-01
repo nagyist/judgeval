@@ -518,6 +518,24 @@ class TraceClient:
             reward_score: The reward score to set
         """
         self.update_metadata({"reward_score": reward_score})
+    
+    def record_additional_metadata(self, metadata: dict):
+        """Update the current span's additional_metadata with the provided dict."""
+        current_span_id = self.get_current_span()
+        if current_span_id:
+            span = self.span_id_to_span[current_span_id]
+            if "self" in metadata:
+                del metadata["self"]
+            span.additional_metadata = metadata
+
+            try:
+                self.otel_span_processor.queue_span_update(
+                    span, span_state="additional_metadata"
+                )
+            except Exception as e:
+                judgeval_logger.warning(
+                    f"Failed to queue span with additional metadata: {e}"
+                )
 
 
 def _capture_exception_for_trace(
@@ -1764,7 +1782,7 @@ def wrap(
         output, usage, choice = _format_output_data(client, response)
         span.record_output(output)
         span.record_usage(usage)
-        span.update_metadata({"choice": choice})
+        span.record_additional_metadata({"choice": choice})
 
         return response
 
