@@ -539,10 +539,20 @@ def run_eval(
         )
     if override:
         api_client = JudgmentApiClient(judgment_api_key, evaluation_run.organization_id)
-        api_client.delete_evaluation_results(
-            project_name=evaluation_run.project_name,
-            eval_names=[evaluation_run.eval_name],
-        )
+        try:
+            api_client.delete_evaluation_results(
+                project_name=evaluation_run.project_name,
+                eval_names=[evaluation_run.eval_name],
+            )
+        except JudgmentAPIException as e:
+            # If no evaluation results exist to delete (404), that's fine for override
+            if e.status_code == 404 or "404" in str(e.message):
+                judgeval_logger.info(
+                    f"No existing evaluation results found for '{evaluation_run.eval_name}' - proceeding with new evaluation"
+                )
+            else:
+                raise
+
     if evaluation_run.append:
         # Check that the current experiment, if one exists, has the same type (examples of traces)
         check_experiment_type(

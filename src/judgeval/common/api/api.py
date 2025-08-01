@@ -200,7 +200,7 @@ class JudgmentApiClient:
             "eval_names": eval_names,
             "judgment_api_key": self.api_key,
         }
-        return self._do_request("POST", JUDGMENT_EVAL_DELETE_API_URL, payload)
+        return self._do_request("DELETE", JUDGMENT_EVAL_DELETE_API_URL, payload)
 
     def add_to_evaluation_queue(self, payload: Dict[str, Any]):
         return self._do_request("POST", JUDGMENT_ADD_TO_RUN_EVAL_QUEUE_API_URL, payload)
