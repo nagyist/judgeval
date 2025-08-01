@@ -3,7 +3,7 @@ from pydantic import BaseModel, field_validator, Field
 
 from judgeval.data import Example
 from judgeval.scorers import BaseScorer, APIScorerConfig
-from judgeval.constants import ACCEPTABLE_MODELS
+from judgeval.constants import ACCEPTABLE_MODELS, DEFAULT_GPT_MODEL
 
 
 class EvaluationRun(BaseModel):
@@ -24,7 +24,7 @@ class EvaluationRun(BaseModel):
     eval_name: Optional[str] = Field(default=None, validate_default=True)
     examples: List[Example]
     scorers: List[Union[APIScorerConfig, BaseScorer]]
-    model: Optional[str] = "gpt-4.1"
+    model: Optional[str] = DEFAULT_GPT_MODEL
     trace_span_id: Optional[str] = None
     # API Key will be "" until user calls client.run_eval(), then API Key will be set
     override: Optional[bool] = False

@@ -31,6 +31,7 @@ from typing import (
     TypeAlias,
 )
 import types
+import random
 
 
 from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
@@ -53,6 +54,7 @@ from judgeval.scorers import APIScorerConfig, BaseScorer
 from judgeval.evaluation_run import EvaluationRun
 from judgeval.common.utils import ExcInfo, validate_api_key
 from judgeval.common.logger import judgeval_logger
+from judgeval.constants import DEFAULT_GPT_MODEL
 
 
 current_trace_var = contextvars.ContextVar[Optional["TraceClient"]](
@@ -112,10 +114,6 @@ class TraceClient:
         self._span_depths: Dict[str, int] = {}
 
         self.otel_span_processor = tracer.otel_span_processor
-
-        judgeval_logger.info(
-            f"🎯 TraceClient using span processor for trace {self.trace_id}"
-        )
 
     def get_current_span(self):
         """Get the current span from the context var"""
@@ -181,85 +179,48 @@ class TraceClient:
 
     def async_evaluate(
         self,
-        scorers: List[Union[APIScorerConfig, BaseScorer]],
-        example: Optional[Example] = None,
-        input: Optional[str] = None,
-        actual_output: Optional[Union[str, List[str]]] = None,
-        expected_output: Optional[Union[str, List[str]]] = None,
-        context: Optional[List[str]] = None,
-        retrieval_context: Optional[List[str]] = None,
-        tools_called: Optional[List[str]] = None,
-        expected_tools: Optional[List[str]] = None,
-        additional_metadata: Optional[Dict[str, Any]] = None,
-        model: Optional[str] = None,
-        span_id: Optional[str] = None,
+        scorer: Union[APIScorerConfig, BaseScorer],
+        example: Example,
+        model: str = DEFAULT_GPT_MODEL,
     ):
-        if not self.enable_evaluations:
-            return
-
         start_time = time.time()
+        span_id = self.get_current_span()
 
-        try:
-            if not scorers:
-                judgeval_logger.warning("No valid scorers available for evaluation")
-                return
-
-        except Exception as e:
-            judgeval_logger.warning(f"Failed to load scorers: {str(e)}")
-            return
-
-        if example is None:
-            if any(
-                param is not None
-                for param in [
-                    input,
-                    actual_output,
-                    expected_output,
-                    context,
-                    retrieval_context,
-                    tools_called,
-                    expected_tools,
-                    additional_metadata,
-                ]
-            ):
-                example = Example(
-                    input=input,
-                    actual_output=actual_output,
-                    expected_output=expected_output,
-                    context=context,
-                    retrieval_context=retrieval_context,
-                    tools_called=tools_called,
-                    expected_tools=expected_tools,
-                    additional_metadata=additional_metadata,
-                )
-            else:
-                raise ValueError(
-                    "Either 'example' or at least one of the individual parameters (input, actual_output, etc.) must be provided"
-                )
-
-        span_id_to_use = span_id if span_id is not None else self.get_current_span()
-
-        eval_run = EvaluationRun(
-            organization_id=self.tracer.organization_id,
-            project_name=self.project_name,
-            eval_name=f"{self.name.capitalize()}-"
-            f"{span_id_to_use}-"
-            f"[{','.join(scorer.score_type.capitalize() for scorer in scorers)}]",
-            examples=[example],
-            scorers=scorers,
-            model=model,
-            judgment_api_key=self.tracer.api_key,
-            trace_span_id=span_id_to_use,
+        eval_run_name = (
+            f"{self.name.capitalize()}-{span_id}-{scorer.score_type.capitalize()}"
         )
+        if isinstance(scorer, APIScorerConfig):
+            eval_run = EvaluationRun(
+                organization_id=self.tracer.organization_id,
+                project_name=self.project_name,
+                eval_name=eval_run_name,
+                examples=[example],
+                scorers=[scorer],
+                model=model,
+                judgment_api_key=self.tracer.api_key,
+                trace_span_id=span_id,
+            )
 
-        self.add_eval_run(eval_run, start_time)
+            self.add_eval_run(eval_run, start_time)
 
-        if span_id_to_use:
-            current_span = self.span_id_to_span.get(span_id_to_use)
-            if current_span:
-                self.otel_span_processor.queue_evaluation_run(
-                    eval_run, span_id=span_id_to_use, span_data=current_span
-                )
+            if span_id:
+                current_span = self.span_id_to_span.get(span_id)
+                if current_span:
+                    self.otel_span_processor.queue_evaluation_run(
+                        eval_run, span_id=span_id, span_data=current_span
+                    )
+        elif isinstance(scorer, BaseScorer):
+            from judgeval.run_evaluation import run_eval
+
+            eval_run = EvaluationRun(
+                organization_id=self.tracer.organization_id,
+                project_name=self.project_name,
+                eval_name=eval_run_name,
+                examples=[example],
+                scorers=[scorer],
+                trace_span_id=span_id,
+            )
+            run_eval(eval_run, self.tracer.api_key)
 
     def add_eval_run(self, eval_run: EvaluationRun, start_time: float):
         current_span_id = eval_run.trace_span_id
@@ -1532,15 +1493,58 @@ class Tracer:
 
         return decorate_class if cls is None else decorate_class(cls)
 
-    def async_evaluate(self, *args, **kwargs):
+    def async_evaluate(
+        self,
+        scorer: Union[APIScorerConfig, BaseScorer],
+        example: Example,
+        model: str = DEFAULT_GPT_MODEL,
+        sampling_rate: float = 1,
+        background: bool = True,
+    ):
         try:
             if not self.enable_monitoring or not self.enable_evaluations:
                 return
 
-            current_trace = self.get_current_trace()
+            if not isinstance(scorer, (APIScorerConfig, BaseScorer)):
+                judgeval_logger.warning(
+                    f"Scorer must be an instance of APIScorerConfig or BaseScorer, got {type(scorer)}, skipping evaluation"
+                )
+                return
 
+            if not isinstance(example, Example):
+                judgeval_logger.warning(
+                    f"Example must be an instance of Example, got {type(example)} skipping evaluation"
+                )
+                return
+
+            if background and isinstance(scorer, BaseScorer):
+                judgeval_logger.warning(
+                    "Background evaluation is not supported for Custom Scorers, please set background to 'False' and it will run asynchronously"
+                )
+                return
+
+            if sampling_rate < 0:
+                judgeval_logger.warning(
+                    "Cannot set sampling_rate below 0, skipping evaluation"
+                )
+                return
+
+            if sampling_rate > 1:
+                judgeval_logger.warning(
+                    "Cannot set sampling_rate above 1, skipping evaluation"
+                )
+                return
+
+            percentage = random.uniform(0, 1)
+            if percentage > sampling_rate:
+                judgeval_logger.info("Skipping async_evaluate due to sampling rate")
+                return
+
+            current_trace = self.get_current_trace()
             if current_trace:
-                current_trace.async_evaluate(*args, **kwargs)
+                current_trace.async_evaluate(
+                    scorer=scorer, example=example, model=model
+                )
             else:
                 judgeval_logger.warning(
                     "No trace found (context var or fallback), skipping evaluation"
