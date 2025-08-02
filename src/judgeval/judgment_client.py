@@ -33,6 +33,7 @@ from judgeval.common.logger import judgeval_logger
 
 if TYPE_CHECKING:
     from judgeval.integrations.langgraph import JudgevalCallbackHandler
+from judgeval.constants import DEFAULT_GPT_MODEL
 
 
 class EvalRunRequestBody(BaseModel):
@@ -93,7 +94,7 @@ class JudgmentClient(metaclass=SingletonMeta):
         tools: Optional[List[Dict[str, Any]]] = None,
         project_name: str = "default_project",
         eval_run_name: str = "default_eval_trace",
-        model: Optional[str] = "gpt-4.1",
+        model: Optional[str] = DEFAULT_GPT_MODEL,
         append: bool = False,
         override: bool = False,
     ) -> List[ScoringResult]:
@@ -131,7 +132,7 @@ class JudgmentClient(metaclass=SingletonMeta):
         self,
         examples: List[Example],
         scorers: List[Union[APIScorerConfig, BaseScorer]],
-        model: Optional[str] = "gpt-4.1",
+        model: Optional[str] = DEFAULT_GPT_MODEL,
         project_name: str = "default_project",
         eval_run_name: str = "default_eval_run",
         override: bool = False,
@@ -218,7 +219,7 @@ class JudgmentClient(metaclass=SingletonMeta):
         self,
         examples: List[Example],
         scorers: List[Union[APIScorerConfig, BaseScorer]],
-        model: Optional[str] = "gpt-4.1",
+        model: Optional[str] = DEFAULT_GPT_MODEL,
         project_name: str = "default_test",
         eval_run_name: str = str(uuid4()),
         override: bool = False,
@@ -259,7 +260,7 @@ class JudgmentClient(metaclass=SingletonMeta):
         tracer: Optional[Union[Tracer, JudgevalCallbackHandler]] = None,
         traces: Optional[List[Trace]] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
-        model: Optional[str] = "gpt-4.1",
+        model: Optional[str] = DEFAULT_GPT_MODEL,
         project_name: str = "default_test",
         eval_run_name: str = str(uuid4()),
         override: bool = False,

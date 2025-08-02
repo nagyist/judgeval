@@ -7,6 +7,7 @@ from typing import Optional, Union, Tuple, List
 
 from judgeval.common.exceptions import InvalidJudgeModelError
 from judgeval.judges import JudgevalJudge, LiteLLMJudge, TogetherJudge, MixtureOfJudges
+from judgeval.constants import DEFAULT_GPT_MODEL
 from judgeval.constants import (
     TOGETHER_SUPPORTED_MODELS,
     JUDGMENT_SUPPORTED_MODELS,
@@ -30,7 +31,7 @@ def create_judge(
     If no model is provided, uses GPT4o as the default judge.
     """
     if model is None:  # default option
-        return LiteLLMJudge(model="gpt-4.1"), True
+        return LiteLLMJudge(model=DEFAULT_GPT_MODEL), True
     if not isinstance(model, (str, list, JudgevalJudge)):
         raise InvalidJudgeModelError(
             f"Model must be a string, list of strings, or a judgeval judge object. Got: {type(model)} instead."

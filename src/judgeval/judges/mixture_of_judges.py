@@ -14,6 +14,7 @@ from judgeval.common.utils import (
     aget_chat_completion,
 )
 from judgeval.common.logger import judgeval_logger
+from judgeval.constants import DEFAULT_GPT_MODEL
 
 
 def build_dynamic_mixture_prompt(
@@ -161,7 +162,7 @@ class MixtureOfJudges(JudgevalJudge):
             "LLAMA3_70B_INSTRUCT_TURBO",
             "MISTRAL_8x22B_INSTRUCT",
         ],
-        aggregator: str = "gpt-4.1",
+        aggregator: str = DEFAULT_GPT_MODEL,
         **kwargs,
     ):
         """

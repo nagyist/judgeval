@@ -105,6 +105,7 @@ TOGETHER_SUPPORTED_MODELS = [
 ]
 
 DEFAULT_TOGETHER_MODEL = "meta-llama/Meta-Llama-3-8B-Instruct-Lite"
+DEFAULT_GPT_MODEL = "gpt-4.1"
 
 JUDGMENT_SUPPORTED_MODELS = {"osiris-large", "osiris-mini", "osiris"}
 
