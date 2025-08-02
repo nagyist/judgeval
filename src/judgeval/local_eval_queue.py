@@ -5,7 +5,6 @@ only local (BaseScorer) scorers. Useful for batching evaluations and processing 
 either synchronously or in a background thread.
 """
 
-import atexit
 import queue
 import threading
 from typing import Callable, List, Optional
@@ -14,7 +13,7 @@ from judgeval.common.logger import judgeval_logger
 from judgeval.constants import MAX_CONCURRENT_EVALUATIONS
 from judgeval.data import ScoringResult
 from judgeval.evaluation_run import EvaluationRun
-from judgeval.run_evaluation import safe_run_async
+from judgeval.utils.async_utils import safe_run_async
 from judgeval.scorers import BaseScorer
 from judgeval.scorers.score import a_execute_scoring
 
@@ -38,9 +37,6 @@ class LocalEvaluationQueue:
     def enqueue(self, evaluation_run: EvaluationRun) -> None:
         """Add evaluation run to the queue."""
         self._queue.put(evaluation_run)
-        judgeval_logger.info(
-            f"Enqueued evaluation run: {evaluation_run.eval_name or '<unnamed>'}"
-        )
 
     def _process_run(self, evaluation_run: EvaluationRun) -> List[ScoringResult]:
         """Execute evaluation run locally and return results."""
@@ -58,8 +54,8 @@ class LocalEvaluationQueue:
                 local_scorers,
                 model=evaluation_run.model,
                 throttle_value=0,
-                max_concurrent=self._max_concurrent
-                // self._num_workers,  # Divide concurrency among workers
+                max_concurrent=self._max_concurrent // self._num_workers,
+                show_progress=False,
             )
         )
 
@@ -77,10 +73,6 @@ class LocalEvaluationQueue:
             if run is None:  # Sentinel for worker shutdown
                 self._queue.put(None)
                 break
-
-            judgeval_logger.info(
-                f"Processing evaluation run: {run.eval_name or '<unnamed>'}"
-            )
             results = self._process_run(run)
             if callback:
                 callback(run, results)
@@ -100,7 +92,6 @@ class LocalEvaluationQueue:
         """
 
         def _worker(worker_id: int) -> None:
-            judgeval_logger.info(f"Worker {worker_id} started")
             while not self._shutdown_event.is_set():
                 try:
                     # Use timeout so workers can check shutdown event periodically
@@ -125,6 +116,11 @@ class LocalEvaluationQueue:
                         judgeval_logger.error(
                             f"Worker {worker_id} error processing {run.eval_name}: {exc}"
                         )
+
+                        self._shutdown_event.set()
+
+                        self._queue.put(None)
+                        raise
                     finally:
                         self._queue.task_done()
 
@@ -132,18 +128,11 @@ class LocalEvaluationQueue:
                     # Timeout - check shutdown event and continue
                     continue
 
-            judgeval_logger.info(f"Worker {worker_id} stopped")
-
         # Start worker threads
         for i in range(self._num_workers):
-            thread = threading.Thread(target=_worker, args=(i,), daemon=False)
+            thread = threading.Thread(target=_worker, args=(i,), daemon=True)
             thread.start()
             self._worker_threads.append(thread)
-
-        judgeval_logger.info(f"Started {self._num_workers} worker threads")
-
-        # Register cleanup on program exit
-        atexit.register(self.stop_workers)
 
         return self._worker_threads
 
@@ -168,7 +157,6 @@ class LocalEvaluationQueue:
             return
 
         judgeval_logger.info(f"Stopping {len(self._worker_threads)} worker threads...")
-
         # Signal shutdown
         self._shutdown_event.set()
 
@@ -183,7 +171,6 @@ class LocalEvaluationQueue:
 
         self._worker_threads.clear()
         self._shutdown_event.clear()
-        judgeval_logger.info("All workers stopped")
 
     def stop_worker(self) -> None:
         """Stop all workers (backward compatibility)."""

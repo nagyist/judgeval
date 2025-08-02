@@ -52,6 +52,8 @@ from groq import Groq, AsyncGroq
 from judgeval.data import Example, Trace, TraceSpan, TraceUsage
 from judgeval.scorers import APIScorerConfig, BaseScorer
 from judgeval.evaluation_run import EvaluationRun
+from judgeval.local_eval_queue import LocalEvaluationQueue
+from judgeval.common.api import JudgmentApiClient
 from judgeval.common.utils import ExcInfo, validate_api_key
 from judgeval.common.logger import judgeval_logger
 from judgeval.constants import DEFAULT_GPT_MODEL
@@ -189,6 +191,7 @@ class TraceClient:
         eval_run_name = (
             f"{self.name.capitalize()}-{span_id}-{scorer.score_type.capitalize()}"
         )
+
         if isinstance(scorer, APIScorerConfig):
             eval_run = EvaluationRun(
                 organization_id=self.tracer.organization_id,
@@ -209,6 +212,24 @@ class TraceClient:
                     self.otel_span_processor.queue_evaluation_run(
                         eval_run, span_id=span_id, span_data=current_span
                     )
+        elif isinstance(scorer, BaseScorer):
+            # Handle custom scorers using local evaluation queue
+            eval_run = EvaluationRun(
+                organization_id=self.tracer.organization_id,
+                project_name=self.project_name,
+                eval_name=eval_run_name,
+                examples=[example],
+                scorers=[scorer],
+                model=model,
+                judgment_api_key=self.tracer.api_key,
+                trace_span_id=span_id,
+                trace_id=self.trace_id,
+            )
+
+            self.add_eval_run(eval_run, start_time)
+
+            # Enqueue the evaluation run to the local evaluation queue
+            self.tracer.local_eval_queue.enqueue(eval_run)
 
     def add_eval_run(self, eval_run: EvaluationRun, start_time: float):
         current_span_id = eval_run.trace_span_id
@@ -903,6 +924,15 @@ class Tracer:
             else:
                 self.otel_span_processor = SpanProcessorBase()
 
+            # Initialize local evaluation queue for custom scorers
+            self.local_eval_queue = LocalEvaluationQueue()
+
+            # Start workers with callback to log results only if monitoring is enabled
+            if enable_evaluations and enable_monitoring:
+                self.local_eval_queue.start_workers(
+                    callback=self._log_eval_results_callback
+                )
+
             atexit.register(self._cleanup_on_exit)
         except Exception as e:
             judgeval_logger.error(
@@ -1493,12 +1523,6 @@ class Tracer:
             if not self.enable_monitoring or not self.enable_evaluations:
                 return
 
-            if isinstance(scorer, BaseScorer):
-                judgeval_logger.warning(
-                    "Custom Scorers are not currently supported for async_evaluate, skipping evaluation"
-                )
-                return
-
             if not isinstance(scorer, (APIScorerConfig, BaseScorer)):
                 judgeval_logger.warning(
                     f"Scorer must be an instance of APIScorerConfig or BaseScorer, got {type(scorer)}, skipping evaluation"
@@ -1510,13 +1534,6 @@ class Tracer:
                     f"Example must be an instance of Example, got {type(example)} skipping evaluation"
                 )
                 return
-
-            # TODO: Add support for custom scorers
-            # if background and isinstance(scorer, BaseScorer):
-            #     judgeval_logger.warning(
-            #         "Background evaluation is not supported for Custom Scorers, please set background to 'False' and it will run asynchronously"
-            #     )
-            #     return
 
             if sampling_rate < 0:
                 judgeval_logger.warning(
@@ -1612,9 +1629,26 @@ class Tracer:
         self.otel_span_processor.shutdown()
         self.otel_span_processor = SpanProcessorBase()
 
+    def _log_eval_results_callback(self, evaluation_run, scoring_results):
+        """Callback to log evaluation results after local processing."""
+        try:
+            if scoring_results and self.enable_evaluations and self.enable_monitoring:
+                # Convert scoring results to the format expected by API client
+                results_dict = [
+                    result.model_dump(warnings=False) for result in scoring_results
+                ]
+                api_client = JudgmentApiClient(self.api_key, self.organization_id)
+                api_client.log_evaluation_results(
+                    results_dict, evaluation_run.model_dump(warnings=False)
+                )
+        except Exception as e:
+            judgeval_logger.warning(f"Failed to log local evaluation results: {e}")
+
     def _cleanup_on_exit(self):
         """Cleanup handler called on application exit to ensure spans are flushed."""
+        judgeval_logger.info("Tracer cleanup on exit started")
         try:
+            self.local_eval_queue.stop_workers()
             self.flush_background_spans()
         except Exception as e:
             judgeval_logger.warning(f"Error during tracer cleanup: {e}")
@@ -1625,6 +1659,7 @@ class Tracer:
                 judgeval_logger.warning(
                     f"Error during background service shutdown: {e}"
                 )
+        judgeval_logger.info("Tracer cleanup on exit completed")
 
 
 def _get_current_trace(
