@@ -38,6 +38,7 @@ from judgeval.common.train_types import (
     Trajectory,
     TrajectoryGroup,
     gather_trajectory_groups,
+    ComparativeConfig,
     dev,
 )
 
@@ -1551,6 +1552,66 @@ class Tracer:
 
             return wrapper
     
+
+    DEFAULT_RUBRIC = '''
+        You are a helpful assistant that is given a list of trajectories that all started from the same task and input.
+        Your job is to compare the trajectories and return a score for each trajectory.
+        The score should be a number between 0 and 1, where 1 is the best score and 0 is the worst.
+        The score should be based on how well the trace executes the task and scores should be computed relative to each other.
+
+        You must output a list of float scores between 0 and 1. The length of the list must be the same as the number of trajectories.
+    '''
+
+    def comparison_reward(self, trajectories: list[Trajectory], config: ComparativeConfig):
+        """
+        Comparative trajectory scoring with MoE for GRPO setting
+        """
+
+        if config.rubric is None:
+            rubric = self.DEFAULT_RUBRIC
+        else:
+            rubric = self.DEFAULT_RUBRIC + "\n\n Additional domain-specific rubric:\n" + config.rubric
+
+        def traj_to_string(traj: Trajectory):
+            span_str = ("List of spans:\n" + "\n".join([f"  {span.name} [{span.span_type}]: INPUT: {span.inputs} \n OUTPUT: {span.outputs}" for span in traj.trace_spans])) if config.see_spans else ""
+            metadata_str = "Metadata:\n" + "\n".join([f"  {key}: {value}" for key, value in traj.metadata.items()])
+            return span_str + "\n\n" + metadata_str
+
+        agent_scores = []
+        for i in range(config.num_agents):
+            messages = [
+                {"role": "system", "content": rubric},
+                {"role": "user", "content": f"Here are the trajectories: {[traj_to_string(traj) for traj in trajectories]}"}
+            ]
+            print(messages)
+
+            # Get the response from the model
+            response = config.model.openai_client().chat.completions.create(
+                model=config.model,
+                messages=messages,
+                response_format={"type": "json_object"}
+            )
+
+            # Parse the response
+            try:
+                import json
+                scores = json.loads(response.choices[0].message.content)
+            except Exception as e:
+                judgeval_logger.error(f"Error parsing response: {e}")
+                scores = [0] * len(trajectories)
+            agent_scores.append(scores)
+
+        # Take the average of the experts' scores for each trajectory
+        avg_scores = [sum(agent_scores[i][j] for i in range(config.num_agents)) / config.num_agents for j in range(len(trajectories))]
+
+        # Set the reward score for each trajectory
+        for i, score in enumerate(avg_scores):
+            new_reward = self.traces[i].metadata.get("reward_score", 0) + score * config.comparitive_score_scaling
+            self.traces[i].set_reward_score(new_reward)
+
+        # Return the scores
+        return avg_scores
+
     async def train(
         self,
         func: Callable,
@@ -1573,12 +1634,6 @@ class Tracer:
             except TypeError:
                 reward_score = await reward(*input)
             self.get_current_trace().set_reward_score(reward_score)
-            self.async_evaluate(
-                scorers=[RewardScorer()],
-                input="",
-                actual_output="",
-                additional_metadata={"reward_score": reward_score}
-            )
             return res
     
         import random
@@ -1594,6 +1649,11 @@ class Tracer:
                 await asyncio.gather(
                     *[rollout_and_reward(func, reward, copy.deepcopy(input)) for _ in range(config.num_rollouts)]
                 )
+
+                # Comparative scoring
+                if config.comparitive_config.enabled:
+                    self.comparison_reward(self.traces, config=config.comparitive_config)
+
                 groups.append(self.traces)
                 self.traces = []
 
