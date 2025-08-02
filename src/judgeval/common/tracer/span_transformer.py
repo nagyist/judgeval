@@ -9,6 +9,7 @@ from typing import Any, Dict, Mapping, Optional, Union
 from opentelemetry.sdk.trace import ReadableSpan
 from pydantic import BaseModel
 
+from judgeval.common.api.json_encoder import json_encoder
 from judgeval.data import TraceSpan
 from judgeval.evaluation_run import EvaluationRun
 
@@ -38,21 +39,13 @@ class SpanTransformer:
             return True
 
     @staticmethod
-    def _safe_json_handle(obj: Any, serialize: bool = True) -> Any:
-        if serialize:
-            if obj is None:
-                return None
-            try:
-                return orjson.dumps(obj, default=str).decode("utf-8")
-            except Exception:
-                return orjson.dumps(str(obj)).decode("utf-8")
-        else:
-            if not isinstance(obj, str):
-                return obj
-            try:
-                return orjson.loads(obj)
-            except (orjson.JSONDecodeError, TypeError, ValueError):
-                return obj
+    def _safe_deserialize(obj: Any) -> Any:
+        if not isinstance(obj, str):
+            return obj
+        try:
+            return orjson.loads(obj)
+        except (orjson.JSONDecodeError, TypeError):
+            return obj
 
     @staticmethod
     def _format_timestamp(timestamp: Optional[Union[float, int, str]]) -> str:
@@ -84,15 +77,13 @@ class SpanTransformer:
             if field_name == "created_at":
                 attributes[attr_name] = SpanTransformer._format_timestamp(value)
             elif field_name == "expected_tools" and value:
-                attributes[attr_name] = SpanTransformer._safe_json_handle(
+                attributes[attr_name] = json_encoder(
                     [tool.model_dump() for tool in trace_span.expected_tools]
                 )
             elif field_name == "usage" and value:
-                attributes[attr_name] = SpanTransformer._safe_json_handle(
-                    trace_span.usage.model_dump()
-                )
+                attributes[attr_name] = json_encoder(trace_span.usage)
             elif SpanTransformer._needs_json_serialization(value):
-                attributes[attr_name] = SpanTransformer._safe_json_handle(value)
+                attributes[attr_name] = json_encoder(value)
             else:
                 attributes[attr_name] = value
 
@@ -115,7 +106,7 @@ class SpanTransformer:
             field_name = key[9:]
 
             if isinstance(value, str):
-                deserialized = SpanTransformer._safe_json_handle(value, serialize=False)
+                deserialized = SpanTransformer._safe_deserialize(value)
                 judgment_data[field_name] = deserialized
             else:
                 judgment_data[field_name] = value
@@ -174,9 +165,7 @@ class SpanTransformer:
         attributes = {
             "judgment.evaluation_run": True,
             "judgment.associated_span_id": span_id,
-            "judgment.span_data": SpanTransformer._safe_json_handle(
-                span_data.model_dump()
-            ),
+            "judgment.span_data": json_encoder(span_data),
         }
 
         eval_data = evaluation_run.model_dump()
@@ -186,7 +175,7 @@ class SpanTransformer:
 
             attr_name = f"judgment.{key}"
             if SpanTransformer._needs_json_serialization(value):
-                attributes[attr_name] = SpanTransformer._safe_json_handle(value)
+                attributes[attr_name] = json_encoder(value)
             else:
                 attributes[attr_name] = value
 
