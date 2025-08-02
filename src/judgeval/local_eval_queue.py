@@ -28,6 +28,8 @@ class LocalEvaluationQueue:
     def __init__(
         self, max_concurrent: int = MAX_CONCURRENT_EVALUATIONS, num_workers: int = 4
     ):
+        if num_workers <= 0:
+            raise ValueError("num_workers must be a positive integer.")
         self._queue: queue.Queue[Optional[EvaluationRun]] = queue.Queue()
         self._max_concurrent = max_concurrent
         self._num_workers = num_workers  # Number of worker threads
@@ -110,11 +112,7 @@ class LocalEvaluationQueue:
                         judgeval_logger.error(
                             f"Worker {worker_id} error processing {run.eval_name}: {exc}"
                         )
-
-                        self._shutdown_event.set()
-
-                        self._queue.put(None)
-                        raise
+                        # Continue processing other runs instead of shutting down all workers
                     finally:
                         self._queue.task_done()
 
@@ -133,17 +131,43 @@ class LocalEvaluationQueue:
     def start_worker(
         self,
         callback: Optional[Callable[[EvaluationRun, List[ScoringResult]], None]] = None,
-    ) -> threading.Thread:
+    ) -> Optional[threading.Thread]:
         """Start a single background thread to process runs (backward compatibility).
 
         Args:
             callback: Optional function called after each run with (run, results).
 
         Returns:
-            The started thread.
+            The started thread, or None if no threads were started.
         """
         threads = self.start_workers(callback)
         return threads[0] if threads else None
+
+    def wait_for_completion(self, timeout: Optional[float] = None) -> bool:
+        """Wait for all queued tasks to complete.
+
+        Args:
+            timeout: Maximum time to wait in seconds. None means wait indefinitely.
+
+        Returns:
+            True if all tasks completed, False if timeout occurred.
+        """
+        try:
+            if timeout is None:
+                self._queue.join()
+                return True
+            else:
+                # Python's queue.join() doesn't support timeout, so we'll poll
+                import time
+
+                start_time = time.time()
+                while not self._queue.empty() or self._queue.unfinished_tasks > 0:
+                    if time.time() - start_time > timeout:
+                        return False
+                    time.sleep(0.1)
+                return True
+        except Exception:
+            return False
 
     def stop_workers(self) -> None:
         """Signal all background workers to stop after current tasks complete."""
@@ -158,10 +182,14 @@ class LocalEvaluationQueue:
         for _ in range(self._num_workers):
             self._queue.put(None)
 
-        # Wait for all workers to finish
+        # Wait for all workers to finish with timeout
         for thread in self._worker_threads:
             if thread.is_alive():
                 thread.join(timeout=5.0)
+                if thread.is_alive():
+                    judgeval_logger.warning(
+                        f"Worker thread {thread.name} did not shut down gracefully"
+                    )
 
         self._worker_threads.clear()
         self._shutdown_event.clear()

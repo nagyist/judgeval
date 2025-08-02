@@ -187,7 +187,6 @@ class TraceClient:
     ):
         start_time = time.time()
         span_id = self.get_current_span()
-
         eval_run_name = (
             f"{self.name.capitalize()}-{span_id}-{scorer.score_type.capitalize()}"
         )
@@ -1648,6 +1647,14 @@ class Tracer:
         """Cleanup handler called on application exit to ensure spans are flushed."""
         judgeval_logger.info("Tracer cleanup on exit started")
         try:
+            # Wait for all queued evaluation work to complete before stopping
+            judgeval_logger.info("Waiting for local evaluation queue to complete...")
+            completed = self.local_eval_queue.wait_for_completion()
+            if not completed:
+                judgeval_logger.warning(
+                    "Local evaluation queue did not complete within 30 seconds"
+                )
+
             self.local_eval_queue.stop_workers()
             self.flush_background_spans()
         except Exception as e:
