@@ -1171,6 +1171,10 @@ version = "0.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
+    { name = "langchain-anthropic" },
+    { name = "langchain-core" },
+    { name = "langchain-huggingface" },
+    { name = "langchain-openai" },
     { name = "litellm" },
     { name = "nest-asyncio" },
     { name = "opentelemetry-api" },
@@ -1234,9 +1238,13 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "boto3" },
+    { name = "langchain-anthropic" },
     { name = "langchain-anthropic", marker = "extra == 'langchain'" },
+    { name = "langchain-core" },
     { name = "langchain-core", marker = "extra == 'langchain'" },
+    { name = "langchain-huggingface" },
     { name = "langchain-huggingface", marker = "extra == 'langchain'" },
+    { name = "langchain-openai" },
     { name = "langchain-openai", marker = "extra == 'langchain'" },
     { name = "litellm", specifier = ">=1.61.15" },
     { name = "nest-asyncio", specifier = ">=1.6.0" },
