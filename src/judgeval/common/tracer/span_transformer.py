@@ -81,7 +81,7 @@ class SpanTransformer:
                     [tool.model_dump() for tool in trace_span.expected_tools]
                 )
             elif field_name == "usage" and value:
-                attributes[attr_name] = json_encoder(trace_span.usage.model_dump())
+                attributes[attr_name] = json_encoder(trace_span.usage)
             elif SpanTransformer._needs_json_serialization(value):
                 attributes[attr_name] = json_encoder(value)
             else:
@@ -165,7 +165,7 @@ class SpanTransformer:
         attributes = {
             "judgment.evaluation_run": True,
             "judgment.associated_span_id": span_id,
-            "judgment.span_data": json_encoder(span_data.model_dump()),
+            "judgment.span_data": json_encoder(span_data),
         }
 
         eval_data = evaluation_run.model_dump()
