@@ -91,6 +91,7 @@ dev = [
     "anthropic",
     "google-genai",
     "groq",
+    "langgraph>=0.4.3",
 ]
 
 [tool.hatch.build]
