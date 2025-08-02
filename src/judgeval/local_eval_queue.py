@@ -103,15 +103,9 @@ class LocalEvaluationQueue:
                         break
 
                     try:
-                        judgeval_logger.info(
-                            f"Worker {worker_id} processing: {run.eval_name or '<unnamed>'}"
-                        )
                         results = self._process_run(run)
                         if callback:
                             callback(run, results)
-                        judgeval_logger.info(
-                            f"Worker {worker_id} completed: {run.eval_name or '<unnamed>'}"
-                        )
                     except Exception as exc:
                         judgeval_logger.error(
                             f"Worker {worker_id} error processing {run.eval_name}: {exc}"
