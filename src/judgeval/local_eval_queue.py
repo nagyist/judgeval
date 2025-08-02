@@ -8,6 +8,7 @@ either synchronously or in a background thread.
 import queue
 import threading
 from typing import Callable, List, Optional
+import time
 
 from judgeval.common.logger import judgeval_logger
 from judgeval.constants import MAX_CONCURRENT_EVALUATIONS
@@ -157,9 +158,6 @@ class LocalEvaluationQueue:
                 self._queue.join()
                 return True
             else:
-                # Python's queue.join() doesn't support timeout, so we'll poll
-                import time
-
                 start_time = time.time()
                 while not self._queue.empty() or self._queue.unfinished_tasks > 0:
                     if time.time() - start_time > timeout:
