@@ -190,7 +190,7 @@ class TraceClient:
                 examples=[example],
                 scorers=[scorer],
                 model=model,
-                    trace_span_id=span_id,
+                trace_span_id=span_id,
             )
 
             self.add_eval_run(eval_run, start_time)
