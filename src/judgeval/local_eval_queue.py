@@ -191,7 +191,3 @@ class LocalEvaluationQueue:
 
         self._worker_threads.clear()
         self._shutdown_event.clear()
-
-    def stop_worker(self) -> None:
-        """Stop all workers (backward compatibility)."""
-        self.stop_workers()

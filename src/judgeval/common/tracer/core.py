@@ -1628,6 +1628,40 @@ class Tracer:
         self.otel_span_processor.shutdown()
         self.otel_span_processor = SpanProcessorBase()
 
+    def wait_for_completion(self, timeout: Optional[float] = 30.0) -> bool:
+        """Wait for all evaluations and span processing to complete.
+
+        This method blocks until all queued evaluations are processed and
+        all pending spans are flushed to the server.
+
+        Args:
+            timeout: Maximum time to wait in seconds. Defaults to 30 seconds.
+                    None means wait indefinitely.
+
+        Returns:
+            True if all processing completed within the timeout, False otherwise.
+
+        """
+        try:
+            judgeval_logger.info("Waiting for all evaluations and spans to complete...")
+
+            # Wait for all queued evaluation work to complete
+            eval_completed = self.local_eval_queue.wait_for_completion()
+            if not eval_completed:
+                judgeval_logger.warning(
+                    f"Local evaluation queue did not complete within {timeout} seconds"
+                )
+                return False
+
+            self.flush_background_spans()
+
+            judgeval_logger.info("All evaluations and spans completed successfully")
+            return True
+
+        except Exception as e:
+            judgeval_logger.warning(f"Error while waiting for completion: {e}")
+            return False
+
     def _log_eval_results_callback(self, evaluation_run, scoring_results):
         """Callback to log evaluation results after local processing."""
         try:
