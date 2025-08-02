@@ -53,8 +53,7 @@ from judgeval.common.api.constants import (
     CheckExampleKeysPayload,
 )
 from judgeval.utils.requests import requests
-
-import orjson
+from judgeval.common.api.json_encoder import json_encoder
 
 
 class JudgmentAPIException(exceptions.HTTPError):
@@ -111,7 +110,7 @@ class JudgmentApiClient:
             r = requests.request(
                 method,
                 url,
-                data=self._serialize(payload),
+                json=json_encoder(payload),
                 headers=self._headers(),
                 **self._request_kwargs(),
             )
@@ -368,16 +367,3 @@ class JudgmentApiClient:
             "verify": True,
             "timeout": 30,
         }
-
-    def _serialize(self, data: Any) -> str:
-        def fallback_encoder(obj):
-            try:
-                return repr(obj)
-            except Exception:
-                try:
-                    return str(obj)
-                except Exception as e:
-                    return f"<Unserializable object of type {type(obj).__name__}: {e}>"
-
-        # orjson returns bytes, so we need to decode to str
-        return orjson.dumps(data, default=fallback_encoder).decode("utf-8")
