@@ -172,7 +172,6 @@ class LocalEvaluationQueue:
         if not self._worker_threads:
             return
 
-        judgeval_logger.info(f"Stopping {len(self._worker_threads)} worker threads...")
         # Signal shutdown
         self._shutdown_event.set()
 

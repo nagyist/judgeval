@@ -1516,7 +1516,6 @@ class Tracer:
         example: Example,
         model: str = DEFAULT_GPT_MODEL,
         sampling_rate: float = 1,
-        background: bool = True,
     ):
         try:
             if not self.enable_monitoring or not self.enable_evaluations:
@@ -1643,7 +1642,9 @@ class Tracer:
 
         """
         try:
-            judgeval_logger.info("Waiting for all evaluations and spans to complete...")
+            judgeval_logger.debug(
+                "Waiting for all evaluations and spans to complete..."
+            )
 
             # Wait for all queued evaluation work to complete
             eval_completed = self.local_eval_queue.wait_for_completion()
@@ -1655,7 +1656,7 @@ class Tracer:
 
             self.flush_background_spans()
 
-            judgeval_logger.info("All evaluations and spans completed successfully")
+            judgeval_logger.debug("All evaluations and spans completed successfully")
             return True
 
         except Exception as e:
@@ -1679,10 +1680,8 @@ class Tracer:
 
     def _cleanup_on_exit(self):
         """Cleanup handler called on application exit to ensure spans are flushed."""
-        judgeval_logger.info("Tracer cleanup on exit started")
         try:
             # Wait for all queued evaluation work to complete before stopping
-            judgeval_logger.info("Waiting for local evaluation queue to complete...")
             completed = self.local_eval_queue.wait_for_completion()
             if not completed:
                 judgeval_logger.warning(
@@ -1700,7 +1699,6 @@ class Tracer:
                 judgeval_logger.warning(
                     f"Error during background service shutdown: {e}"
                 )
-        judgeval_logger.info("Tracer cleanup on exit completed")
 
 
 def _get_current_trace(
