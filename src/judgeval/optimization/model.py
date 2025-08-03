@@ -45,6 +45,7 @@ class TrainableModel:
             config = {}
 
         self.name = name
+        self.model_name = model_name
 
         self.config = get_openai_server_config(
             model_name = self.name,
@@ -69,11 +70,12 @@ class TrainableModel:
         AsyncLLMEngine.from_engine_args = _from_engine_args
         self.model, self.tokenizer = unsloth.FastLanguageModel.from_pretrained(
             model_name = model_name,
+            temperature = 2.0,
             max_seq_length=32768,
             load_in_4bit=load_in_4bit,  # False for LoRA 16bit
             fast_inference=fast_inference,  # Enable vLLM fast inference
             gpu_memory_utilization=0.79,
-            max_lora_rank=8,
+            max_lora_rank=lora_rank,
             use_async=True
         ) 
         AsyncLLMEngine.from_engine_args = from_engine_args
@@ -91,7 +93,23 @@ class TrainableModel:
         self.trainer = GRPOTrainer(
             model=self.peft_model,
             reward_funcs=[],
-            args=UnslothGRPOConfig(**config.get("trainer_args", {})),
+            args=UnslothGRPOConfig(
+                temperature = 2.0,
+                learning_rate = 1e-4,
+                weight_decay = 0.01,
+                warmup_ratio = 0.1,
+                lr_scheduler_type = "linear",
+                optim = "adamw_8bit",
+                logging_steps = 1,
+                per_device_train_batch_size = 1,
+                gradient_accumulation_steps = 6, # Increase to 4 for smoother training
+                num_generations = 2, # Decrease if out of memory
+                max_prompt_length = 3584,
+                max_completion_length = 3584,
+                num_train_epochs = 1, # Set to 1 for a full training run
+                max_steps = 10, # Primary control - reduces from 100 to 30 for fewer training steps
+                save_steps = 100,
+            ),
             train_dataset=Dataset.from_list([{"prompt": ""} for _ in range(10_000_000)]),
             processing_class=self.tokenizer,
         )
@@ -121,14 +139,15 @@ class TrainableModel:
 
             # Update model with new LoRA weights for on-policy inference
             model_dir = f"./lora/{self.name}/{self.step}"
-            self.model.save_pretrained(model_dir)
-            await self._refresh_vllm(model_dir)
+            self.trainer.save_model(model_dir)
+            self._refresh_vllm(model_dir)
+            #self.trainer._move_model_to_vllm()
             self.step += 1
         finally:
             # Restore original trainer methods
             restore_functions()
 
-    async def _refresh_vllm(self, adapter_path: str):
+    def _refresh_vllm(self, lora_path: str):
         """Reload the updated LoRA adapter inside the active vLLM runtime.
 
         If the Unsloth model was initialised with `fast_inference=True`, then
@@ -139,14 +158,19 @@ class TrainableModel:
 
         if hasattr(self.model, "vllm_engine"):
             try:
-                engine = self.model.vllm_engine
-                # vLLM’s public API to load LoRA weights differs across
-                # versions.  The call below works on ≥0.4.0.  Adjust if your
-                # build exposes a different helper.
-                engine.load_lora_weights(adapter_path)
-                print(f"[TrainableModel] Loaded new LoRA into colocated vLLM from {adapter_path}.")
+                engine = self.model.vllm_engine.engine
+                lora_request: "LoRARequest" = self.peft_model.load_lora(
+                    lora_path,
+                    load_tensors=True,
+                )
+                lora_request.lora_int_id = 1
+                lora_request.lora_name = self.model_name
+                lora_request.lora_path = lora_path
+                engine.remove_lora(1)
+                engine.add_lora(lora_request)
+                print(f"[TrainableModel] Loaded new LoRA into colocated vLLM from {lora_path}.")
                 return
-            except Exception as exc:  # pylint: disable=broad-except
+            except Exception as exc:
                 print("[TrainableModel] Colocated vLLM reload failed:", exc)
 
     async def openai_client(self):

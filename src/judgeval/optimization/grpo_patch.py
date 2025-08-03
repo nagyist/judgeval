@@ -39,7 +39,9 @@ def apply_multi_turn_patches(model, trajectory_groups: List[List[Trajectory]], c
         # Normalize rewards within group
         avg_reward = sum(traj.reward for traj in group) / len(group)
         for traj in group:
+            print("REWARD TRAJ ", traj.reward)
             traj.advantage = traj.reward - avg_reward
+            print("ADVANTAGE TRAJ ", traj.advantage)
         
         for trajectory in group:
             # Convert trajectory to tokenized format
@@ -49,11 +51,12 @@ def apply_multi_turn_patches(model, trajectory_groups: List[List[Trajectory]], c
     
     # Create dataset from tokenized items
     trainer.train_dataset = Dataset.from_list(dataset_items)
+    print("TRAIN DATASET ", trainer.train_dataset)
     
     # Store original _prepare_inputs method
     original_prepare_inputs = trainer._prepare_inputs
     
-    def prepare_trajectory_inputs(batch: Dict[str, Any]) -> Dict[str, Any]:
+    def prepare_inputs_patch(batch: Dict[str, Any]) -> Dict[str, Any]:
         """
         Convert our pre-tokenized trajectory data to GRPO format.
         
@@ -64,17 +67,29 @@ def apply_multi_turn_patches(model, trajectory_groups: List[List[Trajectory]], c
         - advantages: trajectory reward
         """
         device = trainer.accelerator.device
-        print(batch)
         
+        # print("BATCH ", batch)
+
         # Stack tensors for batch processing
-        prompt_ids = torch.stack([torch.tensor(item["prompt_ids"]) for item in batch]).to(device)
-        prompt_mask = torch.stack([torch.tensor(item["prompt_mask"]) for item in batch]).to(device)
-        completion_ids = torch.stack([torch.tensor(item["completion_ids"]) for item in batch]).to(device)
-        completion_mask = torch.stack([torch.tensor(item["completion_mask"]) for item in batch]).to(device)
-        advantages = torch.stack([torch.tensor(item["advantages"]) for item in batch]).to(device)
-        
-        # Process assistant_mask
-        assistant_mask = torch.stack([torch.tensor(item["assistant_mask"]) for item in batch]).to(device)
+        from torch.nn.utils.rnn import pad_sequence
+        pad_id = getattr(tokenizer, "pad_token_id", 0) or 0  # default to 0 if tokenizer has no pad token
+
+        # Helper to convert list of lists to padded tensor
+        def _pad(list_of_ids, pad_value):
+            return pad_sequence(
+                [torch.tensor(ids, dtype=torch.long) for ids in list_of_ids],
+                batch_first=True,
+                padding_value=pad_value,
+            )
+
+        prompt_ids = _pad([item["prompt_ids"] for item in batch], pad_id).to(device)
+        prompt_mask = _pad([item["prompt_mask"] for item in batch], 0).to(device)
+        completion_ids = _pad([item["completion_ids"] for item in batch], pad_id).to(device)
+        completion_mask = _pad([item["completion_mask"] for item in batch], 0).to(device)
+        assistant_mask = _pad([item["assistant_mask"] for item in batch], 0).to(device)
+
+        # Advantages are scalars so we can just stack normally
+        advantages = torch.tensor([item["advantages"] for item in batch], dtype=torch.float32).to(device)
         
         # Return in GRPO expected format with assistant_mask
         return {
@@ -150,7 +165,7 @@ def apply_multi_turn_patches(model, trajectory_groups: List[List[Trajectory]], c
         # Log the metrics
         mode = "train" if self.model.training else "eval"
 
-        if self.beta != 0.0:
+        if False and self.beta != 0.0:
             mean_kl = (per_token_kl * assistant_mask).sum() / assistant_mask.sum()
             self._metrics[mode]["kl"].append(self.accelerator.gather(mean_kl).nanmean().item())
 
@@ -174,7 +189,7 @@ def apply_multi_turn_patches(model, trajectory_groups: List[List[Trajectory]], c
         return loss
     
     # Apply patches
-    trainer._prepare_inputs = prepare_trajectory_inputs
+    trainer._prepare_inputs = prepare_inputs_patch
     trainer._compute_loss = compute_loss_with_assistant_mask
     
     # Return function to restore original methods
@@ -217,30 +232,46 @@ def tokenize_trajectory(trajectory: Trajectory, tokenizer) -> Dict[str, Any]:
     prompt_messages = messages[:first_assistant_idx]
     # Everything from first assistant onwards = completion (may include tool responses after)
     completion_messages = messages[first_assistant_idx:]
+
+    # print("PROMPT MESSAGES ", prompt_messages)
+    # print("COMPLETION MESSAGES ", completion_messages)
     
-    # Tokenize prompt
+    # Tokenize prompt and full conversation to find the boundary
     if prompt_messages:
         prompt_text = tokenizer.apply_chat_template(
             prompt_messages, 
             tokenize=False,
-            add_generation_prompt=True
+            add_generation_prompt=True,
+            enable_thinking=True
         )
-        prompt_tokens = tokenizer(prompt_text, truncation=True, max_length=3584)
-        prompt_ids = prompt_tokens["input_ids"]
-        prompt_mask = prompt_tokens["attention_mask"]
     else:
-        prompt_ids = []
-        prompt_mask = []
+        prompt_text = ""
     
-    # Tokenize completion messages and create assistant mask
-    completion_text = tokenizer.apply_chat_template(
-        completion_messages,
+    # Tokenize full conversation
+    full_conversation_text = tokenizer.apply_chat_template(
+        prompt_messages + completion_messages,
         tokenize=False,
-        add_generation_prompt=False
+        # enable_thinking=True
     )
-    completion_tokens = tokenizer(completion_text, truncation=True, max_length=512)
-    completion_ids = completion_tokens["input_ids"]
-    completion_mask = completion_tokens["attention_mask"]
+    # print("PROMPT TEXT ", prompt_text)
+    # print("FULL CONVERSATION TEXT ", full_conversation_text)
+    
+    # Tokenize both with same settings to find boundary
+    if prompt_text:
+        prompt_tokens = tokenizer(prompt_text)
+        prompt_length = len(prompt_tokens["input_ids"])
+    else:
+        prompt_length = 0
+    
+    full_conversation_tokens = tokenizer(full_conversation_text)
+    full_conversation_ids = full_conversation_tokens["input_ids"]
+    full_conversation_mask = full_conversation_tokens["attention_mask"]
+    
+    # Extract prompt and completion tokens by slicing at the boundary
+    prompt_ids = full_conversation_ids[:prompt_length]
+    prompt_mask = full_conversation_mask[:prompt_length]
+    completion_ids = full_conversation_ids[prompt_length:]
+    completion_mask = full_conversation_mask[prompt_length:]
     
     # Create assistant mask - marks which tokens in completion are assistant tokens
     # Start with all zeros
