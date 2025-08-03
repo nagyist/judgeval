@@ -392,10 +392,12 @@ class GRPOTrainer(Trainer):
 
     _tag_names = ["trl", "grpo"]
 
+    from judgeval.common.tracer.core import Tracer
+
     def __init__(
         self,
         model: Union[str, PreTrainedModel],
-        env: ConnectFourGame,
+        tracer: Tracer,
         reward_funcs: Union[RewardFunc, list[RewardFunc]],
         args: Optional[GRPOConfig] = None,
         train_dataset: Optional[Union[Dataset, IterableDataset]] = None,
@@ -604,6 +606,8 @@ class GRPOTrainer(Trainer):
                 loss_type=self.loss_type,
                 max_completion_length=self.max_completion_length,
             )
+
+        self.tracer = tracer
 
         # Initialize the metrics
         self._metrics = {"train": defaultdict(list), "eval": defaultdict(list)}
@@ -1092,43 +1096,45 @@ class GRPOTrainer(Trainer):
             if self.state.global_step != self._last_loaded_step:
                 self._move_model_to_vllm()
                 self._last_loaded_step = self.state.global_step
+            
+            completion_ids, completion_mask, assistant_mask, rewards = self.generate_and_tokenize(prompts, self.func, self.reward_funcs, device=device)
 
-            # Generate completions using vLLM: gather all prompts and use them in a single call in the main process
-            if self.vllm_mode == "server":
-                all_prompts_text = gather_object(prompts_text)
-                if self.accelerator.is_main_process:
-                    # Since 'prompts' contains 'num_generations' duplicates, we first take unique prompts, and generate
-                    # num_generations outputs for each one. This is faster than generating outputs for each duplicate
-                    # prompt individually.
-                    ordered_set_of_prompts = all_prompts_text[:: self.num_generations]
-                    with profiling_context(self, "vLLM.generate"):
-                        completion_ids = self.vllm_client.generate(
-                            prompts=ordered_set_of_prompts,
-                            n=self.num_generations,
-                            repetition_penalty=self.repetition_penalty,
-                            temperature=self.temperature,
-                            top_p=self.top_p,
-                            top_k=-1 if self.top_k is None else self.top_k,
-                            min_p=0.0 if self.min_p is None else self.min_p,
-                            max_tokens=self.max_completion_length,
-                            guided_decoding_regex=self.guided_decoding_regex,
-                            generation_kwargs=self.args.generation_kwargs,
-                        )
-                else:
-                    completion_ids = [None] * len(all_prompts_text)
+        #     # Generate completions using vLLM: gather all prompts and use them in a single call in the main process
+        #     if self.vllm_mode == "server":
+        #         all_prompts_text = gather_object(prompts_text)
+        #         if self.accelerator.is_main_process:
+        #             # Since 'prompts' contains 'num_generations' duplicates, we first take unique prompts, and generate
+        #             # num_generations outputs for each one. This is faster than generating outputs for each duplicate
+        #             # prompt individually.
+        #             ordered_set_of_prompts = all_prompts_text[:: self.num_generations]
+        #             with profiling_context(self, "vLLM.generate"):
+        #                 completion_ids = self.vllm_client.generate(
+        #                     prompts=ordered_set_of_prompts,
+        #                     n=self.num_generations,
+        #                     repetition_penalty=self.repetition_penalty,
+        #                     temperature=self.temperature,
+        #                     top_p=self.top_p,
+        #                     top_k=-1 if self.top_k is None else self.top_k,
+        #                     min_p=0.0 if self.min_p is None else self.min_p,
+        #                     max_tokens=self.max_completion_length,
+        #                     guided_decoding_regex=self.guided_decoding_regex,
+        #                     generation_kwargs=self.args.generation_kwargs,
+        #                 )
+        #         else:
+        #             completion_ids = [None] * len(all_prompts_text)
 
-                # Broadcast the completions from the main process to all processes, ensuring each process receives its
-                # corresponding slice.
-                completion_ids = broadcast_object_list(completion_ids, from_process=0)
-                process_slice = slice(
-                    self.accelerator.process_index * len(prompts),
-                    (self.accelerator.process_index + 1) * len(prompts),
-                )
-                completion_ids = completion_ids[process_slice]
+        #         # Broadcast the completions from the main process to all processes, ensuring each process receives its
+        #         # corresponding slice.
+        #         completion_ids = broadcast_object_list(completion_ids, from_process=0)
+        #         process_slice = slice(
+        #             self.accelerator.process_index * len(prompts),
+        #             (self.accelerator.process_index + 1) * len(prompts),
+        #         )
+        #         completion_ids = completion_ids[process_slice]
 
-        # Generate completions using colocated vLLM instances: each device holds vLLM copy and work on their own batch of prompts
-            elif self.vllm_mode == "colocate":
-                completion_ids, assistant_mask, completion_mask, rewards = self.env.generate_and_tokenize(prompts, device=device)
+        # # Generate completions using colocated vLLM instances: each device holds vLLM copy and work on their own batch of prompts
+        #     elif self.vllm_mode == "colocate":
+
         #         if self.guided_decoding_regex:
         #             guided_decoding = GuidedDecodingParams(backend="outlines", regex=self.guided_decoding_regex)
         #         else:
@@ -1174,24 +1180,25 @@ class GRPOTrainer(Trainer):
         #     completion_ids = [torch.tensor(ids, device=device) for ids in completion_ids]
         #     completion_ids = pad(completion_ids, padding_value=self.processing_class.pad_token_id)
         #     prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
-        else:
-            # Regular generation path
-            with unwrap_model_for_generation(
-                self.model_wrapped, self.accelerator, gather_deepspeed3_params=self.args.ds3_gather_for_generation
-            ) as unwrapped_model:
-                with (
-                    FSDP.summon_full_params(self.model_wrapped, recurse=False)
-                    if self.is_fsdp_enabled
-                    else nullcontext()
-                ):
-                    prompt_completion_ids = unwrapped_model.generate(
-                        prompt_ids, attention_mask=prompt_mask, generation_config=self.generation_config
-                    )
+        # else:
+        #     # Regular generation path
+        #     with unwrap_model_for_generation(
+        #         self.model_wrapped, self.accelerator, gather_deepspeed3_params=self.args.ds3_gather_for_generation
+        #     ) as unwrapped_model:
+        #         with (
+        #             FSDP.summon_full_params(self.model_wrapped, recurse=False)
+        #             if self.is_fsdp_enabled
+        #             else nullcontext()
+        #         ):
+        #             prompt_completion_ids = unwrapped_model.generate(
+        #                 prompt_ids, attention_mask=prompt_mask, generation_config=self.generation_config
+        #             )
 
-            # Compute prompt length and extract completion ids
-            prompt_length = prompt_ids.size(1)
-            prompt_ids = prompt_completion_ids[:, :prompt_length]
-            completion_ids = prompt_completion_ids[:, prompt_length:]
+        #     # Compute prompt length and extract completion ids
+        #     prompt_length = prompt_ids.size(1)
+        #     prompt_ids = prompt_completion_ids[:, :prompt_length]
+        #     completion_ids = prompt_completion_ids[:, prompt_length:]
+
 
         # # Mask everything after the first EOS token
         # is_eos = completion_ids == self.processing_class.eos_token_id
@@ -1348,6 +1355,116 @@ class GRPOTrainer(Trainer):
             "old_per_token_logps": old_per_token_logps,
             "ref_per_token_logps": ref_per_token_logps,
         }
+    
+    async def generate_and_tokenize(self, inputs: list, func: Callable, reward: Callable, device: torch.device = None):
+        """Generate rollout with model and tokenizer (not random vs random)"""
+
+        tokenizer = AutoTokenizer.from_pretrained(self.model)
+
+        all_completion_ids = []
+        all_assistant_masks = []  # For loss (only assistant tokens)
+        all_completion_masks = []  # For attention (all real tokens)
+        all_rewards = []
+
+        import copy
+        import asyncio
+            
+        # Step 1: Generate rollout (list of message dicts)
+        traces = await asyncio.gather(
+            *[self.tracer.rollout_and_reward(func, reward, copy.deepcopy(input)) for input in inputs]
+        )
+
+        trajectories = await asyncio.gather(
+            *[self.trace_to_trajectory(trace) for trace in traces]
+        )
+        
+        for trajectory in trajectories:
+            # Step 2: Apply chat template with masking
+            completion_ids, assistant_mask, completion_mask = await self._apply_chat_template_with_masking(trajectory["messages"], tokenizer)
+            
+            all_completion_ids.append(completion_ids)
+            all_assistant_masks.append(assistant_mask)
+            all_completion_masks.append(completion_mask)
+            all_rewards.append(trajectory["reward"])
+
+        
+        # Pad all completions to the same length (max length in this batch)
+        max_length = max(len(ids) for ids in all_completion_ids)
+        padded_completion_ids = []
+        padded_assistant_masks = []
+        padded_completion_masks = []
+        
+        for ids, assistant_mask, completion_mask in zip(all_completion_ids, all_assistant_masks, all_completion_masks):
+            # Pad with pad_token_id to max_length
+            padded_ids = ids + [tokenizer.pad_token_id] * (max_length - len(ids))
+            # Pad assistant mask with 0 (don't train on padding)
+            padded_assistant_mask = assistant_mask + [0] * (max_length - len(assistant_mask))
+            # Pad completion mask with 0 (don't attend to padding)
+            padded_completion_mask = completion_mask + [0] * (max_length - len(completion_mask))
+
+            padded_completion_ids.append(padded_ids)
+            padded_assistant_masks.append(padded_assistant_mask)
+            padded_completion_masks.append(padded_completion_mask)
+        
+        # Create tensors on the specified device (or default to CPU if not specified)
+        if device is None:
+            device = torch.device("cpu")
+            
+        return (
+            torch.tensor(padded_completion_ids, device=device), 
+            torch.tensor(padded_completion_masks, device=device), # For attention
+            torch.tensor(padded_assistant_masks, device=device),  # For loss
+            torch.tensor(all_rewards, dtype=torch.float32, device=device)  # Convert to float32
+        )
+
+    async def _apply_chat_template_with_masking(self, messages, tokenizer):
+        """Apply chat template while tracking which tokens are from assistant vs user/env"""
+        # Skip the initial system and user messages (these are the prompt)
+        # Find where the completion starts (after the initial system + user pair)
+        completion_start_idx = 0
+        for i, message in enumerate(messages):
+            if message["role"] == "user":
+                completion_start_idx = i
+                break
+        # Only process the completion part (everything after the initial prompt)
+        completion_messages = messages[completion_start_idx:]
+        
+        messages_consumed = []
+        completion_ids = []
+        assistant_mask = []  # For loss (only assistant tokens)
+        completion_mask = [] # For attention (all real tokens)
+        for message in completion_messages:
+            if message["role"] == "assistant":
+                # ASSISTANT CASE: These tokens should be trainable (mask=1)
+                token_prefix = []
+                if len(messages_consumed) != 0:
+                    token_prefix = tokenizer.apply_chat_template(messages_consumed, tokenize=True)
+                    
+                token_prefix_with_turn = tokenizer.apply_chat_template(messages_consumed + [message], tokenize=True)
+                
+                # Get the new tokens from this assistant message
+                new_tokens = token_prefix_with_turn[len(token_prefix):]
+                completion_ids.extend(new_tokens)
+                assistant_mask.extend([1] * len(new_tokens))  # Trainable
+                completion_mask.extend([1] * len(new_tokens)) # Real token
+                messages_consumed.append(message)
+                
+            else:
+                # USER/ENV CASE: These tokens should NOT be trainable (mask=0)
+                token_prefix = []
+                if len(messages_consumed) != 0:
+                    token_prefix = tokenizer.apply_chat_template(messages_consumed, tokenize=True)
+                token_prefix_with_turn = tokenizer.apply_chat_template(messages_consumed + [message], tokenize=True)
+                
+                # Get the new tokens from this user/env message
+                new_tokens = token_prefix_with_turn[len(token_prefix):]
+                completion_ids.extend(new_tokens)
+                assistant_mask.extend([0] * len(new_tokens))  # NOT trainable
+                completion_mask.extend([1] * len(new_tokens)) # Real token
+                messages_consumed.append(message)
+        
+        return completion_ids, assistant_mask, completion_mask
+        
 
     def compute_liger_loss(self, unwrapped_model, inputs):
         # Compute the per-token log probabilities for the model

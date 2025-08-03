@@ -1480,6 +1480,137 @@ class Tracer:
             return cls
 
         return decorate_class if cls is None else decorate_class(cls)
+    
+    from judgeval.common.optimization.grpo_trainer import GRPOTrainer
+    from datasets import Dataset
+
+    async def trace_to_trajectory(self, trace: Trace | TraceClient) -> Trajectory:
+        if not trace:
+            raise ValueError("No current trace found")
+
+        trace = Trace(**trace)
+
+        trajectory = []
+
+        reward_score = trace.metadata.get("reward_score", 0)
+
+        # Get the current trace's spans
+        spans = trace.trace_spans
+
+        # Get only the spans that are used for agent conversation
+        first_found = False
+        for span in spans:
+            # If first span, get its input as system + user prompt
+            if span.span_type == "llm" and not first_found:
+                input_messages = span.inputs.get("messages", [])
+                if input_messages == []:
+                    continue
+                first_found = True
+                trajectory.extend(input_messages)
+            if not first_found:
+                continue
+
+            if span.output == None:
+                continue
+
+            if span.span_type == "llm":
+                trajectory.append(
+                    {"role": "assistant", "content": span.output}
+                )
+            elif span.span_type == "user":
+                trajectory.append(
+                    {"role": "user", "content": span.output}
+                )
+            elif span.span_type == "tool":
+                trajectory.append(
+                    {"role": "user", "content": span.output}
+                )
+
+        return {"messages": trajectory, "reward": reward_score}
+
+    async def train(
+        self,
+        model: str,
+        func: Callable,
+        reward_funcs: Callable,
+        train_dataset: Dataset = None,
+    ):
+        """
+        Train a model on trajectory data using GRPO.
+        """
+        
+        @self.observe(span_type="inference")
+        async def rollout_and_reward(func: Callable, reward: Callable, input: list):
+            res = await func(*input)
+            try:
+                reward_score = await reward(*input, agent_output=res)
+            except TypeError:
+                reward_score = await reward(*input)
+            self.get_current_trace().set_reward_score(reward_score)
+            return self.get_current_trace()
+    
+        # import random
+        # # Inference-training loop
+        # for _ in range(model.get_step(), config.steps):
+        #     # Inference
+        #     groups = []
+        #     if config.batch_size > 0:
+        #         batch_inputs = random.sample(inputs, config.batch_size)
+        #     else:
+        #         batch_inputs = inputs
+        #     for input in batch_inputs:
+        #         await asyncio.gather(
+        #             *[rollout_and_reward(func, reward, copy.deepcopy(input)) for _ in range(config.num_rollouts)]
+        #         )
+        #         groups.append(self.traces)
+        #         self.traces = []
+
+        #     # Train
+        #     async def create_trajectory_group(group):
+        #         trajectories = await asyncio.gather(
+        #             *[self.trace_to_trajectory(trace) for trace in group]
+        #         )
+        #         return trajectories
+
+        #     trajectory_groups = await asyncio.gather(*[create_trajectory_group(group) for group in groups])
+        #     await model.delete_checkpoints()
+        #     await model.train(
+        #         trajectory_groups, config=config
+        #     )
+
+        from judgeval.common.optimization.grpo_trainer import GRPOTrainer
+        from trl.trainer.grpo_config import GRPOConfig
+
+        grpo_config = GRPOConfig(
+        num_generations=8,           # Reduced from 2 to save memory
+        temperature=1.0,           # High exploration for early game
+        per_device_train_batch_size=8,  # Reduced from 2 to save memory
+        gradient_accumulation_steps=4,  # Increased from 1 to maintain effective batch size
+        max_steps=50,            # More steps for strategic learning
+        learning_rate=1e-4,        # Stable learning rate
+        # Add memory optimization settings
+        dataloader_pin_memory=False,  # Disable pin memory to save RAM
+        remove_unused_columns=False,  # Keep unused columns to avoid errors
+        # Add gradient checkpointing to save memory
+        gradient_checkpointing=True,  
+        # Enable vLLM for weight synchronization
+        use_vllm=True,
+        vllm_mode="colocate",
+        vllm_gpu_memory_utilization=0.15,
+        vllm_tensor_parallel_size=1,
+        # Save checkpoints to workspace to avoid disk space issues
+        output_dir="/workspace",
+        logging_steps=1,
+        # Add explicit length parameters to handle longer prompts
+        max_prompt_length=1024,      # Increased to handle longer game states
+        max_completion_length=2048,
+        )
+
+        trainer = GRPOTrainer(self, model, func, reward_funcs, train_dataset, args=grpo_config)
+
+        await trainer.train()
+
+            
 
     def async_evaluate(
         self,
