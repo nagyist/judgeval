@@ -72,6 +72,7 @@ class EvalLogPayload(TypedDict):
 class EvalStatusPayload(TypedDict):
     experiment_run_id: str
     judgment_api_key: str
+    project_name: str
 
 
 class CheckExperimentTypePayload(TypedDict):

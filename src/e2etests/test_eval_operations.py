@@ -59,14 +59,8 @@ def test_run_eval(client: JudgmentClient, project_name: str, random_name: str):
     res = run_eval_helper(client, project_name, random_name)
     assert res, f"No evaluation results found for {random_name}"
 
-
-def test_run_eval_with_same_name(
-    client: JudgmentClient, project_name: str, random_name: str
-):
-    """Test basic evaluation workflow."""
-
-    res = run_eval_helper(client, project_name, random_name)
-    assert res, f"No evaluation results found for {random_name}"
+    res2 = run_eval_helper(client, project_name, random_name)
+    assert res2, f"No evaluation results found for {random_name}"
 
 
 @pytest.mark.asyncio
