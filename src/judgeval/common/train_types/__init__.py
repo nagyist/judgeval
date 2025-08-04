@@ -14,7 +14,7 @@ from . import dev
 from .gather import gather_trajectories, gather_trajectory_groups
 from .model import Model, TrainableModel
 from .trajectories import Trajectory, TrajectoryGroup
-from .types import Messages, MessagesAndChoices, Tools, TrainConfig
+from .types import Messages, MessagesAndChoices, Tools, TrainConfig, ComparativeConfig
 
 __all__ = [
     "dev",
@@ -28,4 +28,5 @@ __all__ = [
     "TrainConfig",
     "Trajectory",
     "TrajectoryGroup",
+    "ComparativeConfig",
 ]

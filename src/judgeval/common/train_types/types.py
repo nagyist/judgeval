@@ -16,8 +16,9 @@ class ComparativeConfig(pydantic.BaseModel):
     rubric: str | None = None
     num_agents: int = 3
     see_spans: bool = False
-    comparitive_score_scaling: float = 1.0
+    comparative_score_scaling: float = 1.0
     model: str = "gpt-4.1"
+    use_initial_input: bool = False
 
 class TrainConfig(pydantic.BaseModel):
     learning_rate: float = 5e-6

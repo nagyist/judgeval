@@ -1558,39 +1558,49 @@ class Tracer:
         Your job is to compare the trajectories and return a score for each trajectory.
         The score should be a number between 0 and 1, where 1 is the best score and 0 is the worst.
         The score should be based on how well the trace executes the task and scores should be computed relative to each other.
+        DO NOT use any existing reward scores for the trajectories in your comparison.
 
         You must output a list of float scores between 0 and 1. The length of the list must be the same as the number of trajectories.
     '''
 
-    def comparison_reward(self, trajectories: list[Trajectory], config: ComparativeConfig):
+    def comparison_reward(self, trajectories: list[Trace], initial_input: Any, config: ComparativeConfig):
         """
         Comparative trajectory scoring with MoE for GRPO setting
         """
+        # Ensure that every trajectory is a `Trace` instance (they may be stored as raw
+        # dictionaries in `self.traces`).
+        trajectories = [traj if isinstance(traj, Trace) else Trace(**traj) for traj in trajectories]
 
         if config.rubric is None:
             rubric = self.DEFAULT_RUBRIC
         else:
             rubric = self.DEFAULT_RUBRIC + "\n\n Additional domain-specific rubric:\n" + config.rubric
 
+
         def traj_to_string(traj: Trajectory):
             span_str = ("List of spans:\n" + "\n".join([f"  {span.name} [{span.span_type}]: INPUT: {span.inputs} \n OUTPUT: {span.outputs}" for span in traj.trace_spans])) if config.see_spans else ""
             metadata_str = "Metadata:\n" + "\n".join([f"  {key}: {value}" for key, value in traj.metadata.items()])
             return span_str + "\n\n" + metadata_str
 
+
+        client = OpenAI()
         agent_scores = []
         for i in range(config.num_agents):
             messages = [
                 {"role": "system", "content": rubric},
-                {"role": "user", "content": f"Here are the trajectories: {[traj_to_string(traj) for traj in trajectories]}"}
+                {"role": "user", "content": f"Here are the trajectories: {[traj_to_string(traj) for traj in trajectories]}"},
             ]
-            print(messages)
+
+            if initial_input is not None and config.use_initial_input:
+                messages.append({"role": "user", "content": f"Here was the initial input to all trajectories: {initial_input}"})
 
             # Get the response from the model
-            response = config.model.openai_client().chat.completions.create(
+            response = client.chat.completions.create(
                 model=config.model,
                 messages=messages,
-                response_format={"type": "json_object"}
             )
+
+            print("RESPONSE ",response.choices[0].message.content)
 
             # Parse the response
             try:
@@ -1602,12 +1612,25 @@ class Tracer:
             agent_scores.append(scores)
 
         # Take the average of the experts' scores for each trajectory
-        avg_scores = [sum(agent_scores[i][j] for i in range(config.num_agents)) / config.num_agents for j in range(len(trajectories))]
+        try:
+            avg_scores = [sum(agent_scores[i][j] for i in range(len(agent_scores))) / len(agent_scores) for j in range(len(trajectories))]
+        except Exception as e:
+            print("ERROR ",e)
+            avg_scores = [0] * len(trajectories)
 
-        # Set the reward score for each trajectory
+        # Update (or create) the reward score metadata for each stored trace
         for i, score in enumerate(avg_scores):
-            new_reward = self.traces[i].metadata.get("reward_score", 0) + score * config.comparitive_score_scaling
-            self.traces[i].set_reward_score(new_reward)
+            trace_entry = self.traces[i]
+
+            if isinstance(trace_entry, dict):
+                # Ensure a metadata dict exists
+                trace_entry.setdefault("metadata", {})
+                prev_reward = trace_entry["metadata"].get("reward_score", 0)
+                trace_entry["metadata"]["reward_score"] = prev_reward + score * config.comparative_score_scaling
+            elif hasattr(trace_entry, "update_metadata"):
+                # Likely a TraceClient instance
+                prev_reward = getattr(trace_entry, "metadata", {}).get("reward_score", 0)
+                trace_entry.update_metadata({"reward_score": prev_reward + score * config.comparative_score_scaling})
 
         # Return the scores
         return avg_scores
@@ -1651,8 +1674,8 @@ class Tracer:
                 )
 
                 # Comparative scoring
-                if config.comparitive_config.enabled:
-                    self.comparison_reward(self.traces, config=config.comparitive_config)
+                if config.comparative_config.enabled:
+                    self.comparison_reward(self.traces, initial_input=copy.deepcopy(input), config=config.comparative_config)
 
                 groups.append(self.traces)
                 self.traces = []
