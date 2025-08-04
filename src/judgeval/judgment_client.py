@@ -167,22 +167,6 @@ class JudgmentClient(metaclass=SingletonMeta):
         except Exception as e:
             raise Exception(f"An unexpected error occurred during evaluation: {str(e)}")
 
-    def pull_eval(
-        self, project_name: str, experiment_run_id: str
-    ) -> List[Dict[str, Union[str, List[ScoringResult]]]]:
-        """Pull evaluation results from the server.
-
-        Args:
-            project_name (str): Name of the project
-            eval_run_name (str): Name of the evaluation run
-
-        Returns:
-            Dict[str, Union[str, List[ScoringResult]]]: Dictionary containing:
-                - id (str): The evaluation run ID
-                - results (List[ScoringResult]): List of scoring results
-        """
-        return self.api_client.fetch_evaluation_results(experiment_run_id, project_name)
-
     def create_project(self, project_name: str) -> bool:
         """
         Creates a project on the server.
