@@ -157,7 +157,7 @@ def test_execution_order_scorer(client: JudgmentClient, project_name: str):
     res = client.run_evaluation(
         examples=[example],
         scorers=[ExecutionOrderScorer(threshold=1, should_consider_ordering=True)],
-        model="gpt-4.1-mini",
+        model=DEFAULT_TOGETHER_MODEL,
         project_name=project_name,
         eval_run_name=EVAL_RUN_NAME,
         override=True,

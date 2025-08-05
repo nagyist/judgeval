@@ -26,11 +26,15 @@ from typing import (
     Generator,
     List,
     Optional,
+    ParamSpec,
     Tuple,
+    TypeVar,
     Union,
     TypeAlias,
+    overload,
 )
 import types
+import random
 
 
 from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
@@ -38,21 +42,25 @@ from judgeval.common.tracer.constants import _TRACE_FILEPATH_BLOCKLIST
 from judgeval.common.tracer.otel_span_processor import JudgmentSpanProcessor
 from judgeval.common.tracer.span_processor import SpanProcessorBase
 from judgeval.common.tracer.trace_manager import TraceManagerClient
-from litellm import cost_per_token as _original_cost_per_token
-from openai import OpenAI, AsyncOpenAI
-from openai.types.chat.chat_completion import ChatCompletion
-from openai.types.responses.response import Response
-from openai.types.chat import ParsedChatCompletion
-from together import Together, AsyncTogether
-from anthropic import Anthropic, AsyncAnthropic
-from google import genai
-from groq import Groq, AsyncGroq
 
 from judgeval.data import Example, Trace, TraceSpan, TraceUsage
 from judgeval.scorers import APIScorerConfig, BaseScorer
 from judgeval.evaluation_run import EvaluationRun
-from judgeval.common.utils import ExcInfo, validate_api_key
+from judgeval.local_eval_queue import LocalEvaluationQueue
+from judgeval.common.api import JudgmentApiClient
+from judgeval.common.utils import OptExcInfo, validate_api_key
 from judgeval.common.logger import judgeval_logger
+
+from litellm import cost_per_token as _original_cost_per_token  # type: ignore
+from judgeval.common.tracer.providers import (
+    HAS_OPENAI,
+    HAS_TOGETHER,
+    HAS_ANTHROPIC,
+    HAS_GOOGLE_GENAI,
+    HAS_GROQ,
+    ApiClient,
+)
+from judgeval.constants import DEFAULT_GPT_MODEL
 
 
 current_trace_var = contextvars.ContextVar[Optional["TraceClient"]](
@@ -60,18 +68,7 @@ current_trace_var = contextvars.ContextVar[Optional["TraceClient"]](
 )
 current_span_var = contextvars.ContextVar[Optional[str]]("current_span", default=None)
 
-ApiClient: TypeAlias = Union[
-    OpenAI,
-    Together,
-    Anthropic,
-    AsyncOpenAI,
-    AsyncAnthropic,
-    AsyncTogether,
-    genai.Client,
-    genai.client.AsyncClient,
-    Groq,
-    AsyncGroq,
-]
+
 SpanType: TypeAlias = str
 
 
@@ -112,10 +109,6 @@ class TraceClient:
         self._span_depths: Dict[str, int] = {}
 
         self.otel_span_processor = tracer.otel_span_processor
-
-        judgeval_logger.info(
-            f"🎯 TraceClient using span processor for trace {self.trace_id}"
-        )
 
     def get_current_span(self):
         """Get the current span from the context var"""
@@ -181,85 +174,53 @@ class TraceClient:
 
     def async_evaluate(
         self,
-        scorers: List[Union[APIScorerConfig, BaseScorer]],
-        example: Optional[Example] = None,
-        input: Optional[str] = None,
-        actual_output: Optional[Union[str, List[str]]] = None,
-        expected_output: Optional[Union[str, List[str]]] = None,
-        context: Optional[List[str]] = None,
-        retrieval_context: Optional[List[str]] = None,
-        tools_called: Optional[List[str]] = None,
-        expected_tools: Optional[List[str]] = None,
-        additional_metadata: Optional[Dict[str, Any]] = None,
-        model: Optional[str] = None,
-        span_id: Optional[str] = None,
+        scorer: Union[APIScorerConfig, BaseScorer],
+        example: Example,
+        model: str = DEFAULT_GPT_MODEL,
     ):
-        if not self.enable_evaluations:
-            return
-
         start_time = time.time()
-
-        try:
-            if not scorers:
-                judgeval_logger.warning("No valid scorers available for evaluation")
-                return
-
-        except Exception as e:
-            judgeval_logger.warning(f"Failed to load scorers: {str(e)}")
-            return
-
-        if example is None:
-            if any(
-                param is not None
-                for param in [
-                    input,
-                    actual_output,
-                    expected_output,
-                    context,
-                    retrieval_context,
-                    tools_called,
-                    expected_tools,
-                    additional_metadata,
-                ]
-            ):
-                example = Example(
-                    input=input,
-                    actual_output=actual_output,
-                    expected_output=expected_output,
-                    context=context,
-                    retrieval_context=retrieval_context,
-                    tools_called=tools_called,
-                    expected_tools=expected_tools,
-                    additional_metadata=additional_metadata,
-                )
-            else:
-                raise ValueError(
-                    "Either 'example' or at least one of the individual parameters (input, actual_output, etc.) must be provided"
-                )
-
-        span_id_to_use = span_id if span_id is not None else self.get_current_span()
-
-        eval_run = EvaluationRun(
-            organization_id=self.tracer.organization_id,
-            project_name=self.project_name,
-            eval_name=f"{self.name.capitalize()}-"
-            f"{span_id_to_use}-"
-            f"[{','.join(scorer.score_type.capitalize() for scorer in scorers)}]",
-            examples=[example],
-            scorers=scorers,
-            model=model,
-            judgment_api_key=self.tracer.api_key,
-            trace_span_id=span_id_to_use,
+        span_id = self.get_current_span()
+        eval_run_name = (
+            f"{self.name.capitalize()}-{span_id}-{scorer.score_type.capitalize()}"
         )
 
-        self.add_eval_run(eval_run, start_time)
+        if isinstance(scorer, APIScorerConfig):
+            eval_run = EvaluationRun(
+                organization_id=self.tracer.organization_id,
+                project_name=self.project_name,
+                eval_name=eval_run_name,
+                examples=[example],
+                scorers=[scorer],
+                model=model,
+                trace_span_id=span_id,
+            )
 
-        if span_id_to_use:
-            current_span = self.span_id_to_span.get(span_id_to_use)
-            if current_span:
-                self.otel_span_processor.queue_evaluation_run(
-                    eval_run, span_id=span_id_to_use, span_data=current_span
-                )
+            self.add_eval_run(eval_run, start_time)
+
+            if span_id:
+                current_span = self.span_id_to_span.get(span_id)
+                if current_span:
+                    self.otel_span_processor.queue_evaluation_run(
+                        eval_run, span_id=span_id, span_data=current_span
+                    )
+        elif isinstance(scorer, BaseScorer):
+            # Handle custom scorers using local evaluation queue
+            eval_run = EvaluationRun(
+                organization_id=self.tracer.organization_id,
+                project_name=self.project_name,
+                eval_name=eval_run_name,
+                examples=[example],
+                scorers=[scorer],
+                model=model,
+                judgment_api_key=self.tracer.api_key,
+                trace_span_id=span_id,
+                trace_id=self.trace_id,
+            )
+
+            self.add_eval_run(eval_run, start_time)
+
+            # Enqueue the evaluation run to the local evaluation queue
+            self.tracer.local_eval_queue.enqueue(eval_run)
 
     def add_eval_run(self, eval_run: EvaluationRun, start_time: float):
         current_span_id = eval_run.trace_span_id
@@ -517,7 +478,7 @@ class TraceClient:
 
 
 def _capture_exception_for_trace(
-    current_trace: Optional[TraceClient], exc_info: ExcInfo
+    current_trace: Optional[TraceClient], exc_info: OptExcInfo
 ):
     if not current_trace:
         return
@@ -841,6 +802,10 @@ class _DeepTracer:
                 self._original_threading_trace = None
 
 
+T = TypeVar("T", bound=Callable[..., Any])
+P = ParamSpec("P")
+
+
 class Tracer:
     # Tracer.current_trace class variable is currently used in wrap()
     # TODO: Keep track of cross-context state for current trace and current span ID solely through class variables instead of instance variables?
@@ -953,6 +918,15 @@ class Tracer:
                 )
             else:
                 self.otel_span_processor = SpanProcessorBase()
+
+            # Initialize local evaluation queue for custom scorers
+            self.local_eval_queue = LocalEvaluationQueue()
+
+            # Start workers with callback to log results only if monitoring is enabled
+            if enable_evaluations and enable_monitoring:
+                self.local_eval_queue.start_workers(
+                    callback=self._log_eval_results_callback
+                )
 
             atexit.register(self._cleanup_on_exit)
         except Exception as e:
@@ -1189,11 +1163,24 @@ class Tracer:
             else:
                 trace_client_instance.record_state_after(state)
 
+    @overload
+    def observe(
+        self, func: T, *, name: Optional[str] = None, span_type: SpanType = "span"
+    ) -> T: ...
+
+    @overload
     def observe(
         self,
-        func=None,
         *,
-        name=None,
+        name: Optional[str] = None,
+        span_type: SpanType = "span",
+    ) -> Callable[[T], T]: ...
+
+    def observe(
+        self,
+        func: Optional[T] = None,
+        *,
+        name: Optional[str] = None,
         span_type: SpanType = "span",
     ):
         """
@@ -1210,8 +1197,8 @@ class Tracer:
                 return func if func else lambda f: f
 
             if func is None:
-                return lambda f: self.observe(
-                    f,
+                return lambda func: self.observe(
+                    func,
                     name=name,
                     span_type=span_type,
                 )
@@ -1220,8 +1207,8 @@ class Tracer:
             original_span_name = name or func.__name__
 
             # Store custom attributes on the function object
-            func._judgment_span_name = original_span_name
-            func._judgment_span_type = span_type
+            func._judgment_span_name = original_span_name  # type: ignore
+            func._judgment_span_type = span_type  # type: ignore
 
         except Exception:
             return func
@@ -1532,15 +1519,51 @@ class Tracer:
 
         return decorate_class if cls is None else decorate_class(cls)
 
-    def async_evaluate(self, *args, **kwargs):
+    def async_evaluate(
+        self,
+        scorer: Union[APIScorerConfig, BaseScorer],
+        example: Example,
+        model: str = DEFAULT_GPT_MODEL,
+        sampling_rate: float = 1,
+    ):
         try:
             if not self.enable_monitoring or not self.enable_evaluations:
                 return
 
-            current_trace = self.get_current_trace()
+            if not isinstance(scorer, (APIScorerConfig, BaseScorer)):
+                judgeval_logger.warning(
+                    f"Scorer must be an instance of APIScorerConfig or BaseScorer, got {type(scorer)}, skipping evaluation"
+                )
+                return
 
+            if not isinstance(example, Example):
+                judgeval_logger.warning(
+                    f"Example must be an instance of Example, got {type(example)} skipping evaluation"
+                )
+                return
+
+            if sampling_rate < 0:
+                judgeval_logger.warning(
+                    "Cannot set sampling_rate below 0, skipping evaluation"
+                )
+                return
+
+            if sampling_rate > 1:
+                judgeval_logger.warning(
+                    "Cannot set sampling_rate above 1, skipping evaluation"
+                )
+                return
+
+            percentage = random.uniform(0, 1)
+            if percentage > sampling_rate:
+                judgeval_logger.info("Skipping async_evaluate due to sampling rate")
+                return
+
+            current_trace = self.get_current_trace()
             if current_trace:
-                current_trace.async_evaluate(*args, **kwargs)
+                current_trace.async_evaluate(
+                    scorer=scorer, example=example, model=model
+                )
             else:
                 judgeval_logger.warning(
                     "No trace found (context var or fallback), skipping evaluation"
@@ -1613,9 +1636,68 @@ class Tracer:
         self.otel_span_processor.shutdown()
         self.otel_span_processor = SpanProcessorBase()
 
+    def wait_for_completion(self, timeout: Optional[float] = 30.0) -> bool:
+        """Wait for all evaluations and span processing to complete.
+
+        This method blocks until all queued evaluations are processed and
+        all pending spans are flushed to the server.
+
+        Args:
+            timeout: Maximum time to wait in seconds. Defaults to 30 seconds.
+                    None means wait indefinitely.
+
+        Returns:
+            True if all processing completed within the timeout, False otherwise.
+
+        """
+        try:
+            judgeval_logger.debug(
+                "Waiting for all evaluations and spans to complete..."
+            )
+
+            # Wait for all queued evaluation work to complete
+            eval_completed = self.local_eval_queue.wait_for_completion()
+            if not eval_completed:
+                judgeval_logger.warning(
+                    f"Local evaluation queue did not complete within {timeout} seconds"
+                )
+                return False
+
+            self.flush_background_spans()
+
+            judgeval_logger.debug("All evaluations and spans completed successfully")
+            return True
+
+        except Exception as e:
+            judgeval_logger.warning(f"Error while waiting for completion: {e}")
+            return False
+
+    def _log_eval_results_callback(self, evaluation_run, scoring_results):
+        """Callback to log evaluation results after local processing."""
+        try:
+            if scoring_results and self.enable_evaluations and self.enable_monitoring:
+                # Convert scoring results to the format expected by API client
+                results_dict = [
+                    result.model_dump(warnings=False) for result in scoring_results
+                ]
+                api_client = JudgmentApiClient(self.api_key, self.organization_id)
+                api_client.log_evaluation_results(
+                    results_dict, evaluation_run.model_dump(warnings=False)
+                )
+        except Exception as e:
+            judgeval_logger.warning(f"Failed to log local evaluation results: {e}")
+
     def _cleanup_on_exit(self):
         """Cleanup handler called on application exit to ensure spans are flushed."""
         try:
+            # Wait for all queued evaluation work to complete before stopping
+            completed = self.local_eval_queue.wait_for_completion()
+            if not completed:
+                judgeval_logger.warning(
+                    "Local evaluation queue did not complete within 30 seconds"
+                )
+
+            self.local_eval_queue.stop_workers()
             self.flush_background_spans()
         except Exception as e:
             judgeval_logger.warning(f"Error during tracer cleanup: {e}")
@@ -1697,33 +1779,76 @@ def wrap(
 
         return wrapper
 
-    if isinstance(client, (OpenAI)):
-        setattr(client.chat.completions, "create", wrapped(original_create))
-        setattr(client.responses, "create", wrapped(original_responses_create))
-        setattr(client.beta.chat.completions, "parse", wrapped(original_beta_parse))
-    elif isinstance(client, (AsyncOpenAI)):
-        setattr(client.chat.completions, "create", wrapped_async(original_create))
-        setattr(client.responses, "create", wrapped_async(original_responses_create))
-        setattr(
-            client.beta.chat.completions, "parse", wrapped_async(original_beta_parse)
-        )
-    elif isinstance(client, (Together)):
-        setattr(client.chat.completions, "create", wrapped(original_create))
-    elif isinstance(client, (AsyncTogether)):
-        setattr(client.chat.completions, "create", wrapped_async(original_create))
-    elif isinstance(client, (Anthropic)):
-        setattr(client.messages, "create", wrapped(original_create))
-    elif isinstance(client, (AsyncAnthropic)):
-        setattr(client.messages, "create", wrapped_async(original_create))
-    elif isinstance(client, (genai.Client)):
-        setattr(client.models, "generate_content", wrapped(original_create))
-    elif isinstance(client, (genai.client.AsyncClient)):
-        setattr(client.models, "generate_content", wrapped_async(original_create))
-    elif isinstance(client, (Groq)):
-        setattr(client.chat.completions, "create", wrapped(original_create))
-    elif isinstance(client, (AsyncGroq)):
-        setattr(client.chat.completions, "create", wrapped_async(original_create))
+    if HAS_OPENAI:
+        from judgeval.common.tracer.providers import openai_OpenAI, openai_AsyncOpenAI
 
+        assert openai_OpenAI is not None, "OpenAI client not found"
+        assert openai_AsyncOpenAI is not None, "OpenAI async client not found"
+        if isinstance(client, (openai_OpenAI)):
+            setattr(client.chat.completions, "create", wrapped(original_create))
+            setattr(client.responses, "create", wrapped(original_responses_create))
+            setattr(client.beta.chat.completions, "parse", wrapped(original_beta_parse))
+        elif isinstance(client, (openai_AsyncOpenAI)):
+            setattr(client.chat.completions, "create", wrapped_async(original_create))
+            setattr(
+                client.responses, "create", wrapped_async(original_responses_create)
+            )
+            setattr(
+                client.beta.chat.completions,
+                "parse",
+                wrapped_async(original_beta_parse),
+            )
+
+    if HAS_TOGETHER:
+        from judgeval.common.tracer.providers import (
+            together_Together,
+            together_AsyncTogether,
+        )
+
+        assert together_Together is not None, "Together client not found"
+        assert together_AsyncTogether is not None, "Together async client not found"
+        if isinstance(client, (together_Together)):
+            setattr(client.chat.completions, "create", wrapped(original_create))
+        elif isinstance(client, (together_AsyncTogether)):
+            setattr(client.chat.completions, "create", wrapped_async(original_create))
+
+    if HAS_ANTHROPIC:
+        from judgeval.common.tracer.providers import (
+            anthropic_Anthropic,
+            anthropic_AsyncAnthropic,
+        )
+
+        assert anthropic_Anthropic is not None, "Anthropic client not found"
+        assert anthropic_AsyncAnthropic is not None, "Anthropic async client not found"
+        if isinstance(client, (anthropic_Anthropic)):
+            setattr(client.messages, "create", wrapped(original_create))
+        elif isinstance(client, (anthropic_AsyncAnthropic)):
+            setattr(client.messages, "create", wrapped_async(original_create))
+
+    if HAS_GOOGLE_GENAI:
+        from judgeval.common.tracer.providers import (
+            google_genai_Client,
+            google_genai_AsyncClient,
+        )
+
+        assert google_genai_Client is not None, "Google GenAI client not found"
+        assert google_genai_AsyncClient is not None, (
+            "Google GenAI async client not found"
+        )
+        if isinstance(client, (google_genai_Client)):
+            setattr(client.models, "generate_content", wrapped(original_create))
+        elif isinstance(client, (google_genai_AsyncClient)):
+            setattr(client.models, "generate_content", wrapped_async(original_create))
+
+    if HAS_GROQ:
+        from judgeval.common.tracer.providers import groq_Groq, groq_AsyncGroq
+
+        assert groq_Groq is not None, "Groq client not found"
+        assert groq_AsyncGroq is not None, "Groq async client not found"
+        if isinstance(client, (groq_Groq)):
+            setattr(client.chat.completions, "create", wrapped(original_create))
+        elif isinstance(client, (groq_AsyncGroq)):
+            setattr(client.chat.completions, "create", wrapped_async(original_create))
     return client
 
 
@@ -1749,28 +1874,87 @@ def _get_client_config(
     Raises:
         ValueError: If client type is not supported
     """
-    if isinstance(client, (OpenAI, AsyncOpenAI)):
-        return (
-            "OPENAI_API_CALL",
-            client.chat.completions.create,
-            client.responses.create,
-            None,
-            client.beta.chat.completions.parse,
+
+    if HAS_OPENAI:
+        from judgeval.common.tracer.providers import openai_OpenAI, openai_AsyncOpenAI
+
+        assert openai_OpenAI is not None, "OpenAI client not found"
+        assert openai_AsyncOpenAI is not None, "OpenAI async client not found"
+        if isinstance(client, (openai_OpenAI)):
+            return (
+                "OPENAI_API_CALL",
+                client.chat.completions.create,
+                client.responses.create,
+                None,
+                client.beta.chat.completions.parse,
+            )
+        elif isinstance(client, (openai_AsyncOpenAI)):
+            return (
+                "OPENAI_API_CALL",
+                client.chat.completions.create,
+                client.responses.create,
+                None,
+                client.beta.chat.completions.parse,
+            )
+    if HAS_TOGETHER:
+        from judgeval.common.tracer.providers import (
+            together_Together,
+            together_AsyncTogether,
         )
-    elif isinstance(client, (Groq, AsyncGroq)):
-        return "GROQ_API_CALL", client.chat.completions.create, None, None, None
-    elif isinstance(client, (Together, AsyncTogether)):
-        return "TOGETHER_API_CALL", client.chat.completions.create, None, None, None
-    elif isinstance(client, (Anthropic, AsyncAnthropic)):
-        return (
-            "ANTHROPIC_API_CALL",
-            client.messages.create,
-            None,
-            client.messages.stream,
-            None,
+
+        assert together_Together is not None, "Together client not found"
+        assert together_AsyncTogether is not None, "Together async client not found"
+        if isinstance(client, (together_Together)):
+            return "TOGETHER_API_CALL", client.chat.completions.create, None, None, None
+        elif isinstance(client, (together_AsyncTogether)):
+            return "TOGETHER_API_CALL", client.chat.completions.create, None, None, None
+    if HAS_ANTHROPIC:
+        from judgeval.common.tracer.providers import (
+            anthropic_Anthropic,
+            anthropic_AsyncAnthropic,
         )
-    elif isinstance(client, (genai.Client, genai.client.AsyncClient)):
-        return "GOOGLE_API_CALL", client.models.generate_content, None, None, None
+
+        assert anthropic_Anthropic is not None, "Anthropic client not found"
+        assert anthropic_AsyncAnthropic is not None, "Anthropic async client not found"
+        if isinstance(client, (anthropic_Anthropic)):
+            return (
+                "ANTHROPIC_API_CALL",
+                client.messages.create,
+                None,
+                client.messages.stream,
+                None,
+            )
+        elif isinstance(client, (anthropic_AsyncAnthropic)):
+            return (
+                "ANTHROPIC_API_CALL",
+                client.messages.create,
+                None,
+                client.messages.stream,
+                None,
+            )
+    if HAS_GOOGLE_GENAI:
+        from judgeval.common.tracer.providers import (
+            google_genai_Client,
+            google_genai_AsyncClient,
+        )
+
+        assert google_genai_Client is not None, "Google GenAI client not found"
+        assert google_genai_AsyncClient is not None, (
+            "Google GenAI async client not found"
+        )
+        if isinstance(client, (google_genai_Client)):
+            return "GOOGLE_API_CALL", client.models.generate_content, None, None, None
+        elif isinstance(client, (google_genai_AsyncClient)):
+            return "GOOGLE_API_CALL", client.models.generate_content, None, None, None
+    if HAS_GROQ:
+        from judgeval.common.tracer.providers import groq_Groq, groq_AsyncGroq
+
+        assert groq_Groq is not None, "Groq client not found"
+        assert groq_AsyncGroq is not None, "Groq async client not found"
+        if isinstance(client, (groq_Groq)):
+            return "GROQ_API_CALL", client.chat.completions.create, None, None, None
+        elif isinstance(client, (groq_AsyncGroq)):
+            return "GROQ_API_CALL", client.chat.completions.create, None, None, None
     raise ValueError(f"Unsupported client type: {type(client)}")
 
 
@@ -1794,73 +1978,173 @@ def _format_output_data(
     model_name = None
     message_content = None
 
-    if isinstance(client, (OpenAI, AsyncOpenAI)):
-        if isinstance(response, ChatCompletion):
-            model_name = response.model
-            prompt_tokens = response.usage.prompt_tokens if response.usage else 0
-            completion_tokens = (
-                response.usage.completion_tokens if response.usage else 0
-            )
-            cache_read_input_tokens = (
-                response.usage.prompt_tokens_details.cached_tokens
-                if response.usage
-                and response.usage.prompt_tokens_details
-                and response.usage.prompt_tokens_details.cached_tokens
-                else 0
-            )
+    if HAS_OPENAI:
+        from judgeval.common.tracer.providers import (
+            openai_OpenAI,
+            openai_AsyncOpenAI,
+            openai_ChatCompletion,
+            openai_Response,
+            openai_ParsedChatCompletion,
+        )
 
-            if isinstance(response, ParsedChatCompletion):
-                message_content = response.choices[0].message.parsed
-            else:
-                message_content = response.choices[0].message.content
-        elif isinstance(response, Response):
-            model_name = response.model
-            prompt_tokens = response.usage.input_tokens if response.usage else 0
-            completion_tokens = response.usage.output_tokens if response.usage else 0
-            cache_read_input_tokens = (
-                response.usage.input_tokens_details.cached_tokens
-                if response.usage and response.usage.input_tokens_details
-                else 0
-            )
-            if hasattr(response.output[0], "content"):
-                message_content = "".join(
-                    seg.text
-                    for seg in response.output[0].content
-                    if hasattr(seg, "text")
+        assert openai_OpenAI is not None, "OpenAI client not found"
+        assert openai_AsyncOpenAI is not None, "OpenAI async client not found"
+        assert openai_ChatCompletion is not None, "OpenAI chat completion not found"
+        assert openai_Response is not None, "OpenAI response not found"
+        assert openai_ParsedChatCompletion is not None, (
+            "OpenAI parsed chat completion not found"
+        )
+
+        if isinstance(client, (openai_OpenAI, openai_AsyncOpenAI)):
+            if isinstance(response, openai_ChatCompletion):
+                model_name = response.model
+                prompt_tokens = response.usage.prompt_tokens if response.usage else 0
+                completion_tokens = (
+                    response.usage.completion_tokens if response.usage else 0
+                )
+                cache_read_input_tokens = (
+                    response.usage.prompt_tokens_details.cached_tokens
+                    if response.usage
+                    and response.usage.prompt_tokens_details
+                    and response.usage.prompt_tokens_details.cached_tokens
+                    else 0
                 )
 
-        # Note: LiteLLM seems to use cache_read_input_tokens to calculate the cost for OpenAI
-    elif isinstance(client, (Together, AsyncTogether)):
-        model_name = "together_ai/" + response.model
-        prompt_tokens = response.usage.prompt_tokens
-        completion_tokens = response.usage.completion_tokens
-        message_content = response.choices[0].message.content
+                if isinstance(response, openai_ParsedChatCompletion):
+                    message_content = response.choices[0].message.parsed
+                else:
+                    message_content = response.choices[0].message.content
+            elif isinstance(response, openai_Response):
+                model_name = response.model
+                prompt_tokens = response.usage.input_tokens if response.usage else 0
+                completion_tokens = (
+                    response.usage.output_tokens if response.usage else 0
+                )
+                cache_read_input_tokens = (
+                    response.usage.input_tokens_details.cached_tokens
+                    if response.usage and response.usage.input_tokens_details
+                    else 0
+                )
+                if hasattr(response.output[0], "content"):
+                    message_content = "".join(
+                        seg.text
+                        for seg in response.output[0].content
+                        if hasattr(seg, "text")
+                    )
+            # Note: LiteLLM seems to use cache_read_input_tokens to calculate the cost for OpenAI
+            return message_content, _create_usage(
+                model_name,
+                prompt_tokens,
+                completion_tokens,
+                cache_read_input_tokens,
+                cache_creation_input_tokens,
+            )
 
-        # As of 2025-07-14, Together does not do any input cache token tracking
-    elif isinstance(client, (genai.Client, genai.client.AsyncClient)):
-        model_name = response.model_version
-        prompt_tokens = response.usage_metadata.prompt_token_count
-        completion_tokens = response.usage_metadata.candidates_token_count
-        message_content = response.candidates[0].content.parts[0].text
+    if HAS_TOGETHER:
+        from judgeval.common.tracer.providers import (
+            together_Together,
+            together_AsyncTogether,
+        )
 
-        if hasattr(response.usage_metadata, "cached_content_token_count"):
-            cache_read_input_tokens = response.usage_metadata.cached_content_token_count
-    elif isinstance(client, (Anthropic, AsyncAnthropic)):
-        model_name = response.model
-        prompt_tokens = response.usage.input_tokens
-        completion_tokens = response.usage.output_tokens
-        cache_read_input_tokens = response.usage.cache_read_input_tokens
-        cache_creation_input_tokens = response.usage.cache_creation_input_tokens
-        message_content = response.content[0].text
-    elif isinstance(client, (Groq, AsyncGroq)):
-        model_name = "groq/" + response.model
-        prompt_tokens = response.usage.prompt_tokens
-        completion_tokens = response.usage.completion_tokens
-        message_content = response.choices[0].message.content
-    else:
-        judgeval_logger.warning(f"Unsupported client type: {type(client)}")
-        return None, None
+        assert together_Together is not None, "Together client not found"
+        assert together_AsyncTogether is not None, "Together async client not found"
 
+        if isinstance(client, (together_Together, together_AsyncTogether)):
+            model_name = "together_ai/" + response.model
+            prompt_tokens = response.usage.prompt_tokens
+            completion_tokens = response.usage.completion_tokens
+            message_content = response.choices[0].message.content
+
+            # As of 2025-07-14, Together does not do any input cache token tracking
+            return message_content, _create_usage(
+                model_name,
+                prompt_tokens,
+                completion_tokens,
+                cache_read_input_tokens,
+                cache_creation_input_tokens,
+            )
+
+    if HAS_GOOGLE_GENAI:
+        from judgeval.common.tracer.providers import (
+            google_genai_Client,
+            google_genai_AsyncClient,
+        )
+
+        assert google_genai_Client is not None, "Google GenAI client not found"
+        assert google_genai_AsyncClient is not None, (
+            "Google GenAI async client not found"
+        )
+        if isinstance(client, (google_genai_Client, google_genai_AsyncClient)):
+            model_name = response.model_version
+            prompt_tokens = response.usage_metadata.prompt_token_count
+            completion_tokens = response.usage_metadata.candidates_token_count
+            message_content = response.candidates[0].content.parts[0].text
+
+            if hasattr(response.usage_metadata, "cached_content_token_count"):
+                cache_read_input_tokens = (
+                    response.usage_metadata.cached_content_token_count
+                )
+            return message_content, _create_usage(
+                model_name,
+                prompt_tokens,
+                completion_tokens,
+                cache_read_input_tokens,
+                cache_creation_input_tokens,
+            )
+
+    if HAS_ANTHROPIC:
+        from judgeval.common.tracer.providers import (
+            anthropic_Anthropic,
+            anthropic_AsyncAnthropic,
+        )
+
+        assert anthropic_Anthropic is not None, "Anthropic client not found"
+        assert anthropic_AsyncAnthropic is not None, "Anthropic async client not found"
+        if isinstance(client, (anthropic_Anthropic, anthropic_AsyncAnthropic)):
+            model_name = response.model
+            prompt_tokens = response.usage.input_tokens
+            completion_tokens = response.usage.output_tokens
+            cache_read_input_tokens = response.usage.cache_read_input_tokens
+            cache_creation_input_tokens = response.usage.cache_creation_input_tokens
+            message_content = response.content[0].text
+            return message_content, _create_usage(
+                model_name,
+                prompt_tokens,
+                completion_tokens,
+                cache_read_input_tokens,
+                cache_creation_input_tokens,
+            )
+
+    if HAS_GROQ:
+        from judgeval.common.tracer.providers import groq_Groq, groq_AsyncGroq
+
+        assert groq_Groq is not None, "Groq client not found"
+        assert groq_AsyncGroq is not None, "Groq async client not found"
+        if isinstance(client, (groq_Groq, groq_AsyncGroq)):
+            model_name = "groq/" + response.model
+            prompt_tokens = response.usage.prompt_tokens
+            completion_tokens = response.usage.completion_tokens
+            message_content = response.choices[0].message.content
+            return message_content, _create_usage(
+                model_name,
+                prompt_tokens,
+                completion_tokens,
+                cache_read_input_tokens,
+                cache_creation_input_tokens,
+            )
+
+    judgeval_logger.warning(f"Unsupported client type: {type(client)}")
+    return None, None
+
+
+def _create_usage(
+    model_name: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    cache_read_input_tokens: int = 0,
+    cache_creation_input_tokens: int = 0,
+) -> TraceUsage:
+    """Helper function to create TraceUsage object with cost calculation."""
     prompt_cost, completion_cost = cost_per_token(
         model=model_name,
         prompt_tokens=prompt_tokens,
@@ -1871,7 +2155,7 @@ def _format_output_data(
     total_cost_usd = (
         (prompt_cost + completion_cost) if prompt_cost and completion_cost else None
     )
-    usage = TraceUsage(
+    return TraceUsage(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         total_tokens=prompt_tokens + completion_tokens,
@@ -1882,7 +2166,6 @@ def _format_output_data(
         total_cost_usd=total_cost_usd,
         model_name=model_name,
     )
-    return message_content, usage
 
 
 def combine_args_kwargs(func, args, kwargs):

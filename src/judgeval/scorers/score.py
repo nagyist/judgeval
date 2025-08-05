@@ -17,6 +17,7 @@ from judgeval.scorers import BaseScorer
 from judgeval.scorers.utils import clone_scorers
 from judgeval.common.logger import judgeval_logger
 from judgeval.judges import JudgevalJudge
+from judgeval.constants import DEFAULT_GPT_MODEL
 
 
 async def safe_a_score_example(
@@ -55,10 +56,11 @@ async def safe_a_score_example(
 async def a_execute_scoring(
     examples: List[Example],
     scorers: List[BaseScorer],
-    model: Optional[Union[str, List[str], JudgevalJudge]] = "gpt-4.1",
+    model: Optional[Union[str, List[str], JudgevalJudge]] = DEFAULT_GPT_MODEL,
     ignore_errors: bool = False,
     throttle_value: int = 0,
     max_concurrent: int = 100,
+    show_progress: bool = True,
 ) -> List[ScoringResult]:
     """
     Executes evaluations of `Example`s asynchronously using one or more `BaseScorer`s.
@@ -71,8 +73,7 @@ async def a_execute_scoring(
         ignore_errors (bool): Whether to ignore errors during evaluation.
         throttle_value (int): The amount of time to wait between starting each task.
         max_concurrent (int): The maximum number of concurrent tasks.
-
-        _use_bar_indicator (bool): Whether to use a progress bar indicator.
+        show_progress (bool): Whether to show the progress bar indicator.
 
     Returns:
         List[ScoringResult]: A list of `ScoringResult` objects containing the evaluation results.
@@ -101,16 +102,37 @@ async def a_execute_scoring(
     tasks = []
     cloned_scorers: List[BaseScorer]
 
-    with tqdm_asyncio(
-        desc=f"Evaluating {len(examples)} example(s) in parallel",
-        unit="Example",
-        total=len(examples),
-        bar_format="{desc}: |{bar}|{percentage:3.0f}% ({n_fmt}/{total_fmt}) [Time Taken: {elapsed}, {rate_fmt}{postfix}]",
-    ) as pbar:
+    if show_progress:
+        with tqdm_asyncio(
+            desc=f"Evaluating {len(examples)} example(s) in parallel",
+            unit="Example",
+            total=len(examples),
+            bar_format="{desc}: |{bar}|{percentage:3.0f}% ({n_fmt}/{total_fmt}) [Time Taken: {elapsed}, {rate_fmt}{postfix}]",
+        ) as pbar:
+            for i, ex in enumerate(examples):
+                if isinstance(ex, Example):
+                    if len(scorers) == 0:
+                        pbar.update(1)
+                        continue
+
+                    cloned_scorers = clone_scorers(scorers)
+                    task = execute_with_semaphore(
+                        func=a_eval_examples_helper,
+                        scorers=cloned_scorers,
+                        example=ex,
+                        scoring_results=scoring_results,
+                        score_index=i,
+                        ignore_errors=ignore_errors,
+                        pbar=pbar,
+                    )
+                    tasks.append(asyncio.create_task(task))
+
+                await asyncio.sleep(throttle_value)
+            await asyncio.gather(*tasks)
+    else:
         for i, ex in enumerate(examples):
             if isinstance(ex, Example):
                 if len(scorers) == 0:
-                    pbar.update(1)
                     continue
 
                 cloned_scorers = clone_scorers(scorers)
@@ -121,7 +143,7 @@ async def a_execute_scoring(
                     scoring_results=scoring_results,
                     score_index=i,
                     ignore_errors=ignore_errors,
-                    pbar=pbar,
+                    pbar=None,
                 )
                 tasks.append(asyncio.create_task(task))
 
