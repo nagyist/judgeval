@@ -20,9 +20,17 @@ class TrainConfig(pydantic.BaseModel):
     batch_size: int = 0
     comparative_reward: bool = False
 
+class Interaction(pydantic.BaseModel):
+    input: Messages
+    output: Choice
+
+class TaggedInteraction(pydantic.BaseModel):
+    input: Messages
+    output: Choice
+    weighted_advantage: float
 
 class Trajectory(pydantic.BaseModel):
-    messages_and_choices: MessagesAndChoices
+    interactions: list[Interaction]
     reward: float
     advantage: float
 

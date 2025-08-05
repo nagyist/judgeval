@@ -24,6 +24,8 @@ from vllm.engine.arg_utils import AsyncEngineArgs
 from dataclasses import replace
 from .vllm_server import get_openai_server_config
 import os
+from .patches import patch_trainer
+import shutil
 
 class TrainableModel:
     """Minimal wrapper around an Unsloth `FastLanguageModel` for inference.
@@ -41,18 +43,17 @@ class TrainableModel:
         lora_rank: int = 32,
         config: dict | None = None,
     ) -> None:
-        if config is None:
-            config = {}
 
         self.name = name
         self.model_name = model_name
 
-        self.config = get_openai_server_config(
-            model_name = self.name,
-            base_model = model_name,
-            log_file = "vllm.log"
-        )
-
+        if config is None:
+            config = get_openai_server_config(
+                model_name = self.name,
+                base_model = model_name,
+                log_file = "vllm.log"
+            )
+        self.config = config
 
         os.environ["VLLM_USE_V1"] = "0"
 
@@ -77,8 +78,10 @@ class TrainableModel:
             gpu_memory_utilization=0.79,
             max_lora_rank=lora_rank,
             use_async=True
-        ) 
+        )
         AsyncLLMEngine.from_engine_args = from_engine_args
+        #unsloth.FastLanguageModel.for_inference(self.model)
+        
 
         self.patch_get_lora_tokenizer_async()
 
@@ -94,7 +97,7 @@ class TrainableModel:
             model=self.peft_model,
             reward_funcs=[],
             args=UnslothGRPOConfig(
-                temperature = 2.0,
+                temperature = 1.0,
                 learning_rate = 1e-4,
                 weight_decay = 0.01,
                 warmup_ratio = 0.1,
@@ -102,50 +105,52 @@ class TrainableModel:
                 optim = "adamw_8bit",
                 logging_steps = 1,
                 per_device_train_batch_size = 1,
-                gradient_accumulation_steps = 6, # Increase to 4 for smoother training
+                gradient_accumulation_steps = 1, # Increase to 4 for smoother training
                 num_generations = 2, # Decrease if out of memory
                 max_prompt_length = 3584,
                 max_completion_length = 3584,
                 num_train_epochs = 1, # Set to 1 for a full training run
-                max_steps = 10, # Primary control - reduces from 100 to 30 for fewer training steps
+                max_steps = 100, # Primary control - reduces from 100 to 30 for fewer training steps
                 save_steps = 100,
             ),
             train_dataset=Dataset.from_list([{"prompt": ""} for _ in range(10_000_000)]),
             processing_class=self.tokenizer,
         )
+        patch_trainer(self)
 
         self.step = 0
 
     async def delete_checkpoints(self):
-        """Delete old checkpoints - no-op for now"""
+        """Delete all checkpoints except the most recent checkpoint"""
 
     async def train(self, trajectory_groups: list[list[Trajectory]], config: TrainConfig):
         """Fine-tune the policy using TRL's GRPOTrainer with multi-turn support."""
-        from .grpo_patch import apply_multi_turn_patches
+        # First, switch the model to training mode
+        #unsloth.FastLanguageModel.for_training(self.model) 
 
+        # TODO: Handle this better
         # Map our simple TrainConfig fields on to GRPOConfig if provided.
         if config.learning_rate is not None:
-            self.trainer.args.learning_rate = config.learning_rate      
-        if config.steps is not None:
-            self.trainer.args.max_steps = config.steps
+            self.trainer.args.learning_rate = config.learning_rate
+        self.trainer.args.beta = config.beta
 
         # Apply patches to handle multi-turn trajectories
-        # This modifies trainer._prepare_inputs and trainer.compute_loss
-        restore_functions = apply_multi_turn_patches(self, trajectory_groups, config)
+        from .processor import Processor
+        self.processor = Processor(self)
+        self.processor.process_trajectory_groups(trajectory_groups)
         
-        try:
-            # Train the model using patched GRPO trainer
-            self.trainer.train()
+        # Train the model using patched GRPO trainer
+        self.trainer.train()
 
-            # Update model with new LoRA weights for on-policy inference
-            model_dir = f"./lora/{self.name}/{self.step}"
-            self.trainer.save_model(model_dir)
-            self._refresh_vllm(model_dir)
-            #self.trainer._move_model_to_vllm()
-            self.step += 1
-        finally:
-            # Restore original trainer methods
-            restore_functions()
+        # Update model with new LoRA weights for on-policy inference
+        model_dir = f"./lora/{self.name}/{self.step}"
+        self.trainer.save_model(model_dir)
+        self._refresh_vllm(model_dir)
+
+        # Switch the model back to inference mode
+        #unsloth.FastLanguageModel.for_inference(self.model)
+
+        self.step += 1
 
     def _refresh_vllm(self, lora_path: str):
         """Reload the updated LoRA adapter inside the active vLLM runtime.

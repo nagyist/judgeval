@@ -55,7 +55,7 @@ from judgeval.evaluation_run import EvaluationRun
 from judgeval.common.utils import ExcInfo, validate_api_key
 from judgeval.common.logger import judgeval_logger
 
-from judgeval.optimization.types import Trajectory, TrainConfig
+from judgeval.optimization.types import Trajectory, TrainConfig, Interaction
 from judgeval.optimization.model import TrainableModel
 
 
@@ -1564,7 +1564,7 @@ class Tracer:
         trace = Trace(**trace)
 
         trajectory = Trajectory(
-            messages_and_choices=[],
+            interactions=[],
             reward=trace.metadata.get("reward_score", 0),
             # This gets set later when we have the entire groups' rewards
             advantage=0.0,
@@ -1573,38 +1573,14 @@ class Tracer:
         # Get the current trace's spans
         spans = trace.trace_spans
 
-        # Get only the spans that are used for agent conversation
-        first_found = False
+        # Get only the llm span inputs and outputs
         for span in spans:
-            # If first span, get its input as system + user prompt
-            if span.span_type == "llm" and not first_found:
-                input_messages = span.inputs.get("messages", [])
-                if input_messages == []:
-                    continue
-                first_found = True
-                trajectory.messages_and_choices.extend(input_messages)
-            if not first_found:
-                continue
-
-            if span.output == None:
-                continue
-
             if span.span_type == "llm":
-                if span.additional_metadata.get("choice", None) is not None:
-                    trajectory.messages_and_choices.append(
-                        Choice(**span.additional_metadata.get("choice"))
+                trajectory.interactions.append(
+                    Interaction(
+                        input=span.inputs.get("messages", []),
+                        output=Choice(**span.additional_metadata.get("choice"))
                     )
-                else:
-                    trajectory.messages_and_choices.append(
-                        {"role": "assistant", "content": span.output}
-                    )
-            elif span.span_type == "user":
-                trajectory.messages_and_choices.append(
-                    {"role": "user", "content": span.output}
-                )
-            elif span.span_type == "tool":
-                trajectory.messages_and_choices.append(
-                    {"role": "user", "content": span.output}
                 )
 
         return trajectory
@@ -1656,6 +1632,10 @@ class Tracer:
                 return trajectories
 
             trajectory_groups = await asyncio.gather(*[create_trajectory_group(group) for group in groups])
+
+            # Print the average reward across all trajectories in trajectory_groups
+            print("Average reward: ", sum([sum([trajectory.reward for trajectory in group]) for group in trajectory_groups]) / sum([len(group) for group in trajectory_groups]))
+
             await model.delete_checkpoints()
             await model.train(
                 trajectory_groups, config=config
