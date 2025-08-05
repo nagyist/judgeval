@@ -251,6 +251,14 @@ class TraceClient:
 
             self.otel_span_processor.queue_span_update(span, span_state="agent_name")
 
+    def record_class_name(self, class_name: str):
+        current_span_id = self.get_current_span()
+        if current_span_id:
+            span = self.span_id_to_span[current_span_id]
+            span.class_name = class_name
+
+            self.otel_span_processor.queue_span_update(span, span_state="class_name")
+
     def record_state_before(self, state: dict):
         """Records the agent's state before a tool execution on the current span.
 
@@ -642,6 +650,7 @@ class _DeepTracer:
 
         qual_name = self._get_qual_name(frame)
         instance_name = None
+        class_name = None
         if "self" in frame.f_locals:
             instance = frame.f_locals["self"]
             class_name = instance.__class__.__name__
@@ -715,6 +724,7 @@ class _DeepTracer:
                 parent_span_id=parent_span_id,
                 function=qual_name,
                 agent_name=instance_name,
+                class_name=class_name,
             )
             current_trace.add_span(span)
 
@@ -1063,10 +1073,10 @@ class Tracer:
                 # Reset the context variable
                 self.reset_current_trace(token)
 
-    def identify(
+    def agent(
         self,
-        identifier: str,
-        track_state: bool = False,
+        identifier: Optional[str] = None,
+        track_state: Optional[bool] = False,
         track_attributes: Optional[List[str]] = None,
         field_mappings: Optional[Dict[str, str]] = None,
     ):
@@ -1104,10 +1114,17 @@ class Tracer:
                 "track_state": track_state,
                 "track_attributes": track_attributes,
                 "field_mappings": field_mappings or {},
+                "class_name": class_name,
             }
             return cls
 
         return decorator
+
+    def identify(self, *args, **kwargs):
+        judgeval_logger.warning(
+            "identify() is deprecated and may not be supported in future versions of judgeval. Use the agent() decorator instead."
+        )
+        return self.agent(*args, **kwargs)
 
     def _capture_instance_state(
         self, instance: Any, class_config: Dict[str, Any]
@@ -1251,6 +1268,8 @@ class Tracer:
                             span.record_input(inputs)
                             if agent_name:
                                 span.record_agent_name(agent_name)
+                            if class_name and class_name in self.class_identifiers:
+                                span.record_class_name(class_name)
 
                             self._conditionally_capture_and_record_state(
                                 span, args, is_before=True
@@ -1309,6 +1328,8 @@ class Tracer:
                         span.record_input(inputs)
                         if agent_name:
                             span.record_agent_name(agent_name)
+                        if class_name and class_name in self.class_identifiers:
+                            span.record_class_name(class_name)
 
                         # Capture state before execution
                         self._conditionally_capture_and_record_state(
@@ -1374,6 +1395,8 @@ class Tracer:
                             span.record_input(inputs)
                             if agent_name:
                                 span.record_agent_name(agent_name)
+                            if class_name and class_name in self.class_identifiers:
+                                span.record_class_name(class_name)
                             # Capture state before execution
                             self._conditionally_capture_and_record_state(
                                 span, args, is_before=True
@@ -1432,6 +1455,8 @@ class Tracer:
                         span.record_input(inputs)
                         if agent_name:
                             span.record_agent_name(agent_name)
+                        if class_name and class_name in self.class_identifiers:
+                            span.record_class_name(class_name)
 
                         # Capture state before execution
                         self._conditionally_capture_and_record_state(
@@ -2223,13 +2248,13 @@ def get_instance_prefixed_name(instance, class_name, class_identifiers):
     """
     if class_name in class_identifiers:
         class_config = class_identifiers[class_name]
-        attr = class_config["identifier"]
-
-        if hasattr(instance, attr):
-            instance_name = getattr(instance, attr)
-            return instance_name
-        else:
-            raise Exception(
-                f"Attribute {attr} does not exist for {class_name}. Check your identify() decorator."
-            )
-    return None
+        attr = class_config.get("identifier")
+        if attr:
+            if hasattr(instance, attr) and not callable(getattr(instance, attr)):
+                instance_name = getattr(instance, attr)
+                return instance_name
+            else:
+                raise Exception(
+                    f"Attribute {attr} does not exist for {class_name}. Check your agent() decorator."
+                )
+        return None
