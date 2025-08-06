@@ -206,7 +206,9 @@ class JudgmentApiClient:
         }
         return self._do_request("GET", JUDGMENT_GET_EVAL_STATUS_API_URL, payload)
 
-    def save_scorer(self, name: str, prompt: str, threshold: float, options: Optional[dict] = None):
+    def save_scorer(
+        self, name: str, prompt: str, threshold: float, options: Optional[dict] = None
+    ):
         payload: ScorerSavePayload = {
             "name": name,
             "prompt": prompt,
