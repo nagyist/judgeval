@@ -164,6 +164,12 @@ class PromptScorer(APIScorerConfig):
         judgeval_logger.info(f"Successfully appended to prompt for {self.name}")
 
     # Getters
+    def get_threshold(self) -> float | None:
+        """
+        Returns the threshold of the scorer.
+        """
+        return self.threshold
+
     def get_prompt(self) -> str | None:
         """
         Returns the prompt of the scorer.
