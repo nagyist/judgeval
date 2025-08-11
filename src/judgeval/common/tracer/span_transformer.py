@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from judgeval.common.api.json_encoder import json_encoder
 from judgeval.data import TraceSpan
-from judgeval.evaluation_run import EvaluationRun
+from judgeval.data.evaluation_run import EvaluationRun
 
 
 class SpanTransformer:
@@ -150,6 +150,7 @@ class SpanTransformer:
                 "additional_metadata": judgment_data.get("additional_metadata"),
                 "has_evaluation": judgment_data.get("has_evaluation", False),
                 "agent_name": judgment_data.get("agent_name"),
+                "class_name": judgment_data.get("class_name"),
                 "state_before": judgment_data.get("state_before"),
                 "state_after": judgment_data.get("state_after"),
                 "update_id": judgment_data.get("update_id", 1),

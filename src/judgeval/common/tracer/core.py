@@ -45,7 +45,7 @@ from judgeval.common.tracer.trace_manager import TraceManagerClient
 
 from judgeval.data import Example, Trace, TraceSpan, TraceUsage
 from judgeval.scorers import APIScorerConfig, BaseScorer
-from judgeval.evaluation_run import EvaluationRun
+from judgeval.data.evaluation_run import EvaluationRun
 from judgeval.local_eval_queue import LocalEvaluationQueue
 from judgeval.common.api import JudgmentApiClient
 from judgeval.common.utils import OptExcInfo, validate_api_key
@@ -183,8 +183,10 @@ class TraceClient:
         eval_run_name = (
             f"{self.name.capitalize()}-{span_id}-{scorer.score_type.capitalize()}"
         )
-
-        if isinstance(scorer, APIScorerConfig):
+        hosted_scoring = isinstance(scorer, APIScorerConfig) or (
+            isinstance(scorer, BaseScorer) and scorer.server_hosted
+        )
+        if hosted_scoring:
             eval_run = EvaluationRun(
                 organization_id=self.tracer.organization_id,
                 project_name=self.project_name,
@@ -203,7 +205,7 @@ class TraceClient:
                     self.otel_span_processor.queue_evaluation_run(
                         eval_run, span_id=span_id, span_data=current_span
                     )
-        elif isinstance(scorer, BaseScorer):
+        else:
             # Handle custom scorers using local evaluation queue
             eval_run = EvaluationRun(
                 organization_id=self.tracer.organization_id,
@@ -212,9 +214,7 @@ class TraceClient:
                 examples=[example],
                 scorers=[scorer],
                 model=model,
-                judgment_api_key=self.tracer.api_key,
                 trace_span_id=span_id,
-                trace_id=self.trace_id,
             )
 
             self.add_eval_run(eval_run, start_time)
@@ -251,6 +251,14 @@ class TraceClient:
 
             self.otel_span_processor.queue_span_update(span, span_state="agent_name")
 
+    def record_class_name(self, class_name: str):
+        current_span_id = self.get_current_span()
+        if current_span_id:
+            span = self.span_id_to_span[current_span_id]
+            span.class_name = class_name
+
+            self.otel_span_processor.queue_span_update(span, span_state="class_name")
+
     def record_state_before(self, state: dict):
         """Records the agent's state before a tool execution on the current span.
 
@@ -277,35 +285,13 @@ class TraceClient:
 
             self.otel_span_processor.queue_span_update(span, span_state="state_after")
 
-    async def _update_coroutine(self, span: TraceSpan, coroutine: Any, field: str):
-        """Helper method to update the output of a trace entry once the coroutine completes"""
-        try:
-            result = await coroutine
-            setattr(span, field, result)
-
-            if field == "output":
-                self.otel_span_processor.queue_span_update(span, span_state="output")
-
-            return result
-        except Exception as e:
-            setattr(span, field, f"Error: {str(e)}")
-
-            if field == "output":
-                self.otel_span_processor.queue_span_update(span, span_state="output")
-
-            raise
-
     def record_output(self, output: Any):
         current_span_id = self.get_current_span()
         if current_span_id:
             span = self.span_id_to_span[current_span_id]
-            span.output = "<pending>" if inspect.iscoroutine(output) else output
+            span.output = output
 
-            if inspect.iscoroutine(output):
-                asyncio.create_task(self._update_coroutine(span, output, "output"))
-
-            if not inspect.iscoroutine(output):
-                self.otel_span_processor.queue_span_update(span, span_state="output")
+            self.otel_span_processor.queue_span_update(span, span_state="output")
 
             return span
         return None
@@ -642,6 +628,7 @@ class _DeepTracer:
 
         qual_name = self._get_qual_name(frame)
         instance_name = None
+        class_name = None
         if "self" in frame.f_locals:
             instance = frame.f_locals["self"]
             class_name = instance.__class__.__name__
@@ -715,6 +702,7 @@ class _DeepTracer:
                 parent_span_id=parent_span_id,
                 function=qual_name,
                 agent_name=instance_name,
+                class_name=class_name,
             )
             current_trace.add_span(span)
 
@@ -1063,10 +1051,10 @@ class Tracer:
                 # Reset the context variable
                 self.reset_current_trace(token)
 
-    def identify(
+    def agent(
         self,
-        identifier: str,
-        track_state: bool = False,
+        identifier: Optional[str] = None,
+        track_state: Optional[bool] = False,
         track_attributes: Optional[List[str]] = None,
         field_mappings: Optional[Dict[str, str]] = None,
     ):
@@ -1104,10 +1092,17 @@ class Tracer:
                 "track_state": track_state,
                 "track_attributes": track_attributes,
                 "field_mappings": field_mappings or {},
+                "class_name": class_name,
             }
             return cls
 
         return decorator
+
+    def identify(self, *args, **kwargs):
+        judgeval_logger.warning(
+            "identify() is deprecated and may not be supported in future versions of judgeval. Use the agent() decorator instead."
+        )
+        return self.agent(*args, **kwargs)
 
     def _capture_instance_state(
         self, instance: Any, class_config: Dict[str, Any]
@@ -1213,125 +1208,256 @@ class Tracer:
         except Exception:
             return func
 
-        if asyncio.iscoroutinefunction(func):
+        def _record_span_data(span, args, kwargs):
+            """Helper function to record inputs, agent info, and state on a span."""
+            # Get class and agent info
+            class_name = None
+            agent_name = None
+            if args and hasattr(args[0], "__class__"):
+                class_name = args[0].__class__.__name__
+                agent_name = get_instance_prefixed_name(
+                    args[0], class_name, self.class_identifiers
+                )
+
+            # Record inputs, agent name, class name
+            inputs = combine_args_kwargs(func, args, kwargs)
+            span.record_input(inputs)
+            if agent_name:
+                span.record_agent_name(agent_name)
+            if class_name and class_name in self.class_identifiers:
+                span.record_class_name(class_name)
+
+            # Capture state before execution
+            self._conditionally_capture_and_record_state(span, args, is_before=True)
+
+            return class_name, agent_name
+
+        def _finalize_span_data(span, result, args):
+            """Helper function to record outputs and final state on a span."""
+            # Record output
+            span.record_output(result)
+
+            # Capture state after execution
+            self._conditionally_capture_and_record_state(span, args, is_before=False)
+
+        def _cleanup_trace(current_trace, trace_token, wrapper_type="function"):
+            """Helper function to handle trace cleanup in finally blocks."""
+            try:
+                trace_id, server_response = current_trace.save(final_save=True)
+
+                complete_trace_data = {
+                    "trace_id": current_trace.trace_id,
+                    "name": current_trace.name,
+                    "project_name": current_trace.project_name,
+                    "created_at": datetime.fromtimestamp(
+                        current_trace.start_time or time.time(),
+                        timezone.utc,
+                    ).isoformat(),
+                    "duration": current_trace.get_duration(),
+                    "trace_spans": [
+                        span.model_dump() for span in current_trace.trace_spans
+                    ],
+                    "evaluation_runs": [
+                        run.model_dump() for run in current_trace.evaluation_runs
+                    ],
+                    "offline_mode": self.offline_mode,
+                    "parent_trace_id": current_trace.parent_trace_id,
+                    "parent_name": current_trace.parent_name,
+                    "customer_id": current_trace.customer_id,
+                    "tags": current_trace.tags,
+                    "metadata": current_trace.metadata,
+                    "update_id": current_trace.update_id,
+                }
+                self.traces.append(complete_trace_data)
+                self.reset_current_trace(trace_token)
+            except Exception as e:
+                judgeval_logger.warning(f"Issue with {wrapper_type} cleanup: {e}")
+
+        def _execute_in_span(
+            current_trace, span_name, span_type, execution_func, args, kwargs
+        ):
+            """Helper function to execute code within a span context."""
+            with current_trace.span(span_name, span_type=span_type) as span:
+                _record_span_data(span, args, kwargs)
+
+                try:
+                    result = execution_func()
+                    _finalize_span_data(span, result, args)
+                    return result
+                except Exception as e:
+                    _capture_exception_for_trace(current_trace, sys.exc_info())
+                    raise e
+
+        async def _execute_in_span_async(
+            current_trace, span_name, span_type, async_execution_func, args, kwargs
+        ):
+            """Helper function to execute async code within a span context."""
+            with current_trace.span(span_name, span_type=span_type) as span:
+                _record_span_data(span, args, kwargs)
+
+                try:
+                    result = await async_execution_func()
+                    _finalize_span_data(span, result, args)
+                    return result
+                except Exception as e:
+                    _capture_exception_for_trace(current_trace, sys.exc_info())
+                    raise e
+
+        def _create_new_trace(self, span_name):
+            """Helper function to create a new trace and set it as current."""
+            trace_id = str(uuid.uuid4())
+            project = self.project_name
+
+            current_trace = TraceClient(
+                self,
+                trace_id,
+                span_name,
+                project_name=project,
+                enable_monitoring=self.enable_monitoring,
+                enable_evaluations=self.enable_evaluations,
+            )
+
+            trace_token = self.set_current_trace(current_trace)
+            return current_trace, trace_token
+
+        def _execute_with_auto_trace_creation(
+            span_name, span_type, execution_func, args, kwargs
+        ):
+            """Helper function that handles automatic trace creation and span execution."""
+            current_trace = self.get_current_trace()
+
+            if not current_trace:
+                current_trace, trace_token = _create_new_trace(self, span_name)
+
+                try:
+                    result = _execute_in_span(
+                        current_trace,
+                        span_name,
+                        span_type,
+                        execution_func,
+                        args,
+                        kwargs,
+                    )
+                    return result
+                finally:
+                    # Cleanup the trace we created
+                    _cleanup_trace(current_trace, trace_token, "auto_trace")
+            else:
+                # Use existing trace
+                return _execute_in_span(
+                    current_trace, span_name, span_type, execution_func, args, kwargs
+                )
+
+        async def _execute_with_auto_trace_creation_async(
+            span_name, span_type, async_execution_func, args, kwargs
+        ):
+            """Helper function that handles automatic trace creation and async span execution."""
+            current_trace = self.get_current_trace()
+
+            if not current_trace:
+                current_trace, trace_token = _create_new_trace(self, span_name)
+
+                try:
+                    result = await _execute_in_span_async(
+                        current_trace,
+                        span_name,
+                        span_type,
+                        async_execution_func,
+                        args,
+                        kwargs,
+                    )
+                    return result
+                finally:
+                    # Cleanup the trace we created
+                    _cleanup_trace(current_trace, trace_token, "async_auto_trace")
+            else:
+                # Use existing trace
+                return await _execute_in_span_async(
+                    current_trace,
+                    span_name,
+                    span_type,
+                    async_execution_func,
+                    args,
+                    kwargs,
+                )
+
+        # Check for generator functions first
+        if inspect.isgeneratorfunction(func):
+
+            @functools.wraps(func)
+            def generator_wrapper(*args, **kwargs):
+                # Get the generator from the original function
+                generator = func(*args, **kwargs)
+
+                # Create wrapper generator that creates spans for each yield
+                def traced_generator():
+                    while True:
+                        try:
+                            # Handle automatic trace creation and span execution
+                            item = _execute_with_auto_trace_creation(
+                                original_span_name,
+                                span_type,
+                                lambda: next(generator),
+                                args,
+                                kwargs,
+                            )
+                            yield item
+                        except StopIteration:
+                            break
+
+                return traced_generator()
+
+            return generator_wrapper
+
+        # Check for async generator functions
+        elif inspect.isasyncgenfunction(func):
+
+            @functools.wraps(func)
+            def async_generator_wrapper(*args, **kwargs):
+                # Get the async generator from the original function
+                async_generator = func(*args, **kwargs)
+
+                # Create wrapper async generator that creates spans for each yield
+                async def traced_async_generator():
+                    while True:
+                        try:
+                            # Handle automatic trace creation and span execution
+                            item = await _execute_with_auto_trace_creation_async(
+                                original_span_name,
+                                span_type,
+                                lambda: async_generator.__anext__(),
+                                args,
+                                kwargs,
+                            )
+                            if inspect.iscoroutine(item):
+                                item = await item
+                            yield item
+                        except StopAsyncIteration:
+                            break
+
+                return traced_async_generator()
+
+            return async_generator_wrapper
+
+        elif asyncio.iscoroutinefunction(func):
 
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
                 nonlocal original_span_name
-                class_name = None
                 span_name = original_span_name
-                agent_name = None
 
-                if args and hasattr(args[0], "__class__"):
-                    class_name = args[0].__class__.__name__
-                    agent_name = get_instance_prefixed_name(
-                        args[0], class_name, self.class_identifiers
-                    )
+                async def async_execution():
+                    if self.deep_tracing:
+                        with _DeepTracer(self):
+                            return await func(*args, **kwargs)
+                    else:
+                        return await func(*args, **kwargs)
 
-                current_trace = self.get_current_trace()
+                result = await _execute_with_auto_trace_creation_async(
+                    span_name, span_type, async_execution, args, kwargs
+                )
 
-                if not current_trace:
-                    trace_id = str(uuid.uuid4())
-                    project = self.project_name
-
-                    current_trace = TraceClient(
-                        self,
-                        trace_id,
-                        span_name,
-                        project_name=project,
-                        enable_monitoring=self.enable_monitoring,
-                        enable_evaluations=self.enable_evaluations,
-                    )
-
-                    trace_token = self.set_current_trace(current_trace)
-
-                    try:
-                        with current_trace.span(span_name, span_type=span_type) as span:
-                            inputs = combine_args_kwargs(func, args, kwargs)
-                            span.record_input(inputs)
-                            if agent_name:
-                                span.record_agent_name(agent_name)
-
-                            self._conditionally_capture_and_record_state(
-                                span, args, is_before=True
-                            )
-
-                            try:
-                                if self.deep_tracing:
-                                    with _DeepTracer(self):
-                                        result = await func(*args, **kwargs)
-                                else:
-                                    result = await func(*args, **kwargs)
-                            except Exception as e:
-                                _capture_exception_for_trace(
-                                    current_trace, sys.exc_info()
-                                )
-                                raise e
-
-                            self._conditionally_capture_and_record_state(
-                                span, args, is_before=False
-                            )
-
-                            span.record_output(result)
-                        return result
-                    finally:
-                        try:
-                            complete_trace_data = {
-                                "trace_id": current_trace.trace_id,
-                                "name": current_trace.name,
-                                "created_at": datetime.fromtimestamp(
-                                    current_trace.start_time or time.time(),
-                                    timezone.utc,
-                                ).isoformat(),
-                                "duration": current_trace.get_duration(),
-                                "trace_spans": [
-                                    span.model_dump()
-                                    for span in current_trace.trace_spans
-                                ],
-                                "offline_mode": self.offline_mode,
-                                "parent_trace_id": current_trace.parent_trace_id,
-                                "parent_name": current_trace.parent_name,
-                            }
-
-                            trace_id, server_response = current_trace.save(
-                                final_save=True
-                            )
-
-                            self.traces.append(complete_trace_data)
-
-                            self.reset_current_trace(trace_token)
-                        except Exception as e:
-                            judgeval_logger.warning(f"Issue with async_wrapper: {e}")
-                            pass
-                else:
-                    with current_trace.span(span_name, span_type=span_type) as span:
-                        inputs = combine_args_kwargs(func, args, kwargs)
-                        span.record_input(inputs)
-                        if agent_name:
-                            span.record_agent_name(agent_name)
-
-                        # Capture state before execution
-                        self._conditionally_capture_and_record_state(
-                            span, args, is_before=True
-                        )
-
-                        try:
-                            if self.deep_tracing:
-                                with _DeepTracer(self):
-                                    result = await func(*args, **kwargs)
-                            else:
-                                result = await func(*args, **kwargs)
-                        except Exception as e:
-                            _capture_exception_for_trace(current_trace, sys.exc_info())
-                            raise e
-
-                        # Capture state after execution
-                        self._conditionally_capture_and_record_state(
-                            span, args, is_before=False
-                        )
-
-                        span.record_output(result)
-                    return result
+                return result
 
             return async_wrapper
         else:
@@ -1339,122 +1465,18 @@ class Tracer:
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
                 nonlocal original_span_name
-                class_name = None
                 span_name = original_span_name
-                agent_name = None
-                if args and hasattr(args[0], "__class__"):
-                    class_name = args[0].__class__.__name__
-                    agent_name = get_instance_prefixed_name(
-                        args[0], class_name, self.class_identifiers
-                    )
-                # Get current trace from context
-                current_trace = self.get_current_trace()
 
-                # If there's no current trace, create a root trace
-                if not current_trace:
-                    trace_id = str(uuid.uuid4())
-                    project = self.project_name
+                def sync_execution():
+                    if self.deep_tracing:
+                        with _DeepTracer(self):
+                            return func(*args, **kwargs)
+                    else:
+                        return func(*args, **kwargs)
 
-                    # Create a new trace client to serve as the root
-                    current_trace = TraceClient(
-                        self,
-                        trace_id,
-                        span_name,
-                        project_name=project,
-                        enable_monitoring=self.enable_monitoring,
-                        enable_evaluations=self.enable_evaluations,
-                    )
-
-                    trace_token = self.set_current_trace(current_trace)
-
-                    try:
-                        with current_trace.span(span_name, span_type=span_type) as span:
-                            # Record inputs
-                            inputs = combine_args_kwargs(func, args, kwargs)
-                            span.record_input(inputs)
-                            if agent_name:
-                                span.record_agent_name(agent_name)
-                            # Capture state before execution
-                            self._conditionally_capture_and_record_state(
-                                span, args, is_before=True
-                            )
-
-                            try:
-                                if self.deep_tracing:
-                                    with _DeepTracer(self):
-                                        result = func(*args, **kwargs)
-                                else:
-                                    result = func(*args, **kwargs)
-                            except Exception as e:
-                                _capture_exception_for_trace(
-                                    current_trace, sys.exc_info()
-                                )
-                                raise e
-
-                            # Capture state after execution
-                            self._conditionally_capture_and_record_state(
-                                span, args, is_before=False
-                            )
-
-                            # Record output
-                            span.record_output(result)
-                        return result
-                    finally:
-                        try:
-                            trace_id, server_response = current_trace.save(
-                                final_save=True
-                            )
-
-                            complete_trace_data = {
-                                "trace_id": current_trace.trace_id,
-                                "name": current_trace.name,
-                                "created_at": datetime.fromtimestamp(
-                                    current_trace.start_time or time.time(),
-                                    timezone.utc,
-                                ).isoformat(),
-                                "duration": current_trace.get_duration(),
-                                "trace_spans": [
-                                    span.model_dump()
-                                    for span in current_trace.trace_spans
-                                ],
-                                "offline_mode": self.offline_mode,
-                                "parent_trace_id": current_trace.parent_trace_id,
-                                "parent_name": current_trace.parent_name,
-                            }
-                            self.traces.append(complete_trace_data)
-                            self.reset_current_trace(trace_token)
-                        except Exception as e:
-                            judgeval_logger.warning(f"Issue with save: {e}")
-                            pass
-                else:
-                    with current_trace.span(span_name, span_type=span_type) as span:
-                        inputs = combine_args_kwargs(func, args, kwargs)
-                        span.record_input(inputs)
-                        if agent_name:
-                            span.record_agent_name(agent_name)
-
-                        # Capture state before execution
-                        self._conditionally_capture_and_record_state(
-                            span, args, is_before=True
-                        )
-
-                        try:
-                            if self.deep_tracing:
-                                with _DeepTracer(self):
-                                    result = func(*args, **kwargs)
-                            else:
-                                result = func(*args, **kwargs)
-                        except Exception as e:
-                            _capture_exception_for_trace(current_trace, sys.exc_info())
-                            raise e
-
-                        # Capture state after execution
-                        self._conditionally_capture_and_record_state(
-                            span, args, is_before=False
-                        )
-
-                        span.record_output(result)
-                    return result
+                return _execute_with_auto_trace_creation(
+                    span_name, span_type, sync_execution, args, kwargs
+                )
 
             return wrapper
 
@@ -2223,13 +2245,13 @@ def get_instance_prefixed_name(instance, class_name, class_identifiers):
     """
     if class_name in class_identifiers:
         class_config = class_identifiers[class_name]
-        attr = class_config["identifier"]
-
-        if hasattr(instance, attr):
-            instance_name = getattr(instance, attr)
-            return instance_name
-        else:
-            raise Exception(
-                f"Attribute {attr} does not exist for {class_name}. Check your identify() decorator."
-            )
-    return None
+        attr = class_config.get("identifier")
+        if attr:
+            if hasattr(instance, attr) and not callable(getattr(instance, attr)):
+                instance_name = getattr(instance, attr)
+                return instance_name
+            else:
+                raise Exception(
+                    f"Attribute {attr} does not exist for {class_name}. Check your agent() decorator."
+                )
+        return None

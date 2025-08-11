@@ -4,6 +4,8 @@ Implements the JudgmentClient to interact with the Judgment API.
 
 from __future__ import annotations
 import os
+import importlib.util
+from pathlib import Path
 from uuid import uuid4
 from typing import Optional, List, Dict, Any, Union, Callable, TYPE_CHECKING
 
@@ -16,7 +18,7 @@ from judgeval.scorers import (
     APIScorerConfig,
     BaseScorer,
 )
-from judgeval.evaluation_run import EvaluationRun
+from judgeval.data.evaluation_run import EvaluationRun
 from judgeval.run_evaluation import (
     run_eval,
     assert_test,
@@ -95,8 +97,6 @@ class JudgmentClient(metaclass=SingletonMeta):
         project_name: str = "default_project",
         eval_run_name: str = "default_eval_trace",
         model: Optional[str] = DEFAULT_GPT_MODEL,
-        append: bool = False,
-        override: bool = False,
     ) -> List[ScoringResult]:
         try:
             if examples and not function:
@@ -114,12 +114,11 @@ class JudgmentClient(metaclass=SingletonMeta):
                 traces=traces,
                 scorers=scorers,
                 model=model,
-                append=append,
                 organization_id=self.organization_id,
                 tools=tools,
             )
             return run_trace_eval(
-                trace_run, self.judgment_api_key, override, function, tracer, examples
+                trace_run, self.judgment_api_key, function, tracer, examples
             )
         except ValueError as e:
             raise ValueError(
@@ -135,8 +134,6 @@ class JudgmentClient(metaclass=SingletonMeta):
         model: Optional[str] = DEFAULT_GPT_MODEL,
         project_name: str = "default_project",
         eval_run_name: str = "default_eval_run",
-        override: bool = False,
-        append: bool = False,
     ) -> List[ScoringResult]:
         """
         Executes an evaluation of `Example`s using one or more `Scorer`s
@@ -147,21 +144,13 @@ class JudgmentClient(metaclass=SingletonMeta):
             model (str): The model used as a judge when using LLM as a Judge
             project_name (str): The name of the project the evaluation results belong to
             eval_run_name (str): A name for this evaluation run
-            override (bool): Whether to override an existing evaluation run with the same name
-            append (bool): Whether to append to an existing evaluation run with the same name
 
         Returns:
             List[ScoringResult]: The results of the evaluation
         """
-        if override and append:
-            raise ValueError(
-                "Cannot set both override and append to True. Please choose one."
-            )
 
         try:
             eval = EvaluationRun(
-                append=append,
-                override=override,
                 project_name=project_name,
                 eval_name=eval_run_name,
                 examples=examples,
@@ -172,7 +161,6 @@ class JudgmentClient(metaclass=SingletonMeta):
             return run_eval(
                 eval,
                 self.judgment_api_key,
-                override,
             )
         except ValueError as e:
             raise ValueError(
@@ -180,22 +168,6 @@ class JudgmentClient(metaclass=SingletonMeta):
             )
         except Exception as e:
             raise Exception(f"An unexpected error occurred during evaluation: {str(e)}")
-
-    def pull_eval(
-        self, project_name: str, eval_run_name: str
-    ) -> List[Dict[str, Union[str, List[ScoringResult]]]]:
-        """Pull evaluation results from the server.
-
-        Args:
-            project_name (str): Name of the project
-            eval_run_name (str): Name of the evaluation run
-
-        Returns:
-            Dict[str, Union[str, List[ScoringResult]]]: Dictionary containing:
-                - id (str): The evaluation run ID
-                - results (List[ScoringResult]): List of scoring results
-        """
-        return self.api_client.fetch_evaluation_results(project_name, eval_run_name)
 
     def create_project(self, project_name: str) -> bool:
         """
@@ -222,8 +194,6 @@ class JudgmentClient(metaclass=SingletonMeta):
         model: Optional[str] = DEFAULT_GPT_MODEL,
         project_name: str = "default_test",
         eval_run_name: str = str(uuid4()),
-        override: bool = False,
-        append: bool = False,
     ) -> None:
         """
         Asserts a test by running the evaluation and checking the results for success
@@ -234,9 +204,6 @@ class JudgmentClient(metaclass=SingletonMeta):
             model (str): The model used as a judge when using LLM as a Judge
             project_name (str): The name of the project the evaluation results belong to
             eval_run_name (str): A name for this evaluation run
-            override (bool): Whether to override an existing evaluation run with the same name
-            append (bool): Whether to append to an existing evaluation run with the same name
-            async_execution (bool): Whether to run the evaluation asynchronously
         """
 
         results: List[ScoringResult]
@@ -247,8 +214,6 @@ class JudgmentClient(metaclass=SingletonMeta):
             model=model,
             project_name=project_name,
             eval_run_name=eval_run_name,
-            override=override,
-            append=append,
         )
         assert_test(results)
 
@@ -263,9 +228,6 @@ class JudgmentClient(metaclass=SingletonMeta):
         model: Optional[str] = DEFAULT_GPT_MODEL,
         project_name: str = "default_test",
         eval_run_name: str = str(uuid4()),
-        override: bool = False,
-        append: bool = False,
-        async_execution: bool = False,
     ) -> None:
         """
         Asserts a test by running the evaluation and checking the results for success
@@ -276,12 +238,9 @@ class JudgmentClient(metaclass=SingletonMeta):
             model (str): The model used as a judge when using LLM as a Judge
             project_name (str): The name of the project the evaluation results belong to
             eval_run_name (str): A name for this evaluation run
-            override (bool): Whether to override an existing evaluation run with the same name
-            append (bool): Whether to append to an existing evaluation run with the same name
             function (Optional[Callable]): A function to use for evaluation
             tracer (Optional[Union[Tracer, BaseCallbackHandler]]): A tracer to use for evaluation
             tools (Optional[List[Dict[str, Any]]]): A list of tools to use for evaluation
-            async_execution (bool): Whether to run the evaluation asynchronously
         """
 
         # Check for enable_param_checking and tools
@@ -302,11 +261,107 @@ class JudgmentClient(metaclass=SingletonMeta):
             model=model,
             project_name=project_name,
             eval_run_name=eval_run_name,
-            override=override,
-            append=append,
             function=function,
             tracer=tracer,
             tools=tools,
         )
 
         assert_test(results)
+
+    def _extract_scorer_name(self, scorer_file_path: str) -> str:
+        """Extract scorer name from the scorer file by importing it."""
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "scorer_module", scorer_file_path
+            )
+            if spec is None or spec.loader is None:
+                raise ImportError(f"Could not load spec from {scorer_file_path}")
+
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+            for attr_name in dir(module):
+                attr = getattr(module, attr_name)
+                if (
+                    isinstance(attr, type)
+                    and any("Scorer" in str(base) for base in attr.__mro__)
+                    and attr.__module__ == "scorer_module"
+                ):
+                    try:
+                        # Instantiate the scorer and get its name
+                        scorer_instance = attr()
+                        if hasattr(scorer_instance, "name"):
+                            return scorer_instance.name
+                    except Exception:
+                        # Skip if instantiation fails
+                        continue
+
+            raise AttributeError("No scorer class found or could be instantiated")
+        except Exception as e:
+            judgeval_logger.warning(f"Could not extract scorer name: {e}")
+            return Path(scorer_file_path).stem
+
+    def save_custom_scorer(
+        self,
+        scorer_file_path: str,
+        requirements_file_path: Optional[str] = None,
+        unique_name: Optional[str] = None,
+    ) -> bool:
+        """
+        Upload custom ExampleScorer from files to backend.
+
+        Args:
+            scorer_file_path: Path to Python file containing CustomScorer class
+            requirements_file_path: Optional path to requirements.txt
+            unique_name: Optional unique identifier (auto-detected from scorer.name if not provided)
+
+        Returns:
+            bool: True if upload successful
+
+        Raises:
+            ValueError: If scorer file is invalid
+            FileNotFoundError: If scorer file doesn't exist
+        """
+        import os
+
+        if not os.path.exists(scorer_file_path):
+            raise FileNotFoundError(f"Scorer file not found: {scorer_file_path}")
+
+        # Auto-detect scorer name if not provided
+        if unique_name is None:
+            unique_name = self._extract_scorer_name(scorer_file_path)
+            judgeval_logger.info(f"Auto-detected scorer name: '{unique_name}'")
+
+        # Read scorer code
+        with open(scorer_file_path, "r") as f:
+            scorer_code = f.read()
+
+        # Read requirements (optional)
+        requirements_text = ""
+        if requirements_file_path and os.path.exists(requirements_file_path):
+            with open(requirements_file_path, "r") as f:
+                requirements_text = f.read()
+
+        # Upload to backend
+        judgeval_logger.info(
+            f"Uploading custom scorer: {unique_name}, this can take a couple of minutes..."
+        )
+        try:
+            response = self.api_client.upload_custom_scorer(
+                scorer_name=unique_name,
+                scorer_code=scorer_code,
+                requirements_text=requirements_text,
+            )
+
+            if response.get("status") == "success":
+                judgeval_logger.info(
+                    f"Successfully uploaded custom scorer: {unique_name}"
+                )
+                return True
+            else:
+                judgeval_logger.error(f"Failed to upload custom scorer: {unique_name}")
+                return False
+
+        except Exception as e:
+            judgeval_logger.error(f"Error uploading custom scorer: {e}")
+            raise

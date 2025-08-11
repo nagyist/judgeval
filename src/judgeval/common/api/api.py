@@ -20,13 +20,11 @@ from judgeval.common.api.constants import (
     JUDGMENT_EVAL_DELETE_API_URL,
     JUDGMENT_ADD_TO_RUN_EVAL_QUEUE_API_URL,
     JUDGMENT_GET_EVAL_STATUS_API_URL,
-    JUDGMENT_CHECK_EXPERIMENT_TYPE_API_URL,
-    JUDGMENT_EVAL_RUN_NAME_EXISTS_API_URL,
     JUDGMENT_SCORER_SAVE_API_URL,
     JUDGMENT_SCORER_FETCH_API_URL,
     JUDGMENT_SCORER_EXISTS_API_URL,
+    JUDGMENT_CUSTOM_SCORER_UPLOAD_API_URL,
     JUDGMENT_DATASETS_APPEND_TRACES_API_URL,
-    JUDGMENT_CHECK_EXAMPLE_KEYS_API_URL,
 )
 from judgeval.common.api.constants import (
     TraceFetchPayload,
@@ -45,12 +43,11 @@ from judgeval.common.api.constants import (
     DeleteEvalRunRequestBody,
     EvalLogPayload,
     EvalStatusPayload,
-    CheckExperimentTypePayload,
-    EvalRunNameExistsPayload,
     ScorerSavePayload,
     ScorerFetchPayload,
     ScorerExistsPayload,
-    CheckExampleKeysPayload,
+    CustomScorerUploadPayload,
+    CustomScorerTemplateResponse,
 )
 from judgeval.utils.requests import requests
 from judgeval.common.api.json_encoder import json_encoder
@@ -97,14 +94,20 @@ class JudgmentApiClient:
         method: Literal["POST", "PATCH", "GET", "DELETE"],
         url: str,
         payload: Any,
+        timeout: Optional[Union[float, tuple]] = None,
     ) -> Any:
+        # Prepare request kwargs with optional timeout
+        request_kwargs = self._request_kwargs()
+        if timeout is not None:
+            request_kwargs["timeout"] = timeout
+
         if method == "GET":
             r = requests.request(
                 method,
                 url,
                 params=payload,
                 headers=self._headers(),
-                **self._request_kwargs(),
+                **request_kwargs,
             )
         else:
             r = requests.request(
@@ -112,7 +115,7 @@ class JudgmentApiClient:
                 url,
                 json=json_encoder(payload),
                 headers=self._headers(),
-                **self._request_kwargs(),
+                **request_kwargs,
             )
 
         try:
@@ -186,10 +189,10 @@ class JudgmentApiClient:
         payload: EvalLogPayload = {"results": results, "run": run}
         return self._do_request("POST", JUDGMENT_EVAL_LOG_API_URL, payload)
 
-    def fetch_evaluation_results(self, project_name: str, eval_name: str):
+    def fetch_evaluation_results(self, experiment_run_id: str, project_name: str):
         payload: EvalRunRequestBody = {
             "project_name": project_name,
-            "eval_name": eval_name,
+            "experiment_run_id": experiment_run_id,
         }
         return self._do_request("POST", JUDGMENT_EVAL_FETCH_API_URL, payload)
 
@@ -204,43 +207,21 @@ class JudgmentApiClient:
     def add_to_evaluation_queue(self, payload: Dict[str, Any]):
         return self._do_request("POST", JUDGMENT_ADD_TO_RUN_EVAL_QUEUE_API_URL, payload)
 
-    def get_evaluation_status(self, eval_name: str, project_name: str):
+    def get_evaluation_status(self, experiment_run_id: str, project_name: str):
         payload: EvalStatusPayload = {
-            "eval_name": eval_name,
+            "experiment_run_id": experiment_run_id,
             "project_name": project_name,
             "judgment_api_key": self.api_key,
         }
         return self._do_request("GET", JUDGMENT_GET_EVAL_STATUS_API_URL, payload)
 
-    def check_experiment_type(self, eval_name: str, project_name: str, is_trace: bool):
-        payload: CheckExperimentTypePayload = {
-            "eval_name": eval_name,
-            "project_name": project_name,
-            "judgment_api_key": self.api_key,
-            "is_trace": is_trace,
-        }
-        return self._do_request("POST", JUDGMENT_CHECK_EXPERIMENT_TYPE_API_URL, payload)
-
-    def check_eval_run_name_exists(self, eval_name: str, project_name: str):
-        payload: EvalRunNameExistsPayload = {
-            "eval_name": eval_name,
-            "project_name": project_name,
-            "judgment_api_key": self.api_key,
-        }
-        return self._do_request("POST", JUDGMENT_EVAL_RUN_NAME_EXISTS_API_URL, payload)
-
-    def check_example_keys(self, keys: List[str], eval_name: str, project_name: str):
-        payload: CheckExampleKeysPayload = {
-            "keys": keys,
-            "eval_name": eval_name,
-            "project_name": project_name,
-        }
-        return self._do_request("POST", JUDGMENT_CHECK_EXAMPLE_KEYS_API_URL, payload)
-
-    def save_scorer(self, name: str, prompt: str, options: Optional[dict] = None):
+    def save_scorer(
+        self, name: str, prompt: str, threshold: float, options: Optional[dict] = None
+    ):
         payload: ScorerSavePayload = {
             "name": name,
             "prompt": prompt,
+            "threshold": threshold,
             "options": options,
         }
         try:
@@ -291,6 +272,31 @@ class JudgmentApiClient:
                 response=e.response,
                 request=e.request,
             )
+
+    def upload_custom_scorer(
+        self,
+        scorer_name: str,
+        scorer_code: str,
+        requirements_text: str,
+    ) -> CustomScorerTemplateResponse:
+        """Upload custom scorer to backend"""
+        payload: CustomScorerUploadPayload = {
+            "scorer_name": scorer_name,
+            "scorer_code": scorer_code,
+            "requirements_text": requirements_text,
+        }
+
+        try:
+            # Use longer timeout for custom scorer upload (5 minutes)
+            response = self._do_request(
+                "POST",
+                JUDGMENT_CUSTOM_SCORER_UPLOAD_API_URL,
+                payload,
+                timeout=(10, 300),
+            )
+            return response
+        except JudgmentAPIException as e:
+            raise e
 
     def push_dataset(
         self,
