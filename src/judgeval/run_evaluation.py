@@ -286,12 +286,15 @@ def progress_logger(stop_event, msg="Working...", interval=5):
 def run_eval(
     evaluation_run: EvaluationRun,
     judgment_api_key: str,
+    show_url: bool = True,
 ) -> List[ScoringResult]:
     """
     Executes an evaluation of `Example`s using one or more `Scorer`s
 
     Args:
         evaluation_run (EvaluationRun): Stores example and evaluation together for running
+        judgment_api_key (str): API key for authentication
+        show_url (bool): Whether to display the evaluation results URL. Defaults to True.
 
     Returns:
         List[ScoringResult]: A list of ScoringResult objects
@@ -380,9 +383,10 @@ def run_eval(
             scoring_result.model_dump(warnings=False) for scoring_result in results
         ]
         url = log_evaluation_results(send_results, evaluation_run, judgment_api_key)
-    rprint(
-        f"\n🔍 You can view your evaluation results here: [rgb(106,0,255)][link={url}]View Results[/link]\n"
-    )
+    if show_url:
+        rprint(
+            f"\n🔍 You can view your evaluation results here: [rgb(106,0,255)][link={url}]View Results[/link]\n"
+        )
     return results
 
 
