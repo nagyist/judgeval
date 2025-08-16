@@ -9,6 +9,7 @@ from judgeval.judgment_client import JudgmentClient
 from judgeval.scorers import BaseScorer, APIScorerConfig
 from judgeval.data import Example
 from .console import _spinner_progress, _print_progress, _print_progress_update
+from judgeval.common.exceptions import JudgmentAPIError
 
 
 class JudgmentTrainer:
@@ -35,17 +36,22 @@ class JudgmentTrainer:
             trainable_model: Optional trainable model instance
             project_name: Project name for organizing training runs and evaluations
         """
-        self.config = config
-        self.tracer = tracer
-        self.tracer.show_trace_urls = False
-        self.project_name = project_name or "judgment_training"
+        try:
+            self.config = config
+            self.tracer = tracer
+            self.tracer.show_trace_urls = False
+            self.project_name = project_name or "judgment_training"
 
-        if trainable_model is None:
-            self.trainable_model = TrainableModel(self.config)
-        else:
-            self.trainable_model = trainable_model
+            if trainable_model is None:
+                self.trainable_model = TrainableModel(self.config)
+            else:
+                self.trainable_model = trainable_model
 
-        self.judgment_client = JudgmentClient()
+            self.judgment_client = JudgmentClient()
+        except Exception as e:
+            raise JudgmentAPIError(
+                f"Failed to initialize JudgmentTrainer: {str(e)}"
+            ) from e
 
     async def generate_rollouts_and_rewards(
         self,
@@ -97,7 +103,9 @@ class JudgmentTrainer:
                     pass
 
                 example = Example(
-                    input=prompt_input, messages=messages, actual_output=response_data
+                    input=prompt_input,
+                    messages=messages,
+                    actual_output=response_data,
                 )
 
                 scoring_results = self.judgment_client.run_evaluation(
@@ -238,7 +246,9 @@ class JudgmentTrainer:
                     time.sleep(10)
                     job = job.get()
                     if job is None:
-                        raise Exception("Job was deleted while waiting for completion")
+                        raise JudgmentAPIError(
+                            "Training job was deleted while waiting for completion"
+                        )
 
             _print_progress(
                 f"Training completed! New model: {job.output_model}",
@@ -277,7 +287,15 @@ class JudgmentTrainer:
         Returns:
             ModelConfig: Configuration of the trained model for future loading
         """
-        if rft_provider is not None:
-            self.config.rft_provider = rft_provider
+        try:
+            if rft_provider is not None:
+                self.config.rft_provider = rft_provider
 
-        return await self.run_reinforcement_learning(agent_function, scorers, prompts)
+            return await self.run_reinforcement_learning(
+                agent_function, scorers, prompts
+            )
+        except JudgmentAPIError:
+            # Re-raise JudgmentAPIError as-is
+            raise
+        except Exception as e:
+            raise JudgmentAPIError(f"Training process failed: {str(e)}") from e
