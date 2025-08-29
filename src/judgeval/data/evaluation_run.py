@@ -1,4 +1,5 @@
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Tuple
+from litellm.files.main import BaseModel
 from pydantic import field_validator, model_validator, Field
 from datetime import datetime, timezone
 import uuid
@@ -6,29 +7,22 @@ import uuid
 from judgeval.data import Example
 from judgeval.scorers import BaseScorer, APIScorerConfig
 from judgeval.constants import ACCEPTABLE_MODELS
-from judgeval.data.judgment_types import EvaluationRun as EvaluationRunJudgmentType
+from judgeval.data.judgment_types import (
+    ExampleEvaluationRun as ExampleEvaluationRunJudgmentType,
+    TraceEvaluationRun as TraceEvaluationRunJudgmentType,
+)
 
 
-class EvaluationRun(EvaluationRunJudgmentType):
-    """
-    Stores example and evaluation scorers together for running an eval task
-
-    Args:
-        project_name (str): The name of the project the evaluation results belong to
-        eval_name (str): A name for this evaluation run
-        examples (List[Example]): The examples to evaluate
-        scorers (List[Union[BaseScorer, APIScorerConfig]]): A list of scorers to use for evaluation
-        model (str): The model used as a judge when using LLM as a Judge
-        metadata (Optional[Dict[str, Any]]): Additional metadata to include for this evaluation run, e.g. comments, dataset name, purpose, etc.
-    """
-
+class EvaluationRun(BaseModel):
     id: Optional[str] = Field(default_factory=lambda: str(uuid.uuid4()))
     created_at: Optional[str] = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+    organization_id: Optional[str] = None
     custom_scorers: Optional[List[BaseScorer]] = None
     judgment_scorers: Optional[List[APIScorerConfig]] = None
-    organization_id: Optional[str] = None
+    scorers: Optional[List[Union[BaseScorer, APIScorerConfig]]] = None
+    model: str
 
     def __init__(
         self,
@@ -57,18 +51,8 @@ class EvaluationRun(EvaluationRunJudgmentType):
         data = super().model_dump(**kwargs)
         data["custom_scorers"] = [s.model_dump() for s in self.custom_scorers]
         data["judgment_scorers"] = [s.model_dump() for s in self.judgment_scorers]
-        data["examples"] = [example.model_dump() for example in self.examples]
 
         return data
-
-    @field_validator("examples")
-    def validate_examples(cls, v):
-        if not v:
-            raise ValueError("Examples cannot be empty.")
-        for item in v:
-            if not isinstance(item, Example):
-                raise ValueError(f"Item of type {type(item)} is not a Example")
-        return v
 
     @model_validator(mode="after")
     @classmethod
@@ -102,3 +86,42 @@ class EvaluationRun(EvaluationRunJudgmentType):
                     f"Model name {v} not recognized. Please select a valid model name.)"
                 )
             return v
+
+
+class ExampleEvaluationRun(EvaluationRun, ExampleEvaluationRunJudgmentType):  # type: ignore
+    """
+    Stores example and evaluation scorers together for running an eval task
+
+    Args:
+        project_name (str): The name of the project the evaluation results belong to
+        eval_name (str): A name for this evaluation run
+        examples (List[Example]): The examples to evaluate
+        scorers (List[Union[BaseScorer, APIScorerConfig]]): A list of scorers to use for evaluation
+        model (str): The model used as a judge when using LLM as a Judge
+    """
+
+    examples: List[Example]  # type: ignore
+
+    @field_validator("examples")
+    def validate_examples(cls, v):
+        if not v:
+            raise ValueError("Examples cannot be empty.")
+        for item in v:
+            if not isinstance(item, Example):
+                raise ValueError(f"Item of type {type(item)} is not a Example")
+        return v
+
+    def model_dump(self, **kwargs):
+        data = super().model_dump(**kwargs)
+        data["examples"] = [example.model_dump() for example in self.examples]
+        return data
+
+
+class TraceEvaluationRun(EvaluationRun, TraceEvaluationRunJudgmentType):  # type: ignore
+    trace_and_span_ids: List[Tuple[str, str]]  # type: ignore
+
+    @field_validator("trace_and_span_ids")
+    def validate_trace_and_span_ids(cls, v):
+        if not v:
+            raise ValueError("Trace and span IDs are required for trace evaluations.")
+        return v
