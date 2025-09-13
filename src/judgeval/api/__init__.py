@@ -137,9 +137,7 @@ class JudgmentSyncClient:
             payload,
         )
 
-    def datasets_pull_all_for_judgeval(
-        self, payload: DatasetsFetch
-    ) -> List[DatasetInfo]:
+    def datasets_pull_all_for_judgeval(self, payload: DatasetsFetch) -> Any:
         return self._request(
             "POST",
             url_for("/datasets/pull_all_for_judgeval/"),
@@ -345,6 +343,13 @@ class JudgmentAsyncClient:
         return await self._request(
             "POST",
             url_for("/datasets/pull_for_judgeval/"),
+            payload,
+        )
+
+    async def datasets_pull_all_for_judgeval(self, payload: DatasetsFetch) -> Any:
+        return await self._request(
+            "POST",
+            url_for("/datasets/pull_all_for_judgeval/"),
             payload,
         )
 
