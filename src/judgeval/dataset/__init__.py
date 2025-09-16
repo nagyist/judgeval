@@ -3,7 +3,7 @@ import orjson
 import os
 import yaml
 from dataclasses import dataclass
-from typing import List, Literal, Optional
+from typing import List, Literal
 
 from judgeval.data import Example
 from judgeval.utils.file_utils import get_examples_from_yaml, get_examples_from_json
@@ -13,14 +13,16 @@ from judgeval.env import JUDGMENT_API_KEY, JUDGMENT_ORG_ID
 
 from judgeval.api.api_types import DatasetKind
 
+
 @dataclass
 class DatasetInfo:
     dataset_id: str
-    name: str 
+    name: str
     created_at: str
     dataset_kind: DatasetKind
     entries: int
     creator: str
+
 
 @dataclass
 class Dataset:
@@ -46,9 +48,12 @@ class Dataset:
         if not dataset:
             raise ValueError(f"Dataset {name} not found in project {project_name}")
         examples = dataset.get("examples", [])
+        if examples is None:
+            examples = []
+
         for e in examples:
-            if isinstance(e, dict) and isinstance(e.get("data"), dict):
-                e.update(e.pop("data"))
+            if isinstance(e, dict) and isinstance(e.get("data", {}), dict):
+                e.update(e.pop("data"))  # type: ignore
                 e.pop(
                     "example_id"
                 )  # TODO: remove once scorer data migraiton is complete
@@ -64,7 +69,7 @@ class Dataset:
         cls,
         name: str,
         project_name: str,
-        examples: Optional[List[Example]] = None,
+        examples: List[Example] = [],
         overwrite: bool = False,
     ):
         if not examples:
@@ -75,7 +80,7 @@ class Dataset:
             {
                 "name": name,
                 "project_name": project_name,
-                "examples": [e.model_dump() for e in examples],
+                "examples": examples,  # type: ignore
                 "dataset_kind": "example",
                 "overwrite": overwrite,
             }
@@ -87,18 +92,14 @@ class Dataset:
             project_name=project_name,
             examples=examples,
         )
+
     @classmethod
-    def list(
-        cls,
-        project_name: str
-    ):
+    def list(cls, project_name: str):
         client = JudgmentSyncClient(cls.judgment_api_key, cls.organization_id)
-        datasets = client.datasets_pull_all_for_judgeval(
-            {"project_name": project_name}
-        )
-        
+        datasets = client.datasets_pull_all_for_judgeval({"project_name": project_name})
+
         judgeval_logger.info(f"Fetched all datasets for project {project_name}!")
-                             
+
         return [DatasetInfo(**dataset_info) for dataset_info in datasets]
 
     def add_from_json(self, file_path: str) -> None:
@@ -147,7 +148,7 @@ class Dataset:
             {
                 "dataset_name": self.name,
                 "project_name": self.project_name,
-                "examples": [e.model_dump() for e in examples],
+                "examples": examples,  # type: ignore
             }
         )
 
