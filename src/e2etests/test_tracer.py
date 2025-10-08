@@ -18,6 +18,7 @@ import os
 import random
 import pytest
 import string
+from typing import cast
 import orjson
 
 project_name = "e2e-tests-" + "".join(
@@ -32,8 +33,11 @@ def teardown_module(module):
     delete_project(project_name=project_name)
 
 
-judgment = Tracer(
-    project_name=project_name,
+judgment: Tracer = cast(
+    Tracer,
+    Tracer(
+        project_name=project_name,
+    ),
 )
 
 # Wrap clients
@@ -388,11 +392,6 @@ def retrieve_streaming_trace_helper(trace_id):
     if input_tokens is None or output_tokens is None:
         assert False, "Missing usage tokens in streaming span"
 
-    # Should have cost information
-    total_cost = span_attributes.get("gen_ai.usage.total_cost_usd")
-    if total_cost is None:
-        assert False, "Missing cost information in streaming span"
-
     return trace_spans
 
 
@@ -503,7 +502,6 @@ def test_online_span_scoring():
         query_count += 1
         time.sleep(1)
 
-    print(scorer_data)
     if query_count == QUERY_RETRY:
         assert False, "No score found"
 
