@@ -267,6 +267,7 @@ class Tracer(metaclass=SingletonMeta):
         if span and span.is_recording():
             set_span_attribute(span, AttributeKeys.JUDGMENT_CUSTOMER_ID, customer_id)
 
+    @dont_throw
     def add_agent_attributes_to_span(self, span):
         """Add agent ID, class name, and instance name to span if they exist in context"""
         current_agent_context = self.agent_context.get()
@@ -342,6 +343,9 @@ class Tracer(metaclass=SingletonMeta):
         run_condition = scorer_config.run_condition
         sampling_rate = scorer_config.sampling_rate
 
+        if scorer is None:
+            judgeval_logger.error("Prompt Scorer was not found, skipping evaluation.")
+            return
         if not isinstance(scorer, (TraceAPIScorerConfig)):
             judgeval_logger.error(
                 "Scorer must be an instance of TraceAPIScorerConfig, got %s, skipping evaluation."
@@ -877,13 +881,17 @@ class Tracer(metaclass=SingletonMeta):
         self,
         /,
         *,
-        scorer: Union[ExampleAPIScorerConfig, ExampleScorer],
+        scorer: Union[ExampleAPIScorerConfig, ExampleScorer, None],
         example: Example,
         model: Optional[str] = None,
         sampling_rate: float = 1.0,
     ):
         if not self.enable_evaluation or not self.enable_monitoring:
             judgeval_logger.info("Evaluation is not enabled, skipping evaluation")
+            return
+
+        if scorer is None:
+            judgeval_logger.error("Prompt Scorer was not found, skipping evaluation.")
             return
 
         if not isinstance(scorer, (ExampleAPIScorerConfig, ExampleScorer)):

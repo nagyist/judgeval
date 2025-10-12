@@ -1,11 +1,11 @@
 from __future__ import annotations
 import functools
-import orjson
 from typing import (
     TYPE_CHECKING,
     Callable,
     Optional,
     Protocol,
+    TypeVar,
     Tuple,
     Union,
     Iterator,
@@ -19,6 +19,7 @@ from judgeval.tracer.llm.llm_anthropic.config import (
     anthropic_AsyncAnthropic,
 )
 from judgeval.tracer.managers import sync_span_context, async_span_context
+from judgeval.logger import judgeval_logger
 from judgeval.tracer.keys import AttributeKeys
 from judgeval.tracer.utils import set_span_attribute
 from judgeval.utils.serialize import safe_serialize
@@ -26,10 +27,6 @@ from judgeval.utils.serialize import safe_serialize
 if TYPE_CHECKING:
     from judgeval.tracer import Tracer
     from opentelemetry.trace import Span
-
-
-# Keep the original client type for runtime compatibility
-AnthropicClientType = Union[anthropic_Anthropic, anthropic_AsyncAnthropic]
 
 
 # Content block protocols
@@ -79,6 +76,10 @@ class AnthropicClient(Protocol):
 @runtime_checkable
 class AnthropicAsyncClient(Protocol):
     pass
+
+
+# Generic client type bound to both sync and async client protocols
+TClient = TypeVar("TClient", bound=Union[AnthropicClient, AnthropicAsyncClient])
 
 
 # Union types
@@ -193,7 +194,7 @@ class TracedAnthropicGenerator:
         self,
         tracer: Tracer,
         generator: Iterator[AnthropicStreamEvent],
-        client: AnthropicClientType,
+        client: AnthropicClient,
         span: Span,
         model_name: str,
     ):
@@ -261,7 +262,7 @@ class TracedAnthropicAsyncGenerator:
         self,
         tracer: Tracer,
         async_generator: AsyncIterator[AnthropicStreamEvent],
-        client: AnthropicClientType,
+        client: AnthropicAsyncClient,
         span: Span,
         model_name: str,
     ):
@@ -278,6 +279,19 @@ class TracedAnthropicAsyncGenerator:
     async def __anext__(self) -> AnthropicStreamEvent:
         try:
             chunk = await self.async_generator.__anext__()
+        except StopAsyncIteration:
+            set_span_attribute(
+                self.span, AttributeKeys.GEN_AI_COMPLETION, self.accumulated_content
+            )
+            self.span.end()
+            raise
+        except Exception as e:
+            if self.span:
+                self.span.record_exception(e)
+                self.span.end()
+            raise
+
+        try:
             content = _extract_anthropic_content(chunk)
             if content:
                 self.accumulated_content += content
@@ -310,18 +324,14 @@ class TracedAnthropicAsyncGenerator:
                     AttributeKeys.JUDGMENT_USAGE_METADATA,
                     safe_serialize(usage_data),
                 )
-            return chunk
-        except StopAsyncIteration:
-            set_span_attribute(
-                self.span, AttributeKeys.GEN_AI_COMPLETION, self.accumulated_content
-            )
-            self.span.end()
-            raise
         except Exception as e:
             if self.span:
-                self.span.record_exception(e)
                 self.span.end()
-            raise
+            judgeval_logger.error(
+                f"[anthropic wrapped_async] Error adding span metadata: {e}"
+            )
+        finally:
+            return chunk
 
 
 class TracedAnthropicSyncContextManager:
@@ -329,7 +339,7 @@ class TracedAnthropicSyncContextManager:
         self,
         tracer: Tracer,
         context_manager,
-        client: AnthropicClientType,
+        client: AnthropicClient,
         span: Span,
         model_name: str,
     ):
@@ -354,7 +364,7 @@ class TracedAnthropicAsyncContextManager:
         self,
         tracer: Tracer,
         context_manager,
-        client: AnthropicClientType,
+        client: AnthropicAsyncClient,
         span: Span,
         model_name: str,
     ):
@@ -374,9 +384,7 @@ class TracedAnthropicAsyncContextManager:
         return await self.context_manager.__aexit__(exc_type, exc_val, exc_tb)
 
 
-def wrap_anthropic_client(
-    tracer: Tracer, client: AnthropicClientType
-) -> AnthropicClientType:
+def wrap_anthropic_client(tracer: Tracer, client: TClient) -> TClient:
     def wrapped(function: Callable, span_name: str):
         @functools.wraps(function)
         def wrapper(*args, **kwargs):
@@ -398,68 +406,77 @@ def wrap_anthropic_client(
                 with sync_span_context(
                     tracer, span_name, {AttributeKeys.JUDGMENT_SPAN_KIND: "llm"}
                 ) as span:
-                    tracer.add_agent_attributes_to_span(span)
-                    set_span_attribute(
-                        span, AttributeKeys.GEN_AI_PROMPT, safe_serialize(kwargs)
-                    )
-                    model_name = kwargs.get("model", "")
-                    set_span_attribute(
-                        span, AttributeKeys.GEN_AI_REQUEST_MODEL, model_name
-                    )
+                    try:
+                        tracer.add_agent_attributes_to_span(span)
+                        set_span_attribute(
+                            span, AttributeKeys.GEN_AI_PROMPT, safe_serialize(kwargs)
+                        )
+                        model_name = kwargs.get("model", "")
+                        set_span_attribute(
+                            span, AttributeKeys.GEN_AI_REQUEST_MODEL, model_name
+                        )
+                    except Exception as e:
+                        judgeval_logger.error(
+                            f"[anthropic wrapped] Error adding span metadata: {e}"
+                        )
 
                     response = function(*args, **kwargs)
 
-                    if isinstance(response, AnthropicMessage):
-                        output, usage_data = _format_anthropic_output(response)
-                        # Serialize structured data to JSON for span attribute
-                        if isinstance(output, list):
-                            output_str = orjson.dumps(
-                                output, option=orjson.OPT_INDENT_2
-                            ).decode()
-                        else:
-                            output_str = str(output) if output is not None else None
-                        set_span_attribute(
-                            span, AttributeKeys.GEN_AI_COMPLETION, output_str
-                        )
+                    try:
+                        if isinstance(response, AnthropicMessage):
+                            output, usage_data = _format_anthropic_output(response)
+                            # Serialize structured data to JSON for span attribute
+                            if isinstance(output, list):
+                                output_str = safe_serialize(output)
+                            else:
+                                output_str = str(output) if output is not None else None
+                            set_span_attribute(
+                                span, AttributeKeys.GEN_AI_COMPLETION, output_str
+                            )
 
-                        if usage_data:
-                            (
-                                prompt_tokens,
-                                completion_tokens,
-                                cache_read,
-                                cache_creation,
-                            ) = _extract_anthropic_tokens(usage_data)
+                            if usage_data:
+                                (
+                                    prompt_tokens,
+                                    completion_tokens,
+                                    cache_read,
+                                    cache_creation,
+                                ) = _extract_anthropic_tokens(usage_data)
+                                set_span_attribute(
+                                    span,
+                                    AttributeKeys.GEN_AI_USAGE_INPUT_TOKENS,
+                                    prompt_tokens,
+                                )
+                                set_span_attribute(
+                                    span,
+                                    AttributeKeys.GEN_AI_USAGE_OUTPUT_TOKENS,
+                                    completion_tokens,
+                                )
+                                set_span_attribute(
+                                    span,
+                                    AttributeKeys.GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
+                                    cache_read,
+                                )
+                                set_span_attribute(
+                                    span,
+                                    AttributeKeys.GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
+                                    cache_creation,
+                                )
+                                set_span_attribute(
+                                    span,
+                                    AttributeKeys.JUDGMENT_USAGE_METADATA,
+                                    safe_serialize(usage_data),
+                                )
                             set_span_attribute(
                                 span,
-                                AttributeKeys.GEN_AI_USAGE_INPUT_TOKENS,
-                                prompt_tokens,
+                                AttributeKeys.GEN_AI_RESPONSE_MODEL,
+                                getattr(response, "model", model_name),
                             )
-                            set_span_attribute(
-                                span,
-                                AttributeKeys.GEN_AI_USAGE_OUTPUT_TOKENS,
-                                completion_tokens,
-                            )
-                            set_span_attribute(
-                                span,
-                                AttributeKeys.GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
-                                cache_read,
-                            )
-                            set_span_attribute(
-                                span,
-                                AttributeKeys.GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
-                                cache_creation,
-                            )
-                            set_span_attribute(
-                                span,
-                                AttributeKeys.JUDGMENT_USAGE_METADATA,
-                                safe_serialize(usage_data),
-                            )
-                        set_span_attribute(
-                            span,
-                            AttributeKeys.GEN_AI_RESPONSE_MODEL,
-                            getattr(response, "model", model_name),
+                    except Exception as e:
+                        judgeval_logger.error(
+                            f"[anthropic wrapped] Error adding span metadata: {e}"
                         )
-                    return response
+                    finally:
+                        return response
 
         return wrapper
 
@@ -484,68 +501,77 @@ def wrap_anthropic_client(
                 async with async_span_context(
                     tracer, span_name, {AttributeKeys.JUDGMENT_SPAN_KIND: "llm"}
                 ) as span:
-                    tracer.add_agent_attributes_to_span(span)
-                    set_span_attribute(
-                        span, AttributeKeys.GEN_AI_PROMPT, safe_serialize(kwargs)
-                    )
-                    model_name = kwargs.get("model", "")
-                    set_span_attribute(
-                        span, AttributeKeys.GEN_AI_REQUEST_MODEL, model_name
-                    )
+                    try:
+                        tracer.add_agent_attributes_to_span(span)
+                        set_span_attribute(
+                            span, AttributeKeys.GEN_AI_PROMPT, safe_serialize(kwargs)
+                        )
+                        model_name = kwargs.get("model", "")
+                        set_span_attribute(
+                            span, AttributeKeys.GEN_AI_REQUEST_MODEL, model_name
+                        )
+                    except Exception as e:
+                        judgeval_logger.error(
+                            f"[anthropic wrapped_async] Error adding span metadata: {e}"
+                        )
 
                     response = await function(*args, **kwargs)
 
-                    if isinstance(response, AnthropicMessage):
-                        output, usage_data = _format_anthropic_output(response)
-                        # Serialize structured data to JSON for span attribute
-                        if isinstance(output, list):
-                            output_str = orjson.dumps(
-                                output, option=orjson.OPT_INDENT_2
-                            ).decode()
-                        else:
-                            output_str = str(output) if output is not None else None
-                        set_span_attribute(
-                            span, AttributeKeys.GEN_AI_COMPLETION, output_str
-                        )
+                    try:
+                        if isinstance(response, AnthropicMessage):
+                            output, usage_data = _format_anthropic_output(response)
+                            # Serialize structured data to JSON for span attribute
+                            if isinstance(output, list):
+                                output_str = safe_serialize(output)
+                            else:
+                                output_str = str(output) if output is not None else None
+                            set_span_attribute(
+                                span, AttributeKeys.GEN_AI_COMPLETION, output_str
+                            )
 
-                        if usage_data:
-                            (
-                                prompt_tokens,
-                                completion_tokens,
-                                cache_read,
-                                cache_creation,
-                            ) = _extract_anthropic_tokens(usage_data)
+                            if usage_data:
+                                (
+                                    prompt_tokens,
+                                    completion_tokens,
+                                    cache_read,
+                                    cache_creation,
+                                ) = _extract_anthropic_tokens(usage_data)
+                                set_span_attribute(
+                                    span,
+                                    AttributeKeys.GEN_AI_USAGE_INPUT_TOKENS,
+                                    prompt_tokens,
+                                )
+                                set_span_attribute(
+                                    span,
+                                    AttributeKeys.GEN_AI_USAGE_OUTPUT_TOKENS,
+                                    completion_tokens,
+                                )
+                                set_span_attribute(
+                                    span,
+                                    AttributeKeys.GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
+                                    cache_read,
+                                )
+                                set_span_attribute(
+                                    span,
+                                    AttributeKeys.GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
+                                    cache_creation,
+                                )
+                                set_span_attribute(
+                                    span,
+                                    AttributeKeys.JUDGMENT_USAGE_METADATA,
+                                    safe_serialize(usage_data),
+                                )
                             set_span_attribute(
                                 span,
-                                AttributeKeys.GEN_AI_USAGE_INPUT_TOKENS,
-                                prompt_tokens,
+                                AttributeKeys.GEN_AI_RESPONSE_MODEL,
+                                getattr(response, "model", model_name),
                             )
-                            set_span_attribute(
-                                span,
-                                AttributeKeys.GEN_AI_USAGE_OUTPUT_TOKENS,
-                                completion_tokens,
-                            )
-                            set_span_attribute(
-                                span,
-                                AttributeKeys.GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
-                                cache_read,
-                            )
-                            set_span_attribute(
-                                span,
-                                AttributeKeys.GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
-                                cache_creation,
-                            )
-                            set_span_attribute(
-                                span,
-                                AttributeKeys.JUDGMENT_USAGE_METADATA,
-                                safe_serialize(usage_data),
-                            )
-                        set_span_attribute(
-                            span,
-                            AttributeKeys.GEN_AI_RESPONSE_MODEL,
-                            getattr(response, "model", model_name),
+                    except Exception as e:
+                        judgeval_logger.error(
+                            f"[anthropic wrapped_async] Error adding span metadata: {e}"
                         )
-                    return response
+                    finally:
+                        return response
 
         return wrapper
 
@@ -590,16 +616,20 @@ def wrap_anthropic_client(
         return wrapper
 
     span_name = "ANTHROPIC_API_CALL"
-    if anthropic_Anthropic and isinstance(client, anthropic_Anthropic):
+    if anthropic_Anthropic is not None and isinstance(client, anthropic_Anthropic):
         setattr(client.messages, "create", wrapped(client.messages.create, span_name))
         setattr(
             client.messages,
             "stream",
             wrapped_sync_context_manager(client.messages.stream, span_name),
         )
-    elif anthropic_AsyncAnthropic and isinstance(client, anthropic_AsyncAnthropic):
+    elif anthropic_AsyncAnthropic is not None and isinstance(
+        client, anthropic_AsyncAnthropic
+    ):
         setattr(
-            client.messages, "create", wrapped_async(client.messages.create, span_name)
+            client.messages,
+            "create",
+            wrapped_async(client.messages.create, span_name),
         )
         setattr(
             client.messages,
