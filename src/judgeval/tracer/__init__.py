@@ -299,6 +299,7 @@ class Tracer(metaclass=SingletonMeta):
         )
         current_agent_context["is_agent_entry_point"] = False
 
+    @dont_throw
     def record_instance_state(self, record_point: Literal["before", "after"], span):
         current_agent_context = self.agent_context.get()
 
