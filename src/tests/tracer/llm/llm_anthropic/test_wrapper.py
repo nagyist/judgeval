@@ -1,6 +1,8 @@
 """Tests for Anthropic wrapper."""
 
 import pytest
+import random
+import string
 
 pytest.importorskip("anthropic")
 
@@ -180,6 +182,74 @@ class TestNonStreamingAsyncWrapper(BaseAnthropicTest):
                 expected_span_name="ANTHROPIC_API_CALL",
                 expected_model_name="claude-3-haiku-20240307",
             )
+
+    @pytest.mark.asyncio
+    async def test_messages_create_with_cache(
+        self, wrapped_async_client, mock_processor
+    ):
+        """Test async messages.create with cache and tracing verification"""
+        pride_text = "".join(random.choices(string.ascii_letters, k=100)) * 30
+        system_blocks = [
+            {
+                "type": "text",
+                "text": (
+                    "You are an AI assistant tasked with analyzing literary works. "
+                    "Your goal is to provide insightful commentary on themes, "
+                    "characters, and writing style.\n"
+                ),
+            },
+            {
+                "type": "text",
+                "text": pride_text,
+                "cache_control": {"type": "ephemeral"},
+            },
+        ]
+        user_msg = [
+            {
+                "role": "user",
+                "content": "Analyze the major themes in 'Pride and Prejudice'.",
+            }
+        ]
+
+        response1 = await wrapped_async_client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=1024,
+            system=system_blocks,
+            messages=user_msg,
+        )
+        print(response1)
+
+        span = mock_processor.get_last_ended_span()
+        attrs = mock_processor.get_span_attributes(span)
+        verify_span_attributes_comprehensive(
+            span=span,
+            attrs=attrs,
+            expected_span_name="ANTHROPIC_API_CALL",
+            expected_model_name="claude-3-haiku-20240307",
+            check_cache_creation_value=True,
+        )
+
+        response2 = await wrapped_async_client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=1024,
+            system=system_blocks,
+            messages=user_msg,
+        )
+
+        print(response2)
+
+        assert response1 is not None
+        assert response2 is not None
+
+        span = mock_processor.get_last_ended_span()
+        attrs = mock_processor.get_span_attributes(span)
+        verify_span_attributes_comprehensive(
+            span=span,
+            attrs=attrs,
+            expected_span_name="ANTHROPIC_API_CALL",
+            expected_model_name="claude-3-haiku-20240307",
+            check_cache_read_value=True,
+        )
 
 
 class TestStreamingSync(BaseAnthropicTest):
