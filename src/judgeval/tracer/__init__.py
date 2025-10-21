@@ -71,6 +71,7 @@ from judgeval.tracer.processors import (
     NoOpJudgmentSpanProcessor,
 )
 from judgeval.tracer.utils import set_span_attribute, TraceScorerConfig
+from judgeval.utils.project import _resolve_project_id
 
 C = TypeVar("C", bound=Callable)
 Cls = TypeVar("Cls", bound=Type)
@@ -155,7 +156,7 @@ class Tracer(metaclass=SingletonMeta):
 
         self.judgment_processor = NoOpJudgmentSpanProcessor()
         if self.enable_monitoring:
-            project_id = Tracer._resolve_project_id(
+            project_id = _resolve_project_id(
                 self.project_name, self.api_key, self.organization_id
             )
             if project_id:
@@ -223,20 +224,6 @@ class Tracer(metaclass=SingletonMeta):
             export_timeout_millis=export_timeout_millis,
             resource_attributes=resource_attributes,
         )
-
-    @dont_throw
-    @functools.lru_cache(maxsize=64)
-    @staticmethod
-    def _resolve_project_id(
-        project_name: str, api_key: str, organization_id: str
-    ) -> str:
-        """Resolve project_id from project_name using the API."""
-        client = JudgmentSyncClient(
-            api_key=api_key,
-            organization_id=organization_id,
-        )
-        response = client.projects_resolve({"project_name": project_name})
-        return response["project_id"]
 
     def get_current_span(self):
         return get_current_span()
