@@ -25,7 +25,10 @@ from judgeval.utils.wrappers import (
     immutable_wrap_sync_iterator,
     immutable_wrap_async_iterator,
 )
-from judgeval.tracer.llm.llm_openai.utils import openai_tokens_converter
+from judgeval.tracer.llm.llm_openai.utils import (
+    openai_tokens_converter,
+    set_cost_attribute,
+)
 
 if TYPE_CHECKING:
     from judgeval.tracer import Tracer
@@ -89,6 +92,8 @@ def _wrap_non_streaming_sync(
             prompt_tokens_details = usage_data.prompt_tokens_details
             if prompt_tokens_details:
                 cache_read = prompt_tokens_details.cached_tokens or 0
+
+            set_cost_attribute(span, usage_data)
 
             prompt_tokens, completion_tokens, cache_read, cache_creation = (
                 openai_tokens_converter(
@@ -194,6 +199,8 @@ def _wrap_streaming_sync(
                 cache_read = 0
                 if chunk.usage.prompt_tokens_details:
                     cache_read = chunk.usage.prompt_tokens_details.cached_tokens or 0
+
+                set_cost_attribute(span, chunk.usage)
 
                 prompt_tokens, completion_tokens, cache_read, cache_creation = (
                     openai_tokens_converter(
@@ -312,6 +319,8 @@ def _wrap_non_streaming_async(
             if prompt_tokens_details:
                 cache_read = prompt_tokens_details.cached_tokens or 0
 
+            set_cost_attribute(span, usage_data)
+
             prompt_tokens, completion_tokens, cache_read, cache_creation = (
                 openai_tokens_converter(
                     prompt_tokens,
@@ -417,6 +426,8 @@ def _wrap_streaming_async(
                 cache_read = 0
                 if chunk.usage.prompt_tokens_details:
                     cache_read = chunk.usage.prompt_tokens_details.cached_tokens or 0
+
+                set_cost_attribute(span, chunk.usage)
 
                 prompt_tokens, completion_tokens, cache_read, cache_creation = (
                     openai_tokens_converter(
