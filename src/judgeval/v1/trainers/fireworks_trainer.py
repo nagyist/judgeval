@@ -7,8 +7,8 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from fireworks import Dataset  # type: ignore[import-not-found]
 
 if TYPE_CHECKING:
-    from judgeval.trainer.config import TrainerConfig, ModelConfig
-    from judgeval.trainer.trainable_model import TrainableModel
+    from judgeval.v1.trainers.config import TrainerConfig, ModelConfig
+    from judgeval.v1.trainers.trainable_model import TrainableModel
     from judgeval.v1.tracer.tracer import Tracer
     from judgeval.v1.scorers.base_scorer import BaseScorer
     from judgeval.v1.internal.api import JudgmentSyncClient
@@ -19,7 +19,7 @@ from judgeval.judgment_attribute_keys import AttributeKeys
 from judgeval.v1.data.example import Example
 from judgeval.v1.data.scoring_result import ScoringResult
 from judgeval.v1.internal.api.api_types import ExampleEvaluationRun
-from judgeval.trainer.console import (
+from judgeval.v1.trainers.console import (
     _spinner_progress,
     _print_progress,
     _print_progress_update,
@@ -306,8 +306,6 @@ class FireworksTrainer(BaseTrainer):
             "num_generations_per_prompt": self.config.num_generations_per_prompt,
             "epochs": self.config.epochs,
             "learning_rate": self.config.learning_rate,
-            "accelerator_count": self.config.accelerator_count,
-            "accelerator_type": self.config.accelerator_type,
             "temperature": self.config.temperature,
             "max_tokens": self.config.max_tokens,
         }
@@ -370,8 +368,6 @@ class FireworksTrainer(BaseTrainer):
                 step_num,
                 self.config.num_steps,
             )
-
-            dataset.delete()
 
         _print_progress("All training steps completed!")
 
