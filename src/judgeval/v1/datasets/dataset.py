@@ -5,10 +5,35 @@ import orjson
 import os
 import yaml
 from dataclasses import dataclass
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Iterable, Iterator
+from itertools import islice
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+)
+
 
 from judgeval.v1.data.example import Example
 from judgeval.v1.internal.api import JudgmentSyncClient
+from judgeval.logger import judgeval_logger
+
+
+def _batch_examples(
+    examples: Iterable[Example], batch_size: int = 100
+) -> Iterator[List[Example]]:
+    """Generator that yields batches of examples for efficient memory usage.
+
+    Works with any iterable including generators, consuming only batch_size items at a time.
+    """
+    iterator = iter(examples)
+    while True:
+        batch = list(islice(iterator, batch_size))
+        if not batch:
+            break
+        yield batch
 
 
 @dataclass
@@ -29,7 +54,7 @@ class Dataset:
     examples: Optional[List[Example]] = None
     client: Optional[JudgmentSyncClient] = None
 
-    def add_from_json(self, file_path: str) -> None:
+    def add_from_json(self, file_path: str, batch_size: int = 100) -> None:
         with open(file_path, "rb") as file:
             data = orjson.loads(file.read())
         examples = []
@@ -43,9 +68,9 @@ class Dataset:
                 examples.append(example)
             else:
                 examples.append(e)
-        self.add_examples(examples)
+        self.add_examples(examples, batch_size=batch_size)
 
-    def add_from_yaml(self, file_path: str) -> None:
+    def add_from_yaml(self, file_path: str, batch_size: int = 100) -> None:
         with open(file_path, "r") as file:
             data = yaml.safe_load(file)
         examples = []
@@ -59,17 +84,54 @@ class Dataset:
                 examples.append(example)
             else:
                 examples.append(e)
-        self.add_examples(examples)
+        self.add_examples(examples, batch_size=batch_size)
 
-    def add_examples(self, examples: List[Example]) -> None:
-        if self.client:
-            self.client.datasets_insert_examples_for_judgeval(
-                {
-                    "dataset_name": self.name,
-                    "project_name": self.project_name,
-                    "examples": [e.to_dict() for e in examples],
-                }
+    def add_examples(self, examples: Iterable[Example], batch_size: int = 100) -> None:
+        if not self.client:
+            return
+
+        batches = _batch_examples(examples, batch_size)
+        total_uploaded = 0
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(pulse_style="green"),
+            TaskProgressColumn(),
+            TextColumn("[dim]{task.fields[info]}"),
+        ) as progress:
+            task = progress.add_task(
+                f"Uploading to {self.name}",
+                total=None,
+                info="",
             )
+
+            batch_num = 0
+            for batch in batches:
+                if len(batch) > 0 and not isinstance(batch[0], Example):
+                    raise TypeError("Examples must be a list of Example objects")
+
+                batch_num += 1
+                batch_size_actual = len(batch)
+                total_uploaded += batch_size_actual
+
+                progress.update(
+                    task,
+                    advance=1,
+                    info=f"Batch {batch_num} ({batch_size_actual} examples, {total_uploaded} total)",
+                )
+
+                self.client.datasets_insert_examples_for_judgeval(
+                    {
+                        "dataset_name": self.name,
+                        "project_name": self.project_name,
+                        "examples": [e.to_dict() for e in batch],
+                    }
+                )
+
+        judgeval_logger.info(
+            f"Successfully added {total_uploaded} examples to dataset {self.name}"
+        )
 
     def save_as(
         self,
