@@ -21,18 +21,17 @@ class TracerFactory:
         self,
         project_name: str,
         enable_evaluation: bool = True,
-        serializer: Optional[Callable[[Any], str]] = None,
+        enable_monitoring: bool = True,
+        serializer: Callable[[Any], str] = safe_serialize,
         filter_tracer: Optional[FilterTracerCallback] = None,
-        initialize: bool = True,
+        isolated: bool = False,
     ) -> Tracer:
-        if serializer is None:
-            serializer = safe_serialize
-
         return Tracer(
             project_name=project_name,
             enable_evaluation=enable_evaluation,
+            enable_monitoring=enable_monitoring,
             api_client=self._client,
             serializer=serializer,
-            initialize=initialize,
             filter_tracer=filter_tracer,
+            isolated=isolated,
         )
