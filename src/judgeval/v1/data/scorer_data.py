@@ -12,6 +12,8 @@ class ScorerData:
     threshold: float
     success: bool
     score: Optional[float] = None
+    minimum_score_range: float = 0
+    maximum_score_range: float = 1
     reason: Optional[str] = None
     strict_mode: Optional[bool] = None
     evaluation_model: Optional[str] = None
@@ -27,6 +29,10 @@ class ScorerData:
         }
         if self.score is not None:
             result["score"] = self.score
+        if self.minimum_score_range is not None:
+            result["minimum_score_range"] = self.minimum_score_range
+        if self.maximum_score_range is not None:
+            result["maximum_score_range"] = self.maximum_score_range
         if self.reason is not None:
             result["reason"] = self.reason
         if self.strict_mode is not None:
