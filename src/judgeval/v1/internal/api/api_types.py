@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TypedDict, NotRequired, Optional, List, Union, Any, Dict
+from typing import TypedDict, Optional, List, Union, Any, Dict
+from typing_extensions import NotRequired
 
 
 class AddProjectRequest(TypedDict):
@@ -25,6 +26,16 @@ class AddToRunEvalQueueTracesResponse(TypedDict):
     success: bool
     status: str
     message: str
+
+
+class AddTraceTagsRequest(TypedDict):
+    project_name: str
+    trace_id: str
+    tags: List[str]
+
+
+class AddTraceTagsResponse(TypedDict):
+    success: bool
 
 
 class BaseScorer(TypedDict):
