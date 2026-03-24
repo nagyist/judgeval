@@ -28,8 +28,9 @@ from judgeval.v1.instrumentation.llm.llm_openai.utils import (
     set_cost_attribute,
 )
 
+from judgeval.v1.trace import BaseTracer
+
 if TYPE_CHECKING:
-    from judgeval.v1.tracer import BaseTracer
     from openai import OpenAI, AsyncOpenAI
     from openai.types.image_edit_completed_event import Usage as ImageEditUsage
     from openai.types.image_gen_completed_event import Usage as ImageGenUsage
@@ -83,11 +84,11 @@ def _set_image_usage(span: Span, usage_data: ImageUsage) -> None:
 
 
 def _wrap_images_non_streaming_sync(
-    tracer: BaseTracer, original_func: Callable[..., ImagesResponse]
+    original_func: Callable[..., ImagesResponse],
 ) -> Callable[..., ImagesResponse]:
     def pre_hook(ctx: Dict[str, Any], *args: Any, **kwargs: Any) -> None:
-        ctx["span"] = tracer.get_tracer().start_span(
-            "OPENAI_API_CALL", attributes={AttributeKeys.JUDGMENT_SPAN_KIND: "llm"}
+        ctx["span"] = BaseTracer.start_span(
+            "OPENAI_API_CALL", {AttributeKeys.JUDGMENT_SPAN_KIND: "llm"}
         )
         ctx["span"].set_attribute(AttributeKeys.GEN_AI_PROMPT, safe_serialize(kwargs))
         ctx["model_name"] = kwargs.get("model", "")
@@ -130,11 +131,11 @@ def _wrap_images_non_streaming_sync(
 
 
 def _wrap_images_non_streaming_async(
-    tracer: BaseTracer, original_func: Callable[..., Awaitable[ImagesResponse]]
+    original_func: Callable[..., Awaitable[ImagesResponse]],
 ) -> Callable[..., Awaitable[ImagesResponse]]:
     def pre_hook(ctx: Dict[str, Any], *args: Any, **kwargs: Any) -> None:
-        ctx["span"] = tracer.get_tracer().start_span(
-            "OPENAI_API_CALL", attributes={AttributeKeys.JUDGMENT_SPAN_KIND: "llm"}
+        ctx["span"] = BaseTracer.start_span(
+            "OPENAI_API_CALL", {AttributeKeys.JUDGMENT_SPAN_KIND: "llm"}
         )
         ctx["span"].set_attribute(AttributeKeys.GEN_AI_PROMPT, safe_serialize(kwargs))
         ctx["model_name"] = kwargs.get("model", "")
@@ -177,11 +178,11 @@ def _wrap_images_non_streaming_async(
 
 
 def _wrap_images_streaming_sync(
-    tracer: BaseTracer, original_func: Callable[..., Iterator[ImageStreamEvent]]
+    original_func: Callable[..., Iterator[ImageStreamEvent]],
 ) -> Callable[..., Iterator[ImageStreamEvent]]:
     def pre_hook(ctx: Dict[str, Any], *args: Any, **kwargs: Any) -> None:
-        ctx["span"] = tracer.get_tracer().start_span(
-            "OPENAI_API_CALL", attributes={AttributeKeys.JUDGMENT_SPAN_KIND: "llm"}
+        ctx["span"] = BaseTracer.start_span(
+            "OPENAI_API_CALL", {AttributeKeys.JUDGMENT_SPAN_KIND: "llm"}
         )
         ctx["span"].set_attribute(AttributeKeys.GEN_AI_PROMPT, safe_serialize(kwargs))
         ctx["model_name"] = kwargs.get("model", "")
@@ -251,12 +252,11 @@ def _wrap_images_streaming_sync(
 
 
 def _wrap_images_streaming_async(
-    tracer: BaseTracer,
     original_func: Callable[..., Awaitable[AsyncIterator[ImageStreamEvent]]],
 ) -> Callable[..., Awaitable[AsyncIterator[ImageStreamEvent]]]:
     def pre_hook(ctx: Dict[str, Any], *args: Any, **kwargs: Any) -> None:
-        ctx["span"] = tracer.get_tracer().start_span(
-            "OPENAI_API_CALL", attributes={AttributeKeys.JUDGMENT_SPAN_KIND: "llm"}
+        ctx["span"] = BaseTracer.start_span(
+            "OPENAI_API_CALL", {AttributeKeys.JUDGMENT_SPAN_KIND: "llm"}
         )
         ctx["span"].set_attribute(AttributeKeys.GEN_AI_PROMPT, safe_serialize(kwargs))
         ctx["model_name"] = kwargs.get("model", "")
@@ -325,7 +325,7 @@ def _wrap_images_streaming_async(
     )
 
 
-def wrap_images_generate_sync(tracer: BaseTracer, client: OpenAI) -> None:
+def wrap_images_generate_sync(client: OpenAI) -> None:
     original_func = client.images.generate
 
     def dispatcher(*args: Any, **kwargs: Any) -> Any:
@@ -337,13 +337,13 @@ def wrap_images_generate_sync(tracer: BaseTracer, client: OpenAI) -> None:
             return original_func(*args, **kwargs)
 
         if kwargs.get("stream", False):
-            return _wrap_images_streaming_sync(tracer, original_func)(*args, **kwargs)
-        return _wrap_images_non_streaming_sync(tracer, original_func)(*args, **kwargs)
+            return _wrap_images_streaming_sync(original_func)(*args, **kwargs)
+        return _wrap_images_non_streaming_sync(original_func)(*args, **kwargs)
 
     setattr(client.images, "generate", dispatcher)
 
 
-def wrap_images_generate_async(tracer: BaseTracer, client: AsyncOpenAI) -> None:
+def wrap_images_generate_async(client: AsyncOpenAI) -> None:
     original_func = client.images.generate
 
     async def dispatcher(*args: Any, **kwargs: Any) -> Any:
@@ -355,11 +355,7 @@ def wrap_images_generate_async(tracer: BaseTracer, client: AsyncOpenAI) -> None:
             return await original_func(*args, **kwargs)
 
         if kwargs.get("stream", False):
-            return await _wrap_images_streaming_async(tracer, original_func)(
-                *args, **kwargs
-            )
-        return await _wrap_images_non_streaming_async(tracer, original_func)(
-            *args, **kwargs
-        )
+            return await _wrap_images_streaming_async(original_func)(*args, **kwargs)
+        return await _wrap_images_non_streaming_async(original_func)(*args, **kwargs)
 
     setattr(client.images, "generate", dispatcher)
