@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     )
     from judgeval.v1.trace.exporters.judgment_span_exporter import JudgmentSpanExporter
 
+TClient = TypeVar("TClient")
 C = TypeVar("C", bound=Callable[..., Any])
 
 
@@ -389,6 +390,15 @@ class BaseTracer(ABC):
         if func is None:
             return decorator
         return decorator(func)
+
+    @staticmethod
+    def wrap(client: TClient) -> TClient:
+        """
+        Wrap a supported LLM client to add automatic tracing.
+        """
+        from judgeval.v1.instrumentation.llm import wrap_provider
+
+        return wrap_provider(client)
 
     # ------------------------------------------------------------------ #
     #  Static: Span Kind                                                 #
