@@ -12,3 +12,4 @@ class Example(TypedDict):
     name: NotRequired[Optional[str]]
     trace_id: NotRequired[Optional[str]]
     span_id: NotRequired[Optional[str]]
+    offline_trace_id: NotRequired[Optional[str]]
