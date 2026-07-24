@@ -10,6 +10,80 @@ jobs:
   validate-branch:
     uses: ./.github/workflows/merge-branch-check.yaml
 
+  jql-codegen:
+    name: JQL generated contract
+    needs: [validate-branch]
+    if: needs.validate-branch.result == 'success' || needs.validate-branch.result == 'skipped'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Regenerate from checked-in public contracts
+        run: python scripts/generate_jql.py
+
+      - name: Check generated JQL output is current
+        run: |
+          git diff --exit-code -- \
+            src/judgeval/jql/_generated_contract.py \
+            src/judgeval/jql/_generated_transport.py
+
+      - name: Build distributions
+        run: |
+          python scripts/check_distribution_contents.py --plant
+          pip install uv
+          uv build
+
+      - name: Check distribution contents
+        run: python scripts/check_distribution_contents.py
+
+  jql-parity:
+    name: JQL parity with judgment-mono
+    needs: [validate-branch]
+    if: (needs.validate-branch.result == 'success' || needs.validate-branch.result == 'skipped') && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: judgeval
+
+    steps:
+      - name: Checkout SDK
+        uses: actions/checkout@v4
+        with:
+          path: judgeval
+
+      - name: Checkout canonical JQL sources
+        uses: actions/checkout@v4
+        with:
+          repository: JudgmentLabs/judgment-mono
+          ref: main
+          token: ${{ secrets.RELEASE_BOT_GITHUB_PAT }}
+          persist-credentials: false
+          path: judgment-mono
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Regenerate from judgment-mono
+        run: |
+          python scripts/generate_jql.py \
+            ../judgment-mono/services/data-access-service/openapi.json \
+            ../judgment-mono/services/judgeval-server/openapi.public-jql.json
+
+      - name: Check canonical JQL parity
+        run: |
+          git diff --exit-code -- \
+            src/judgeval/jql/_generated_contract.py \
+            src/judgeval/jql/_generated_transport.py
+
   run-tests:
     needs: [validate-branch]
     if: needs.validate-branch.result == 'success' || needs.validate-branch.result == 'skipped'
@@ -27,7 +101,6 @@ jobs:
     env:
       PYTHONPATH: "."
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -74,6 +147,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TEST_TIMEOUT_SECONDS: ${{ secrets.TEST_TIMEOUT_SECONDS }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     steps:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
